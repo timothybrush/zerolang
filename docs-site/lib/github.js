@@ -1,4 +1,4 @@
-const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO || "vercel-labs/zero-lang";
+const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO || "vercel-labs/zero";
 const REVALIDATE = 86400;
 const FETCH_STARS = process.env.ZERO_DOCS_FETCH_GITHUB_STARS === "1";
 

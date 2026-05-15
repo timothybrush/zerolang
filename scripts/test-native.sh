@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${CI:-}" == "true" || "${ZERO_NATIVE_TEST_TRACE:-}" == "1" ]]; then
+  set -x
+fi
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
