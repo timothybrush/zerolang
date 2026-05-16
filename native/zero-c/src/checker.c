@@ -1068,9 +1068,12 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
 static bool types_compatible(const char *expected, const char *actual);
 static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
+static const Choice *find_choice(const Program *program, const char *name);
+static const Param *find_case(const ParamVec *cases, const char *name);
 static const Function *find_shape_method_decl(const Shape *shape, const char *name);
 static void set_expr_resolved_type(const Expr *expr, const char *type);
 static const Function *find_namespace_shape_method(const Program *program, const Expr *callee, const Shape **out_shape);
+static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface);
 static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface);
 static void strip_ref_like_type(const char *type, char *out, size_t out_len);
 static bool interface_constraint_parts(const Program *program, const char *constraint, const InterfaceDecl **out_interface, char ***out_args, size_t *out_arg_len);
@@ -1575,32 +1578,52 @@ static bool function_error_contains(const Function *fun, const char *name) {
 }
 
 static const Function *fallible_callee(const Program *program, const Expr *expr);
+static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr);
 static bool is_builtin_fallible_call(const Expr *expr);
 static bool function_error_sets_include_builtin(const Function *caller, ZDiag *diag, const Expr *call);
 static bool function_error_sets_compatible_inner(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth);
-static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Expr *call, ZDiag *diag, size_t depth);
+static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth);
 
-static bool expr_raise_errors_covered(const Program *program, const Expr *expr, const Function *caller, const Expr *call, ZDiag *diag, size_t depth) {
+static bool expr_raise_errors_covered(const Program *program, const Expr *expr, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!expr || depth > 64) return true;
   if (expr->kind == EXPR_CHECK) {
     if (is_builtin_fallible_call(expr->left) && !function_error_sets_include_builtin(caller, diag, call)) return false;
-    const Function *callee = fallible_callee(program, expr->left);
+    const Function *callee = fallible_callee_in_context(program, context_fun, scope, expr->left);
     if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
-    return expr_raise_errors_covered(program, expr->left, caller, call, diag, depth);
+    return expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth);
   }
-  if (expr->kind == EXPR_RESCUE) return expr_raise_errors_covered(program, expr->right, caller, call, diag, depth);
-  if (!expr_raise_errors_covered(program, expr->left, caller, call, diag, depth) ||
-      !expr_raise_errors_covered(program, expr->right, caller, call, diag, depth)) return false;
+  if (expr->kind == EXPR_RESCUE) return expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth);
+  if (!expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth)) return false;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (!expr_raise_errors_covered(program, expr->args.items[i], caller, call, diag, depth)) return false;
+    if (!expr_raise_errors_covered(program, expr->args.items[i], caller, context_fun, scope, call, diag, depth)) return false;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (!expr_raise_errors_covered(program, expr->fields.items[i].value, caller, call, diag, depth)) return false;
+    if (!expr_raise_errors_covered(program, expr->fields.items[i].value, caller, context_fun, scope, call, diag, depth)) return false;
   }
   return true;
 }
 
-static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, const Function *caller, const Expr *call, ZDiag *diag, size_t depth) {
+static void flow_scope_add_stmt_binding(const Program *program, const Stmt *stmt, Scope *scope) {
+  if (!stmt || stmt->kind != STMT_LET || !stmt->name || !scope) return;
+  const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
+  if (!binding_type && stmt->expr) binding_type = expr_type(program, stmt->expr, scope);
+  scope_add(scope, stmt->name, binding_type ? binding_type : "Unknown", stmt->mutable_binding);
+}
+
+static void flow_scope_add_function_bindings(const Function *fun, Scope *scope) {
+  if (!fun || !scope) return;
+  for (size_t type_param_index = 0; type_param_index < fun->type_params.len; type_param_index++) {
+    const Param *type_param = &fun->type_params.items[type_param_index];
+    scope_add(scope, type_param->name, type_param->is_static ? (type_param->type ? type_param->type : "usize") : "Type", false);
+  }
+  for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
+    const Param *param = &fun->params.items[param_index];
+    scope_add_param(scope, param->name, param->type);
+  }
+}
+
+static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!stmt) return true;
   if (depth > 64) return true;
   if (stmt->kind == STMT_RAISE && stmt->name && !function_error_contains(caller, stmt->name)) {
@@ -1610,25 +1633,61 @@ static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, 
   }
   if (stmt->kind == STMT_CHECK) {
     if (is_builtin_fallible_call(stmt->expr) && !function_error_sets_include_builtin(caller, diag, call)) return false;
-    const Function *callee = fallible_callee(program, stmt->expr);
+    const Function *callee = fallible_callee_in_context(program, context_fun, scope, stmt->expr);
     if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
   }
-  if (!expr_raise_errors_covered(program, stmt->target, caller, call, diag, depth) ||
-      !expr_raise_errors_covered(program, stmt->expr, caller, call, diag, depth) ||
-      !expr_raise_errors_covered(program, stmt->range_end, caller, call, diag, depth)) return false;
-  if (!stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, call, diag, depth)) return false;
-  if (!stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, call, diag, depth)) return false;
+  if (!expr_raise_errors_covered(program, stmt->target, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, stmt->expr, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, stmt->range_end, caller, context_fun, scope, call, diag, depth)) return false;
+  if (stmt->kind == STMT_IF) {
+    Scope then_scope = {.parent = scope};
+    Scope else_scope = {.parent = scope};
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth) &&
+              stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, &else_scope, call, diag, depth);
+    scope_free(&then_scope);
+    scope_free(&else_scope);
+    if (!ok) return false;
+    return true;
+  }
+  if (stmt->kind == STMT_WHILE) {
+    Scope then_scope = {.parent = scope};
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth);
+    scope_free(&then_scope);
+    if (!ok) return false;
+  } else if (stmt->kind == STMT_FOR) {
+    Scope body_scope = {.parent = scope};
+    const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+    if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &body_scope, call, diag, depth);
+    scope_free(&body_scope);
+    if (!ok) return false;
+  } else if (!stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, scope, call, diag, depth)) {
+    return false;
+  }
+  if (!stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, scope, call, diag, depth)) return false;
   for (size_t i = 0; i < stmt->match_arms.len; i++) {
-    if (!expr_raise_errors_covered(program, stmt->match_arms.items[i].guard, caller, call, diag, depth) ||
-        !stmt_vec_raise_errors_covered(program, &stmt->match_arms.items[i].body, caller, call, diag, depth)) return false;
+    const MatchArm *arm = &stmt->match_arms.items[i];
+    if (!expr_raise_errors_covered(program, arm->guard, caller, context_fun, scope, call, diag, depth)) return false;
+    Scope arm_scope = {.parent = scope};
+    if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
+      const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+      const Choice *item_choice = find_choice(program, match_type);
+      const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
+      if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
+    }
+    bool ok = stmt_vec_raise_errors_covered(program, &arm->body, caller, context_fun, &arm_scope, call, diag, depth);
+    scope_free(&arm_scope);
+    if (!ok) return false;
   }
   return true;
 }
 
-static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Expr *call, ZDiag *diag, size_t depth) {
+static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!body) return true;
   for (size_t i = 0; i < body->len; i++) {
-    if (!stmt_raise_errors_covered(program, body->items[i], caller, call, diag, depth)) return false;
+    const Stmt *stmt = body->items[i];
+    if (!stmt_raise_errors_covered(program, stmt, caller, context_fun, scope, call, diag, depth)) return false;
+    flow_scope_add_stmt_binding(program, stmt, scope);
   }
   return true;
 }
@@ -1641,7 +1700,11 @@ static bool function_error_sets_compatible_inner(const Function *caller, const F
   }
   if (!caller->has_error_set) return true;
   if (!callee->has_error_set) {
-    return stmt_vec_raise_errors_covered(current_type_program, &callee->body, caller, call, diag, depth + 1);
+    Scope flow_scope = {0};
+    flow_scope_add_function_bindings(callee, &flow_scope);
+    bool ok = stmt_vec_raise_errors_covered(current_type_program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
+    scope_free(&flow_scope);
+    return ok;
   }
   for (size_t i = 0; i < callee->errors.len; i++) {
     const char *error_name = callee->errors.items[i].name;
@@ -1669,61 +1732,109 @@ static bool expr_is_world_stream_write_shape(const Expr *expr) {
          (strcmp(stream->text, "out") == 0 || strcmp(stream->text, "err") == 0);
 }
 
-static bool expr_call_has_error_flow(const Program *program, const Expr *expr, size_t depth) {
-  if (!expr || expr->kind != EXPR_CALL || !expr->left) return false;
-  if (is_builtin_fallible_call(expr) || expr_is_world_stream_write_shape(expr)) return true;
+static const Function *resolve_call_function_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left) return NULL;
   const Function *fun = NULL;
   if (expr->left->kind == EXPR_IDENT) {
     fun = find_function(program, expr->left->text);
   } else if (expr->left->kind == EXPR_MEMBER) {
     fun = find_namespace_shape_method(program, expr->left, NULL);
+    if (!fun) fun = find_constrained_interface_method_in_function(program, context_fun, expr->left, NULL);
     if (!fun && expr->left->left) {
       const char *receiver_type = expr->left->left->resolved_type;
+      if ((!receiver_type || strcmp(receiver_type, "Unknown") == 0) && scope) receiver_type = expr_type(program, expr->left->left, scope);
       char owner_type[192];
       strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
       const Shape *shape = find_shape_for_type(program, owner_type);
       fun = find_shape_method_decl(shape, expr->left->text);
     }
   }
+  return fun;
+}
+
+static bool expr_call_has_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left) return false;
+  if (is_builtin_fallible_call(expr) || expr_is_world_stream_write_shape(expr)) return true;
+  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
   return function_has_error_flow_inner(program, fun, depth + 1);
 }
 
-static bool expr_has_checked_error_flow(const Program *program, const Expr *expr, size_t depth) {
+static bool expr_has_checked_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
   if (!expr) return false;
-  if (expr->kind == EXPR_CHECK && expr_call_has_error_flow(program, expr->left, depth)) return true;
-  if (expr->kind == EXPR_RESCUE) return expr_has_checked_error_flow(program, expr->right, depth);
-  if (expr_has_checked_error_flow(program, expr->left, depth) || expr_has_checked_error_flow(program, expr->right, depth)) return true;
+  if (expr->kind == EXPR_CHECK && expr_call_has_error_flow(program, context_fun, scope, expr->left, depth)) return true;
+  if (expr->kind == EXPR_RESCUE) return expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth);
+  if (expr_has_checked_error_flow(program, context_fun, scope, expr->left, depth) || expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth)) return true;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (expr_has_checked_error_flow(program, expr->args.items[i], depth)) return true;
+    if (expr_has_checked_error_flow(program, context_fun, scope, expr->args.items[i], depth)) return true;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (expr_has_checked_error_flow(program, expr->fields.items[i].value, depth)) return true;
+    if (expr_has_checked_error_flow(program, context_fun, scope, expr->fields.items[i].value, depth)) return true;
   }
   return false;
 }
 
-static bool stmt_vec_has_checked_error_flow(const Program *program, const StmtVec *body, size_t depth) {
+static bool stmt_vec_has_checked_error_flow(const Program *program, const Function *context_fun, const StmtVec *body, Scope *scope, size_t depth) {
   if (!body || depth > 64) return false;
   for (size_t i = 0; i < body->len; i++) {
     const Stmt *stmt = body->items[i];
     if (!stmt) continue;
     if (stmt->kind == STMT_RAISE) return true;
-    if (stmt->kind == STMT_CHECK && expr_call_has_error_flow(program, stmt->expr, depth)) return true;
-    if (expr_has_checked_error_flow(program, stmt->target, depth) ||
-        expr_has_checked_error_flow(program, stmt->expr, depth) ||
-        expr_has_checked_error_flow(program, stmt->range_end, depth)) return true;
-    if (stmt_vec_has_checked_error_flow(program, &stmt->then_body, depth) ||
-        stmt_vec_has_checked_error_flow(program, &stmt->else_body, depth)) return true;
-    for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
-      if (expr_has_checked_error_flow(program, stmt->match_arms.items[arm_index].guard, depth) ||
-          stmt_vec_has_checked_error_flow(program, &stmt->match_arms.items[arm_index].body, depth)) return true;
+    if (stmt->kind == STMT_CHECK && expr_call_has_error_flow(program, context_fun, scope, stmt->expr, depth)) return true;
+    if (expr_has_checked_error_flow(program, context_fun, scope, stmt->target, depth) ||
+        expr_has_checked_error_flow(program, context_fun, scope, stmt->expr, depth) ||
+        expr_has_checked_error_flow(program, context_fun, scope, stmt->range_end, depth)) return true;
+    if (stmt->kind == STMT_IF) {
+      Scope then_scope = {.parent = scope};
+      Scope else_scope = {.parent = scope};
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      scope_free(&then_scope);
+      if (found) return true;
+      found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, &else_scope, depth);
+      scope_free(&else_scope);
+      if (found) return true;
+    } else if (stmt->kind == STMT_WHILE) {
+      Scope then_scope = {.parent = scope};
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      scope_free(&then_scope);
+      if (found) return true;
+    } else if (stmt->kind == STMT_FOR) {
+      Scope body_scope = {.parent = scope};
+      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &body_scope, depth);
+      scope_free(&body_scope);
+      if (found) return true;
+    } else if (stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, scope, depth)) {
+      return true;
     }
+    if (stmt->kind != STMT_IF && stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, scope, depth)) return true;
+    for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
+      const MatchArm *arm = &stmt->match_arms.items[arm_index];
+      if (expr_has_checked_error_flow(program, context_fun, scope, arm->guard, depth)) return true;
+      Scope arm_scope = {.parent = scope};
+      if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
+        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+        const Choice *item_choice = find_choice(program, match_type);
+        const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
+        if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
+      }
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &arm->body, &arm_scope, depth);
+      scope_free(&arm_scope);
+      if (found) return true;
+    }
+    flow_scope_add_stmt_binding(program, stmt, scope);
   }
   return false;
 }
 
 static bool function_has_error_flow_inner(const Program *program, const Function *fun, size_t depth) {
-  return fun && fun->raises && (fun->has_error_set || stmt_vec_has_checked_error_flow(program, &fun->body, depth));
+  if (!fun || !fun->raises) return false;
+  if (fun->has_error_set) return true;
+  Scope flow_scope = {0};
+  flow_scope_add_function_bindings(fun, &flow_scope);
+  bool result = stmt_vec_has_checked_error_flow(program, fun, &fun->body, &flow_scope, depth);
+  scope_free(&flow_scope);
+  return result;
 }
 
 static bool function_has_error_flow(const Program *program, const Function *fun) {
@@ -1738,24 +1849,13 @@ static bool check_fallible_call_is_checked(const Program *program, const Functio
   return true;
 }
 
-static const Function *fallible_callee(const Program *program, const Expr *expr) {
-  if (!expr || expr->kind != EXPR_CALL || !expr->left) return NULL;
-  const Function *fun = NULL;
-  if (expr->left->kind == EXPR_IDENT) {
-    fun = find_function(program, expr->left->text);
-  } else if (expr->left->kind == EXPR_MEMBER) {
-    const Shape *shape = NULL;
-    fun = find_namespace_shape_method(program, expr->left, &shape);
-    if (!fun) fun = find_constrained_interface_method(program, expr->left, NULL);
-    if (!fun && expr->left->left) {
-      const char *receiver_type = expr->left->left->resolved_type;
-      char owner_type[192];
-      strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
-      shape = find_shape_for_type(program, owner_type);
-      fun = find_shape_method_decl(shape, expr->left->text);
-    }
-  }
+static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
+  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
   return function_has_error_flow(program, fun) ? fun : NULL;
+}
+
+static const Function *fallible_callee(const Program *program, const Expr *expr) {
+  return fallible_callee_in_context(program, checking_function, NULL, expr);
 }
 
 static bool is_builtin_fallible_call(const Expr *expr) {
@@ -2540,16 +2640,20 @@ static const InterfaceDecl *constrained_interface_for_type_param(const Program *
   return NULL;
 }
 
-static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
+static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface) {
   if (!callee || callee->kind != EXPR_MEMBER || !callee->left || callee->left->kind != EXPR_IDENT) return NULL;
   char **args = NULL;
   size_t arg_len = 0;
-  const InterfaceDecl *interface = constrained_interface_for_type_param(program, checking_function, callee->left->text, &args, &arg_len);
+  const InterfaceDecl *interface = constrained_interface_for_type_param(program, fun, callee->left->text, &args, &arg_len);
   free_type_arg_list(args, arg_len);
   if (!interface) return NULL;
   const Function *method = find_interface_method_decl(interface, callee->text);
   if (method && out_interface) *out_interface = interface;
   return method;
+}
+
+static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
+  return find_constrained_interface_method_in_function(program, checking_function, callee, out_interface);
 }
 
 static void set_expr_resolved_type(const Expr *expr, const char *type) {
@@ -4519,8 +4623,23 @@ static bool call_result_borrow_origins(const Program *program, const Expr *expr,
 }
 
 static bool expr_reference_origins(const Program *program, const Expr *expr, Scope *scope, BorrowOrigins *origins) {
-  return expr_borrow_origins(expr, scope, origins) ||
-         call_result_borrow_origins(program, expr, scope, origins);
+  if (!expr || !origins) return false;
+  if (expr_borrow_origins(expr, scope, origins) ||
+      call_result_borrow_origins(program, expr, scope, origins)) return true;
+  if (expr->kind == EXPR_MEMBER) {
+    const char *member_type = expr_type(program, expr, scope);
+    if (type_is_named_generic(member_type, "ref") || type_is_named_generic(member_type, "mutref")) {
+      return expr_reference_origins(program, expr->left, scope, origins);
+    }
+  }
+  if (expr->kind == EXPR_SHAPE_LITERAL) {
+    bool added = false;
+    for (size_t i = 0; i < expr->fields.len; i++) {
+      if (expr_reference_origins(program, expr->fields.items[i].value, scope, origins)) added = true;
+    }
+    return added;
+  }
+  return false;
 }
 
 static bool register_borrow_binding(const Program *program, const Stmt *stmt, Scope *scope) {
@@ -4531,7 +4650,7 @@ static bool register_borrow_binding(const Program *program, const Stmt *stmt, Sc
     return false;
   }
   const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-  if (binding_type) {
+  if (binding_type && (type_is_named_generic(binding_type, "ref") || type_is_named_generic(binding_type, "mutref"))) {
     bool mut_borrow = type_is_named_generic(binding_type, "mutref");
     for (size_t i = 0; i < origins.len; i++) origins.mutable_borrow[i] = mut_borrow;
   }
@@ -4543,7 +4662,6 @@ static bool register_borrow_binding(const Program *program, const Stmt *stmt, Sc
 static bool update_borrow_assignment(const Program *program, const Expr *target, const Expr *value, Scope *scope, ZDiag *diag) {
   if (!target || target->kind != EXPR_IDENT || !scope_has(scope, target->text)) return true;
   const char *target_type = scope_type(scope, target->text);
-  if (!type_is_named_generic(target_type, "ref") && !type_is_named_generic(target_type, "mutref")) return true;
   BorrowOrigins origins = {0};
   if (expr_reference_origins(program, value, scope, &origins)) {
     Scope *target_scope = scope_binding_scope(scope, target->text);
@@ -4556,8 +4674,10 @@ static bool update_borrow_assignment(const Program *program, const Expr *target,
         return set_diag_detail(diag, 3030, "cannot assign a reference to a shorter-lived binding", value ? value->line : target->line, value ? value->column : target->column, "borrow source that outlives the reference binding", actual, "keep the reference binding in the same lexical scope as the borrowed value");
       }
     }
-    bool mut_borrow = type_is_named_generic(target_type, "mutref");
-    for (size_t i = 0; i < origins.len; i++) origins.mutable_borrow[i] = mut_borrow;
+    if (type_is_named_generic(target_type, "ref") || type_is_named_generic(target_type, "mutref")) {
+      bool mut_borrow = type_is_named_generic(target_type, "mutref");
+      for (size_t i = 0; i < origins.len; i++) origins.mutable_borrow[i] = mut_borrow;
+    }
     scope_set_borrow_origins(scope, target->text, &origins);
   } else {
     scope_clear_borrow_origin(scope, target->text);
