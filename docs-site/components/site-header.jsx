@@ -18,7 +18,7 @@ export function SiteHeader({ stars }) {
         <nav className="flex items-center gap-4">
           <Link
             href="/getting-started"
-            className="hidden text-sm text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 sm:inline"
+            className="text-sm text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
           >
             Docs
           </Link>
