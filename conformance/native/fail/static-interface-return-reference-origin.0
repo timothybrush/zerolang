@@ -1,0 +1,20 @@
+interface Reader<T> {
+    fun get(self: ref<T>) -> ref<i32>
+}
+
+shape Holder {
+    value: i32,
+
+    fun get(self: ref<Self>) -> ref<i32> {
+        return &self.value
+    }
+}
+
+fun read<T: Reader<T>>(value: ref<T>) -> ref<i32> {
+    return T.get(value)
+}
+
+pub fun main() -> ref<i32> {
+    let holder = Holder { value: 1 }
+    return read<Holder>(&holder)
+}

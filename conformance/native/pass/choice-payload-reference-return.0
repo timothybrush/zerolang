@@ -1,0 +1,14 @@
+choice Slot {
+    some: ref<i32>,
+    none,
+}
+
+fun pass(slot: Slot) -> Slot {
+    return slot
+}
+
+pub fun main() -> Void {
+    let value = 1
+    let slot: Slot = Slot.some(&value)
+    let _copy = pass(slot)
+}

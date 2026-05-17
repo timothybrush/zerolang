@@ -1,0 +1,15 @@
+shape Holder {
+    value: ref<i32>,
+}
+
+pub fun main(flag: Bool) -> Void {
+    let mut old = 1
+    let next = 2
+    let mut holder = Holder { value: &old }
+    if flag {
+        holder.value = &next
+    } else {
+        holder.value = &next
+    }
+    old = 3
+}
