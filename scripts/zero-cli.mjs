@@ -457,6 +457,7 @@ function trySelfHostedDriver(argv) {
   const normalizedInput = input ? normalizeRepoPath(input) : null;
   const target = optionValue(argv, "--target") ?? "wasm32-web";
   const explicitTarget = argv.includes("--target");
+  if (command === "check" && !explicitTarget) return false;
   if (normalizedInput === "examples/hello.0" && command !== "check" && command !== "build") return false;
   if (normalizedInput && selfHostRuntimeBreadthInputs.has(normalizedInput) && !explicitTarget) return false;
   if (normalizedInput && selfHostRuntimeBreadthInputs.has(normalizedInput) && command === "build") return false;

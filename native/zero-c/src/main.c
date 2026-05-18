@@ -8491,23 +8491,31 @@ static void append_target_readiness_diagnostic_json(ZBuf *buf, const char *path,
 }
 
 static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command) {
-  long long phase_started = now_ms();
-  IrProgram ir = z_lower_program_with_source(program, input);
-  if (input) input->lower_ms = now_ms() - phase_started;
-  apply_ir_metrics_to_input(input, &ir);
-
   ZDiag diag = {0};
+  IrProgram ir = {0};
   bool ready = true;
-  if (!target_readiness_select_emit_target(command, input, target, &diag)) {
+  if (!validate_c_libraries_for_target(input, target, &diag)) {
     ready = false;
-  } else if (!ir.mir_valid) {
-    init_lowering_backend_diag(&diag, input, target, command, &ir);
-    ready = false;
-  } else if (!target_readiness_select_diag(command, input, program, target, &ir, &diag)) {
-    ready = false;
+  } else {
+    long long phase_started = now_ms();
+    ir = z_lower_program_with_source(program, input);
+    if (input) input->lower_ms = now_ms() - phase_started;
+    apply_ir_metrics_to_input(input, &ir);
+  }
+
+  if (ready) {
+    if (!target_readiness_select_emit_target(command, input, target, &diag)) {
+      ready = false;
+    } else if (!ir.mir_valid) {
+      init_lowering_backend_diag(&diag, input, target, command, &ir);
+      ready = false;
+    } else if (!target_readiness_select_diag(command, input, program, target, &ir, &diag)) {
+      ready = false;
+    }
   }
   if (!ready && input) {
-    z_map_source_diag(input, &diag);
+    /* C library validation points at zero.json; source mapping would erase that. */
+    if (diag.code != 8003) z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
   }
 
@@ -8523,7 +8531,7 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
   zbuf_append(buf, ",\"objectFormat\":");
   append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
   zbuf_append(buf, ",\"backend\":");
-  append_json_string(buf, ready ? target_readiness_backend(target, command) : (diag.backend_blocker.present ? diag.backend_blocker.backend : direct_emit_emitter(target, command, emit_kind)));
+  append_json_string(buf, ready || !diag.backend_blocker.present ? target_readiness_backend(target, command) : diag.backend_blocker.backend);
   zbuf_append(buf, ",\"stage\":");
   append_json_string(buf, ready ? "ready" : (diag.backend_blocker.present && diag.backend_blocker.stage[0] ? diag.backend_blocker.stage : "select"));
   zbuf_append(buf, ",\"diagnostics\":[");
