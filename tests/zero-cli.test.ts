@@ -208,17 +208,13 @@ describe("native zero CLI", () => {
     assert.equal(diagnosticSkill.success, true);
     assert.match(diagnosticSkill.data[0].content, /fixSafety/);
 
-    const zeroPath = JSON.parse((await runZero(["skills", "path", "zero", "--json"])).stdout);
-    assert.equal(zeroPath.success, true);
-    assert.match(zeroPath.data.path, /skills\/zero$/);
-
-    const languagePath = JSON.parse((await runZero(["skills", "path", "zero-language", "--json"])).stdout);
-    assert.equal(languagePath.success, true);
-    assert.match(languagePath.data.path, /skill-data\/zero-language\.md$/);
-
     const missing = await runZero(["skills", "get", "missing", "--json"]).catch((error) => error);
     assert.notEqual(missing.code, 0);
     assert.equal(JSON.parse(missing.stdout).success, false);
+
+    const removedPath = await runZero(["skills", "path", "zero", "--json"]).catch((error) => error);
+    assert.notEqual(removedPath.code, 0);
+    assert.match(JSON.parse(removedPath.stdout).error, /Unknown skills subcommand: path/);
 
     const nativeList = JSON.parse((await runNativeZero(["skills", "list", "--json"])).stdout);
     assert.equal(nativeList.success, true);

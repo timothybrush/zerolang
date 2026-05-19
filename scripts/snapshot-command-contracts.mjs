@@ -288,17 +288,13 @@ const diagnosticSkill = json(["skills", "get", "zero-diagnostics", "--json"]).bo
 assert.equal(diagnosticSkill.success, true);
 assert.match(diagnosticSkill.data[0].content, /fixSafety/);
 
-const skillsPath = json(["skills", "path", "zero", "--json"]).body;
-assert.equal(skillsPath.success, true);
-assert.match(skillsPath.data.path, /skills\/zero$/);
-
-const languagePath = json(["skills", "path", "zero-language", "--json"]).body;
-assert.equal(languagePath.success, true);
-assert.match(languagePath.data.path, /skill-data\/zero-language\.md$/);
-
 const missingSkill = zero(["skills", "get", "missing", "--json"], { allowFailure: true });
 assert.notEqual(missingSkill.code, 0);
 assert.equal(JSON.parse(missingSkill.stdout).success, false);
+
+const removedSkillsPath = zero(["skills", "path", "zero", "--json"], { allowFailure: true });
+assert.notEqual(removedSkillsPath.code, 0);
+assert.match(JSON.parse(removedSkillsPath.stdout).error, /Unknown skills subcommand: path/);
 
 const lexerTokens = json(["tokens", "--json", "conformance/lexer/compiler-smoke.0"]).body;
 assert.equal(lexerTokens.schemaVersion, 1);

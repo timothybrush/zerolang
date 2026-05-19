@@ -732,12 +732,12 @@ if bin/zero build --json --emit c --target linux-musl-x64 examples/hello.0 --out
   echo "expected removed C backend to fail" >&2
   exit 1
 fi
-grep -q '"code":"BLD003"' .zero/native-test/removed-c-backend.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.diagnostics?.[0]?.code!=="BLD003") process.exit(1);' .zero/native-test/removed-c-backend.json
 if bin/zero build --json --legacy-backend --target linux-musl-x64 examples/hello.0 --out .zero/native-test/removed-legacy-backend > .zero/native-test/removed-legacy-backend.json; then
   echo "expected removed legacy backend flag to fail" >&2
   exit 1
 fi
-grep -q '"code":"BLD003"' .zero/native-test/removed-legacy-backend.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.diagnostics?.[0]?.code!=="BLD003") process.exit(1);' .zero/native-test/removed-legacy-backend.json
 rm -f .zero/native-test/direct-wasm-add.wasm .zero/native-test/direct-wasm-add.wasm.c
 bin/zero build --json --emit wasm --target wasm32-wasi examples/direct-wasm-add.0 --out .zero/native-test/direct-wasm-add.wasm > .zero/native-test/direct-wasm-add.json
 node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-wasm-add.wasm"); if (b[0]!==0 || b[1]!==0x61 || b[2]!==0x73 || b[3]!==0x6d) process.exit(1); const inst=new WebAssembly.Instance(new WebAssembly.Module(b)); if (inst.exports.main(40,2)!==42) process.exit(1);'

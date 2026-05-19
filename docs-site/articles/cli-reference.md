@@ -116,7 +116,6 @@ name. A test marked this way must fail; an unexpected pass fails the command.
 zero skills list
 zero skills get zero
 zero skills get zero --full
-zero skills path zero
 ```
 
 Add `--json` for automation. Skill content is bundled with the compiler so

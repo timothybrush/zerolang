@@ -5,7 +5,6 @@
 typedef struct {
   const char *name;
   const char *description;
-  const char *path;
   bool hidden;
   const char *const *content;
 } ZeroEmbeddedSkill;
@@ -52,14 +51,14 @@ static const char *const zero_embedded_skill_zero_testing_chunks[] = {
 };
 
 static const ZeroEmbeddedSkill zero_embedded_skills[] = {
-  {"zero", "Install Zero and load version-matched workflows with zero skills.", "skills/zero", false, zero_embedded_skill_zero_chunks},
-  {"zero-agent", "Agent workflow for making focused Zero changes with CLI feedback.", "skill-data/zero-agent.md", false, zero_embedded_skill_zero_agent_chunks},
-  {"zero-builds", "Build, run, ship, target, and profile Zero programs.", "skill-data/zero-builds.md", false, zero_embedded_skill_zero_builds_chunks},
-  {"zero-diagnostics", "Read Zero diagnostics, explanations, and typed fix plans.", "skill-data/zero-diagnostics.md", false, zero_embedded_skill_zero_diagnostics_chunks},
-  {"zero-language", "Compact Zero syntax and semantics guide for agents.", "skill-data/zero-language.md", false, zero_embedded_skill_zero_language_chunks},
-  {"zero-packages", "Create, inspect, and repair Zero packages and manifests.", "skill-data/zero-packages.md", false, zero_embedded_skill_zero_packages_chunks},
-  {"zero-stdlib", "Use Zero standard library modules and target-gated capabilities.", "skill-data/zero-stdlib.md", false, zero_embedded_skill_zero_stdlib_chunks},
-  {"zero-testing", "Write and run Zero test blocks with JSON output.", "skill-data/zero-testing.md", false, zero_embedded_skill_zero_testing_chunks},
+  {"zero", "Install Zero and load version-matched workflows with zero skills.", false, zero_embedded_skill_zero_chunks},
+  {"zero-agent", "Agent workflow for making focused Zero changes with CLI feedback.", false, zero_embedded_skill_zero_agent_chunks},
+  {"zero-builds", "Build, run, ship, target, and profile Zero programs.", false, zero_embedded_skill_zero_builds_chunks},
+  {"zero-diagnostics", "Read Zero diagnostics, explanations, and typed fix plans.", false, zero_embedded_skill_zero_diagnostics_chunks},
+  {"zero-language", "Compact Zero syntax and semantics guide for agents.", false, zero_embedded_skill_zero_language_chunks},
+  {"zero-packages", "Create, inspect, and repair Zero packages and manifests.", false, zero_embedded_skill_zero_packages_chunks},
+  {"zero-stdlib", "Use Zero standard library modules and target-gated capabilities.", false, zero_embedded_skill_zero_stdlib_chunks},
+  {"zero-testing", "Write and run Zero test blocks with JSON output.", false, zero_embedded_skill_zero_testing_chunks},
 };
 static const size_t zero_embedded_skill_count = sizeof(zero_embedded_skills) / sizeof(zero_embedded_skills[0]);
 

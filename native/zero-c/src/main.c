@@ -337,48 +337,6 @@ static int embedded_skills_get_command(int argc, char **argv, int subcommand_ind
   return 0;
 }
 
-static int embedded_skills_path_command(int argc, char **argv, int subcommand_index, bool json) {
-  const char *name = NULL;
-  for (int i = subcommand_index + 1; i < argc; i++) {
-    const char *arg = argv[i];
-    if (strcmp(arg, "--json") == 0) continue;
-    if (arg[0] == '-') continue;
-    name = arg;
-    break;
-  }
-
-  if (!name) {
-    if (json) {
-      printf("{\"success\":true,\"data\":{\"paths\":[\"skills\",\"skill-data\"]}}\n");
-    } else {
-      printf("skills\nskill-data\n");
-    }
-    return 0;
-  }
-
-  const ZeroEmbeddedSkill *skill = find_embedded_skill(name);
-  if (!skill) {
-    char message[160];
-    snprintf(message, sizeof(message), "Skill not found: %s", name);
-    return embedded_skills_error(json, message);
-  }
-
-  if (json) {
-    ZBuf buf;
-    zbuf_init(&buf);
-    zbuf_append(&buf, "{\"success\":true,\"data\":{\"name\":");
-    append_json_string(&buf, skill->name);
-    zbuf_append(&buf, ",\"path\":");
-    append_json_string(&buf, skill->path);
-    zbuf_append(&buf, "}}\n");
-    fputs(buf.data, stdout);
-    zbuf_free(&buf);
-  } else {
-    printf("%s\n", skill->path);
-  }
-  return 0;
-}
-
 static int embedded_skills_command(int argc, char **argv, bool json) {
   int subcommand_index = -1;
   const char *subcommand = "list";
@@ -397,7 +355,6 @@ static int embedded_skills_command(int argc, char **argv, bool json) {
   }
   if (strcmp(subcommand, "list") == 0) return embedded_skills_list_command(json);
   if (strcmp(subcommand, "get") == 0) return embedded_skills_get_command(argc, argv, subcommand_index >= 0 ? subcommand_index : 1, json);
-  if (strcmp(subcommand, "path") == 0) return embedded_skills_path_command(argc, argv, subcommand_index >= 0 ? subcommand_index : 1, json);
 
   char message[160];
   snprintf(message, sizeof(message), "Unknown skills subcommand: %s", subcommand);
@@ -3374,7 +3331,7 @@ static void print_help(void) {
   printf("zero %s native bootstrap\n\n", ZERO_VERSION);
   printf("Usage:\n");
   printf("  zero --version [--json]\n");
-  printf("  zero skills [list|get|path] [--json]\n");
+  printf("  zero skills [list|get] [--json]\n");
   printf("  zero new cli|lib|package <name>\n");
   printf("  zero check <file.0|project|zero.json>\n");
   printf("  zero test <file.0|project|zero.json>\n");
@@ -3415,13 +3372,12 @@ static void print_command_help(const char *command) {
     printf("  zero new lib math-kit\n");
     printf("  zero new package demo\n");
   } else if (strcmp(command, "skills") == 0) {
-    printf("Usage: zero skills [list|get|path] [--json]\n\n");
+    printf("Usage: zero skills [list|get] [--json]\n\n");
     printf("List and retrieve version-matched skill content for agents.\n\n");
     printf("Subcommands:\n");
     printf("  list                 list available skills (default)\n");
     printf("  get <name> [--full]  print bundled skill content\n");
     printf("  get --all            print every visible skill\n");
-    printf("  path [name]          print bundled skill paths\n");
   } else if (strcmp(command, "doctor") == 0) {
     printf("Usage: zero doctor [--json]\n\n");
     printf("Check host, compiler, target toolchain, and docs/example readiness.\n");
