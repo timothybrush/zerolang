@@ -156,10 +156,10 @@ function createSourceArchive() {
     "dist",
     "coverage",
     "node_modules",
-    "docs-site/.next",
-    "docs-site/out",
+    "docs/.next",
+    "docs/out",
     "extensions/*/node_modules",
-    "docs-site/node_modules",
+    "docs/node_modules",
   ];
   const excludeArgs = excludes.flatMap((exclude) => [`--exclude=${exclude}`, `--exclude=./${exclude}`]);
   const metadataArgs = process.platform === "darwin" ? ["--no-xattrs"] : [];
@@ -235,7 +235,7 @@ async function createPreparedSnapshot(Sandbox) {
             `tar -xzf /tmp/zero-lang-source.tar.gz -C ${projectDir}`,
             `cd ${projectDir}`,
             "corepack enable",
-            "corepack prepare pnpm@10.11.0 --activate",
+            "corepack prepare pnpm@11.1.3 --activate",
             "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             "node --version",
@@ -275,7 +275,7 @@ async function runSandboxTask(Sandbox, snapshot, command) {
             "find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +",
             `tar -xzf /tmp/zero-lang-source-current.tar.gz -C ${snapshot.projectDir}`,
             "corepack enable",
-            "corepack prepare pnpm@10.11.0 --activate",
+            "corepack prepare pnpm@11.1.3 --activate",
             "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             command,

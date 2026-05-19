@@ -787,7 +787,7 @@ function createSourceArchive() {
     ".zero",
     "node_modules",
     "extensions/*/node_modules",
-    "docs-site/node_modules",
+    "docs/node_modules",
   ];
   const excludeArgs = excludes.flatMap((exclude) => [`--exclude=${exclude}`, `--exclude=./${exclude}`]);
   const result = spawnSync("tar", [...excludeArgs, "-czf", archivePath, "."], {
@@ -863,7 +863,7 @@ async function createPreparedSnapshot(Sandbox) {
             `tar -xzf /tmp/zero-lang-source.tar.gz -C ${projectDir}`,
             `cd ${projectDir}`,
             "corepack enable",
-            "corepack prepare pnpm@10.11.0 --activate",
+            "corepack prepare pnpm@11.1.3 --activate",
             "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             "node --version",

@@ -190,7 +190,7 @@ describe("docs registry", () => {
     const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.tsx"), "utf8");
     assert.match(installCopy, /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const packageJson = JSON.parse(await readFile(resolve(docsSiteRoot, "..", "package.json"), "utf8"));
-    assert.match(packageJson.scripts["docs:build"], /docs-site/);
+    assert.match(packageJson.scripts["docs:build"], /docs/);
     assert.doesNotMatch(JSON.stringify(packageJson.scripts), /self-host|no-c|bootstrap-stage2/);
     const benchmarks = await readDoc("benchmarks");
     for (const caseName of ["hello", "add", "structs", "params", "buffers", "parser", "codec", "parse", "slices", "arena", "fallibility", "branches", "module-package", "rescue", "fs-resource", "mem-copy-fill", "zero-hash"]) {
