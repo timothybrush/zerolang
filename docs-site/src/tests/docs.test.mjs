@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { docs } from "../../lib/docs.js";
+import ts from "typescript";
 
 const docsSiteRoot = resolve(import.meta.dirname, "../..");
+
+function loadDocsRegistry() {
+  const sourcePath = join(docsSiteRoot, "lib/docs.ts");
+  const source = readFileSync(sourcePath, "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: sourcePath,
+  });
+  const module = { exports: {} };
+  const require = (specifier) => {
+    throw new Error(`Unexpected runtime import while loading docs registry: ${specifier}`);
+  };
+  new Function("exports", "module", "require", outputText)(module.exports, module, require);
+  return module.exports.docs;
+}
+
+const docs = loadDocsRegistry();
 
 describe("docs registry", () => {
   it("declares module pages with source files", async () => {
@@ -161,12 +182,12 @@ describe("docs registry", () => {
     for (const repairTerm of ["checks JSON diagnostics", "plans a repair", "applies the edit", "re-runs check"]) {
       assert.match(examples, new RegExp(repairTerm, "i"));
     }
-    const homePage = await readFile(join(docsSiteRoot, "app/page.jsx"), "utf8");
+    const homePage = await readFile(join(docsSiteRoot, "app/page.tsx"), "utf8");
     assert.match(homePage, /The programming language\s+<br \/>\s+for agents/);
     assert.match(homePage, /standard-library\s+first/);
     assert.match(homePage, /Agent-readable tooling/);
     assert.match(homePage, /InstallCopy/);
-    const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.jsx"), "utf8");
+    const installCopy = await readFile(join(docsSiteRoot, "components/install-copy.tsx"), "utf8");
     assert.match(installCopy, /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const packageJson = JSON.parse(await readFile(resolve(docsSiteRoot, "..", "package.json"), "utf8"));
     assert.match(packageJson.scripts["docs:build"], /docs-site/);

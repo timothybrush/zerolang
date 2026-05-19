@@ -26,7 +26,7 @@ const nextConfig = {
       },
     ];
   },
-  pageExtensions: ["js", "jsx", "mdx"],
+  pageExtensions: ["ts", "tsx", "mdx"],
   turbopack: {
     root: __dirname,
   },
