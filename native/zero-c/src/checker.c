@@ -2224,12 +2224,32 @@ static const char *static_value_expected_label(const Program *program, const cha
   return "integer, Bool, or enum static value";
 }
 
+static bool integer_suffix_text(const char *text) {
+  static const char *suffixes[] = {
+    "i8", "i16", "i32", "i64", "isize",
+    "u8", "u16", "u32", "u64", "usize",
+    NULL,
+  };
+  for (size_t i = 0; suffixes[i]; i++) {
+    if (strcmp(text, suffixes[i]) == 0) return true;
+  }
+  return false;
+}
+
 static bool parse_static_uint_text(const char *text, unsigned long long *out) {
   if (!text || !text[0]) return false;
   size_t text_len = strlen(text);
   size_t body_len = text_len;
   const char *last_underscore = strrchr(text, '_');
-  if (last_underscore && isalpha((unsigned char)last_underscore[1])) body_len = (size_t)(last_underscore - text);
+  if (last_underscore) {
+    const char *candidate = last_underscore + 1;
+    if (candidate[0] == 0) return false;
+    if (integer_suffix_text(candidate)) {
+      body_len = (size_t)(last_underscore - text);
+    } else if (candidate[0] == 'i' || candidate[0] == 'u') {
+      return false;
+    }
+  }
   if (body_len == 0) return false;
   unsigned radix = 10;
   size_t index = 0;
@@ -2245,9 +2265,14 @@ static bool parse_static_uint_text(const char *text, unsigned long long *out) {
   }
   unsigned long long value = 0;
   bool saw_digit = false;
+  bool previous_underscore = false;
   for (; index < body_len; index++) {
     char ch = text[index];
-    if (ch == '_') continue;
+    if (ch == '_') {
+      if (!saw_digit || previous_underscore) return false;
+      previous_underscore = true;
+      continue;
+    }
     int digit = -1;
     if (ch >= '0' && ch <= '9') digit = ch - '0';
     else if (ch >= 'a' && ch <= 'f') digit = 10 + (ch - 'a');
@@ -2256,8 +2281,9 @@ static bool parse_static_uint_text(const char *text, unsigned long long *out) {
     if (value > (ULLONG_MAX - (unsigned)digit) / radix) return false;
     value = value * radix + (unsigned)digit;
     saw_digit = true;
+    previous_underscore = false;
   }
-  if (!saw_digit) return false;
+  if (!saw_digit || previous_underscore) return false;
   if (out) *out = value;
   return true;
 }
@@ -7819,6 +7845,32 @@ static bool type_param_name_known(const ParamVec *primary, const ParamVec *secon
   return false;
 }
 
+static bool static_type_param_name_known_for_type(const Program *program, const ParamVec *primary, const ParamVec *secondary, const char *name, const char *expected_type) {
+  const ParamVec *sets[] = {primary, secondary, NULL};
+  for (size_t set_index = 0; sets[set_index]; set_index++) {
+    const ParamVec *params = sets[set_index];
+    for (size_t i = 0; i < params->len; i++) {
+      const Param *param = &params->items[i];
+      if (!param->is_static || !param->name || strcmp(param->name, name) != 0) continue;
+      return types_compatible(program, expected_type ? expected_type : "usize", param->type ? param->type : "usize");
+    }
+  }
+  return false;
+}
+
+static bool static_type_param_name_known_for_integer(const ParamVec *primary, const ParamVec *secondary, const char *name) {
+  const ParamVec *sets[] = {primary, secondary, NULL};
+  for (size_t set_index = 0; sets[set_index]; set_index++) {
+    const ParamVec *params = sets[set_index];
+    for (size_t i = 0; i < params->len; i++) {
+      const Param *param = &params->items[i];
+      if (!param->is_static || !param->name || strcmp(param->name, name) != 0) continue;
+      return is_static_int_param_type(param->type ? param->type : "usize");
+    }
+  }
+  return false;
+}
+
 static const char *visible_concrete_type_name_kind(const Program *program, const char *name) {
   if (!name || !name[0]) return NULL;
   if (is_builtin_type_name(name)) return "built-in type";
@@ -7880,6 +7932,17 @@ static bool validate_type_names_inner(const Program *program, const char *type, 
   if (type[0] == '[') {
     const char *close = strchr(type, ']');
     if (!close || !close[1]) return true;
+    char *length = z_strndup(type + 1, (size_t)(close - type - 1));
+    char *canonical = canonical_static_arg_for_type(program, length, "usize");
+    bool length_ok = canonical || static_type_param_name_known_for_integer(primary, secondary, length);
+    free(canonical);
+    if (!length_ok) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "%s", length ? length : "Unknown");
+      free(length);
+      return set_diag_detail(diag, 3044, "fixed array length must be a deterministic integer static value", line, column, static_value_expected_label(program, "usize"), actual, "use an integer literal, integer const, or integer static parameter for the array length");
+    }
+    free(length);
     return validate_type_names_inner(program, close + 1, primary, secondary, allow_self, diag, line, column);
   }
   const char *open = strchr(type, '<');
@@ -7904,7 +7967,25 @@ static bool validate_type_names_inner(const Program *program, const char *type, 
         return set_diag_detail(diag, 3032, "shape type argument count mismatch", line, column, "one argument per shape type parameter", actual, "match the shape declaration's type parameter list");
       }
       for (size_t i = 0; i < arg_len; i++) {
-        if (shape->type_params.items[i].is_static) continue;
+        if (shape->type_params.items[i].is_static) {
+          const char *static_type = shape->type_params.items[i].type ? shape->type_params.items[i].type : "usize";
+          if (!is_static_value_param_type(program, static_type)) {
+            free_type_arg_list(args, arg_len);
+            free(name);
+            return set_diag_detail(diag, 3043, "static value parameter type is not supported", line, column, "integer, Bool, or enum static parameter", static_type, "use a concrete integer, Bool, or enum type for this static parameter");
+          }
+          char *canonical = canonical_static_arg_for_type(program, args[i], static_type);
+          bool ok = canonical || static_type_param_name_known_for_type(program, primary, secondary, args[i], static_type);
+          free(canonical);
+          if (!ok) {
+            char actual[160];
+            snprintf(actual, sizeof(actual), "%s", args[i] ? args[i] : "Unknown");
+            free_type_arg_list(args, arg_len);
+            free(name);
+            return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", line, column, static_value_expected_label(program, static_type), actual, "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
+          }
+          continue;
+        }
         if (!validate_type_names_inner(program, args[i], primary, secondary, allow_self, diag, line, column)) {
           free_type_arg_list(args, arg_len);
           free(name);

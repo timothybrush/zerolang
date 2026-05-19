@@ -1118,6 +1118,38 @@ const staticNonConstantBody = JSON.parse(staticNonConstantJson.stdout);
 assert.equal(staticNonConstantBody.diagnostics[0].code, "STC002");
 assert.equal(staticNonConstantBody.diagnostics[0].repair.id, "pass-constant-static-value");
 
+for (const value of ["4_", "4__5", "0x_1", "4_nope"]) {
+  const fixture = `${outDir}/static-value-malformed-${value.replace(/[^A-Za-z0-9]/g, "_")}.0`;
+  await writeFile(fixture, `shape FixedVec<T, static N: usize> {
+    items: [N]T,
+}
+
+pub fun main() -> Void {
+    let _vec: FixedVec<u8,${value}> = FixedVec { items: [1, 2, 3, 4] }
+}
+`);
+  const malformedStaticJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
+  assert.notEqual(malformedStaticJson.code, 0);
+  const malformedStaticBody = JSON.parse(malformedStaticJson.stdout);
+  assert.equal(malformedStaticBody.diagnostics[0].code, "STC002");
+  assert.equal(malformedStaticBody.diagnostics[0].actual, value);
+}
+
+for (const value of ["4_", "4__5", "0x_1", "4_nope"]) {
+  const fixture = `${outDir}/array-length-malformed-${value.replace(/[^A-Za-z0-9]/g, "_")}.0`;
+  await writeFile(fixture, `fun take(bytes: [${value}]u8) -> Void {
+}
+
+pub fun main() -> Void {
+}
+`);
+  const malformedArrayJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
+  assert.notEqual(malformedArrayJson.code, 0);
+  const malformedArrayBody = JSON.parse(malformedArrayJson.stdout);
+  assert.equal(malformedArrayBody.diagnostics[0].code, "STC002");
+  assert.equal(malformedArrayBody.diagnostics[0].actual, value);
+}
+
 const staticMismatchJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/static-value-mismatch.0"]).catch((error) => error);
 assert.notEqual(staticMismatchJson.code, 0);
 const staticMismatchBody = JSON.parse(staticMismatchJson.stdout);
