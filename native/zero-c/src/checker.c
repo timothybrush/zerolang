@@ -110,7 +110,12 @@ typedef struct {
   char *type;
 } GenericBinding;
 
+typedef struct MetaCache MetaCache;
+
 typedef struct {
+  const Program *program;
+  const ZTargetInfo *target;
+  MetaCache *meta_cache;
   const Function *function;
   int allow_fallible_call;
   GenericBinding *return_provenance_expr_bindings;
@@ -123,9 +128,13 @@ typedef struct MetaCacheEntry {
   struct MetaCacheEntry *next;
 } MetaCacheEntry;
 
-static const ZTargetInfo *current_check_target = NULL;
-static MetaCacheEntry *meta_cache = NULL;
-static ZMetaCacheStats meta_stats = {0};
+struct MetaCache {
+  MetaCacheEntry *entries;
+  ZMetaCacheStats stats;
+};
+
+static const ZTargetInfo *configured_check_target = NULL;
+static MetaCache default_meta_cache = {0};
 
 static void *checker_grow_items(void *items, size_t len, size_t *cap, size_t initial, size_t item_size) {
   if (len + 1 > *cap) {
@@ -455,11 +464,11 @@ static void function_provenance_summary_free(FunctionProvenanceSummary *summary)
 }
 
 void z_set_check_target(const ZTargetInfo *target) {
-  current_check_target = target;
+  configured_check_target = target;
 }
 
 ZMetaCacheStats z_meta_cache_stats(void) {
-  return meta_stats;
+  return default_meta_cache.stats;
 }
 
 static void scope_add_ex(Scope *scope, const char *name, const char *type, bool mutable, bool is_param, int line, int column) {
@@ -1777,12 +1786,10 @@ static const TypeAlias *find_alias(const Program *program, const char *name) {
   return NULL;
 }
 
-static const Program *current_type_program = NULL;
-
-static const char *resolve_alias_type(const char *type) {
-  if (!current_type_program || !type) return type;
-  for (size_t depth = 0; depth < current_type_program->aliases.len; depth++) {
-    const TypeAlias *alias = find_alias(current_type_program, type);
+static const char *resolve_alias_type(const Program *program, const char *type) {
+  if (!program || !type) return type;
+  for (size_t depth = 0; depth < program->aliases.len; depth++) {
+    const TypeAlias *alias = find_alias(program, type);
     if (!alias || !alias->target) return type;
     type = alias->target;
   }
@@ -1795,7 +1802,7 @@ static bool check_stmt_vec_with_loop(CheckContext *ctx, const Program *program, 
 static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
 static bool check_lvalue_target(CheckContext *ctx, const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len);
 static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope);
-static bool types_compatible(const char *expected, const char *actual);
+static bool types_compatible(const Program *program, const char *expected, const char *actual);
 static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
 static const Choice *find_choice(const Program *program, const char *name);
@@ -1892,14 +1899,14 @@ static void resolved_provenance_call_free(ResolvedProvenanceCall *resolved) {
   *resolved = (ResolvedProvenanceCall){0};
 }
 
-static bool generic_binding_set(GenericBinding *bindings, size_t len, const char *name, const char *type) {
+static bool generic_binding_set(const Program *program, GenericBinding *bindings, size_t len, const char *name, const char *type) {
   for (size_t i = 0; i < len; i++) {
     if (strcmp(bindings[i].name, name) == 0) {
       if (!bindings[i].type) {
         bindings[i].type = z_strdup(type ? type : "Unknown");
         return true;
       }
-      return type && types_compatible(bindings[i].type, type);
+      return type && types_compatible(program, bindings[i].type, type);
     }
   }
   return true;
@@ -1914,7 +1921,7 @@ static bool type_is_generic_param(const Function *fun, const char *type) {
 }
 
 static char *type_substitute_generic(const char *type, GenericBinding *bindings, size_t binding_len);
-static bool infer_generic_type_from_pattern(const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len);
+static bool infer_generic_type_from_pattern(const Program *program, const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len);
 
 static bool type_text_references_name(const char *type, const char *name) {
   if (!type || !name || !name[0]) return false;
@@ -2017,7 +2024,7 @@ static bool recursive_generic_call_bindings_for_context(CheckContext *ctx, const
   } else {
     for (size_t i = 0; i < callee->params.len && i < call->args.len; i++) {
       char *actual = recursive_generic_expr_type_text(ctx, program, call->args.items[i], scope, context_bindings, context_binding_len);
-      bool ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, actual, bindings, callee->type_params.len);
+      bool ok = infer_generic_type_from_pattern(program, callee, callee->params.items[i].type, actual, bindings, callee->type_params.len);
       free(actual);
       if (!ok) {
         generic_bindings_free(bindings, callee->type_params.len);
@@ -2211,7 +2218,7 @@ static bool parse_static_uint_text(const char *text, unsigned long long *out) {
   return true;
 }
 
-static bool eval_meta_value(const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps);
+static bool eval_meta_value(CheckContext *ctx, const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps);
 static bool static_value_from_expr(const Program *program, const Expr *expr, StaticValue *out, size_t depth);
 
 static bool static_enum_value_from_text(const Program *program, const char *text, StaticValue *out) {
@@ -2273,7 +2280,7 @@ static bool static_value_from_expr(const Program *program, const Expr *expr, Sta
   }
   MetaValue meta = {0};
   size_t steps = 0;
-  if (eval_meta_value(program, expr, &meta, depth, &steps) && static_value_from_meta(&meta, out)) return true;
+  if (eval_meta_value(NULL, program, expr, &meta, depth, &steps) && static_value_from_meta(&meta, out)) return true;
   return false;
 }
 
@@ -2438,9 +2445,9 @@ static void provenance_context_substitute_bindings(const CheckContext *ctx, Gene
   }
 }
 
-static bool infer_generic_type_from_pattern(const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len) {
+static bool infer_generic_type_from_pattern(const Program *program, const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len) {
   if (!pattern || !actual) return true;
-  if (type_is_generic_param(fun, pattern)) return generic_binding_set(bindings, binding_len, pattern, actual);
+  if (type_is_generic_param(fun, pattern)) return generic_binding_set(program, bindings, binding_len, pattern, actual);
   const char *generic_names[] = {"Maybe", "Span", "MutSpan", "ref", "mutref", "owned", NULL};
   for (size_t i = 0; generic_names[i]; i++) {
     const char *pattern_inner = NULL;
@@ -2451,7 +2458,7 @@ static bool infer_generic_type_from_pattern(const Function *fun, const char *pat
         type_has_generic_arg(actual, generic_names[i], &actual_inner, &actual_len)) {
       char *pattern_text = z_strndup(pattern_inner, pattern_len);
       char *actual_text = z_strndup(actual_inner, actual_len);
-      bool ok = infer_generic_type_from_pattern(fun, pattern_text, actual_text, bindings, binding_len);
+      bool ok = infer_generic_type_from_pattern(program, fun, pattern_text, actual_text, bindings, binding_len);
       free(pattern_text);
       free(actual_text);
       return ok;
@@ -2472,7 +2479,7 @@ static bool infer_generic_type_from_pattern(const Function *fun, const char *pat
                 pattern_arg_len == actual_arg_len;
       if (ok) {
         for (size_t arg_index = 0; arg_index < pattern_arg_len && ok; arg_index++) {
-          ok = infer_generic_type_from_pattern(fun, pattern_args[arg_index], actual_args[arg_index], bindings, binding_len);
+          ok = infer_generic_type_from_pattern(program, fun, pattern_args[arg_index], actual_args[arg_index], bindings, binding_len);
         }
       }
       free_type_arg_list(pattern_args, pattern_arg_len);
@@ -2485,7 +2492,6 @@ static bool infer_generic_type_from_pattern(const Function *fun, const char *pat
 }
 
 static bool build_generic_bindings(CheckContext *ctx, const Program *program, const Function *fun, const Expr *call, Scope *scope, ZDiag *diag, GenericBinding *bindings, size_t binding_len, const char *expected_return) {
-  (void)program;
   if (!function_is_generic(fun)) return true;
   const TypeArgVec *type_args = call_type_args(call);
   if (type_args && type_args->len > 0) {
@@ -2497,11 +2503,11 @@ static bool build_generic_bindings(CheckContext *ctx, const Program *program, co
   }
   for (size_t i = 0; i < fun->params.len && i < call->args.len; i++) {
     const char *actual = expr_type(ctx, program, call->args.items[i], scope);
-    if (!infer_generic_type_from_pattern(fun, fun->params.items[i].type, actual, bindings, binding_len)) {
+    if (!infer_generic_type_from_pattern(program, fun, fun->params.items[i].type, actual, bindings, binding_len)) {
       return set_diag_detail(diag, 3033, "generic inference found conflicting argument types", call->args.items[i]->line, call->args.items[i]->column, "one concrete type for each generic parameter", actual, "pass explicit type arguments or make argument types match");
     }
   }
-  if (expected_return && fun->return_type && !infer_generic_type_from_pattern(fun, fun->return_type, expected_return, bindings, binding_len)) {
+  if (expected_return && fun->return_type && !infer_generic_type_from_pattern(program, fun, fun->return_type, expected_return, bindings, binding_len)) {
     return set_diag_detail(diag, 3033, "generic inference found conflicting expected return type", call->line, call->column, "one concrete type for each generic parameter", expected_return, "pass explicit type arguments or adjust the expected return type");
   }
   for (size_t i = 0; i < binding_len; i++) {
@@ -2563,7 +2569,7 @@ static bool validate_generic_constraints(const Program *program, const Function 
       for (size_t i = 0; i < required->params.len; i++) {
         char *expected = type_substitute_generic(required->params.items[i].type, interface_bindings, interface->type_params.len);
         char *actual = type_substitute_generic(method->params.items[i].type, &self_binding, 1);
-        bool ok = types_compatible(expected, actual);
+        bool ok = types_compatible(program, expected, actual);
         if (!ok) {
           char message[256];
           snprintf(message, sizeof(message), "interface method '%s.%s' parameter %zu does not match shape method", interface->name, required->name, i + 1);
@@ -2580,7 +2586,7 @@ static bool validate_generic_constraints(const Program *program, const Function 
       }
       char *expected_return = type_substitute_generic(required->return_type, interface_bindings, interface->type_params.len);
       char *actual_return = type_substitute_generic(method->return_type, &self_binding, 1);
-      if (!types_compatible(expected_return, actual_return)) {
+      if (!types_compatible(program, expected_return, actual_return)) {
         char message[256];
         snprintf(message, sizeof(message), "interface method '%s.%s' return type does not match shape method", interface->name, required->name);
         bool ok = set_diag_detail(diag, 3041, message, method->line, method->column, expected_return, actual_return, "return the type required by the interface");
@@ -2732,11 +2738,12 @@ static bool function_error_sets_compatible_inner(CheckContext *ctx, const Functi
   }
   if (!caller->has_error_set) return true;
   if (!callee->has_error_set) {
+    const Program *program = ctx ? ctx->program : NULL;
     Scope flow_scope = {0};
     flow_scope_add_function_bindings(callee, &flow_scope);
     CheckContext callee_ctx = ctx ? *ctx : (CheckContext){0};
     callee_ctx.function = callee;
-    bool ok = stmt_vec_raise_errors_covered(&callee_ctx, current_type_program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
+    bool ok = stmt_vec_raise_errors_covered(&callee_ctx, program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
     scope_free(&flow_scope);
     return ok;
   }
@@ -2946,7 +2953,7 @@ static const Shape *find_shape(const Program *program, const char *name) {
 }
 
 static const Shape *find_shape_for_type(const Program *program, const char *type) {
-  type = resolve_alias_type(type);
+  type = resolve_alias_type(program, type);
   const Shape *shape = find_shape(program, type);
   if (shape) return shape;
   if (!type) return NULL;
@@ -2961,9 +2968,9 @@ static const Shape *find_shape_for_type(const Program *program, const char *type
   return NULL;
 }
 
-static char *shape_field_type_for_owner(const Shape *shape, const char *owner_type, const Param *field) {
+static char *shape_field_type_for_owner(const Program *program, const Shape *shape, const char *owner_type, const Param *field) {
   if (!shape || !field) return z_strdup("Unknown");
-  owner_type = resolve_alias_type(owner_type);
+  owner_type = resolve_alias_type(program, owner_type);
   if (shape->type_params.len > 0) {
     char **args = NULL;
     size_t arg_len = 0;
@@ -3019,16 +3026,17 @@ static const Param *find_shape_field(const Shape *shape, const char *name) {
   return NULL;
 }
 
-static void meta_cache_free(void) {
-  MetaCacheEntry *entry = meta_cache;
+static void meta_cache_free(MetaCache *cache) {
+  if (!cache) return;
+  MetaCacheEntry *entry = cache->entries;
   while (entry) {
     MetaCacheEntry *next = entry->next;
     free(entry->key);
     free(entry);
     entry = next;
   }
-  meta_cache = NULL;
-  meta_stats = (ZMetaCacheStats){0};
+  cache->entries = NULL;
+  cache->stats = (ZMetaCacheStats){0};
 }
 
 static void meta_expr_key(ZBuf *buf, const Expr *expr) {
@@ -3055,29 +3063,41 @@ static void meta_expr_key(ZBuf *buf, const Expr *expr) {
   }
 }
 
-static bool meta_cache_get(const char *key, MetaValue *out) {
-  for (MetaCacheEntry *entry = meta_cache; entry; entry = entry->next) {
+static bool meta_cache_get(MetaCache *cache, const char *key, MetaValue *out) {
+  if (!cache) return false;
+  for (MetaCacheEntry *entry = cache->entries; entry; entry = entry->next) {
     if (strcmp(entry->key, key) == 0) {
       if (out) *out = entry->value;
-      meta_stats.hits++;
+      cache->stats.hits++;
       return true;
     }
   }
   return false;
 }
 
-static void meta_cache_put(const char *key, MetaValue value) {
+static void meta_cache_put(MetaCache *cache, const char *key, MetaValue value) {
+  if (!cache) return;
   MetaCacheEntry *entry = z_checked_calloc(1, sizeof(MetaCacheEntry));
   entry->key = z_strdup(key);
   entry->value = value;
-  entry->next = meta_cache;
-  meta_cache = entry;
-  meta_stats.misses++;
-  meta_stats.entries++;
+  entry->next = cache->entries;
+  cache->entries = entry;
+  cache->stats.misses++;
+  cache->stats.entries++;
 }
 
-static bool meta_target_fact(const Expr *expr, MetaValue *out) {
-  const ZTargetInfo *target = current_check_target ? current_check_target : z_find_target(z_host_target());
+static const ZTargetInfo *check_context_target(const CheckContext *ctx) {
+  if (ctx && ctx->target) return ctx->target;
+  return configured_check_target ? configured_check_target : z_find_target(z_host_target());
+}
+
+static MetaCache *check_context_meta_cache(CheckContext *ctx) {
+  if (ctx && ctx->meta_cache) return ctx->meta_cache;
+  return &default_meta_cache;
+}
+
+static bool meta_target_fact(CheckContext *ctx, const Expr *expr, MetaValue *out) {
+  const ZTargetInfo *target = check_context_target(ctx);
   if (!expr || !target) return false;
   if (expr->kind == EXPR_MEMBER && expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "target") == 0) {
     if (strcmp(expr->text, "os") == 0) {
@@ -3125,7 +3145,7 @@ static bool meta_target_fact(const Expr *expr, MetaValue *out) {
   return false;
 }
 
-static bool eval_meta_value(const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps);
+static bool eval_meta_value(CheckContext *ctx, const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps);
 
 static bool meta_type_fact(const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps) {
   (void)depth;
@@ -3182,9 +3202,9 @@ static bool meta_type_fact(const Program *program, const Expr *expr, MetaValue *
   return false;
 }
 
-static bool eval_meta_value_uncached(const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps) {
+static bool eval_meta_value_uncached(CheckContext *ctx, const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps) {
   if (!expr || depth > 64 || !steps || ++(*steps) > 1024) return false;
-  if (meta_target_fact(expr, out)) return true;
+  if (meta_target_fact(ctx, expr, out)) return true;
   if (meta_type_fact(program, expr, out, depth, steps)) return true;
   switch (expr->kind) {
     case EXPR_NUMBER: {
@@ -3201,19 +3221,19 @@ static bool eval_meta_value_uncached(const Program *program, const Expr *expr, M
       snprintf(out->text, sizeof(out->text), "%s", expr->text ? expr->text : "");
       return true;
     case EXPR_META:
-      return eval_meta_value(program, expr->left, out, depth + 1, steps);
+      return eval_meta_value(ctx, program, expr->left, out, depth + 1, steps);
     case EXPR_IDENT:
       for (size_t i = 0; program && i < program->consts.len; i++) {
         if (strcmp(program->consts.items[i].name, expr->text) == 0) {
-          return eval_meta_value(program, program->consts.items[i].expr, out, depth + 1, steps);
+          return eval_meta_value(ctx, program, program->consts.items[i].expr, out, depth + 1, steps);
         }
       }
       return false;
     case EXPR_BINARY: {
       MetaValue left = {0};
       MetaValue right = {0};
-      if (!eval_meta_value(program, expr->left, &left, depth + 1, steps) ||
-          !eval_meta_value(program, expr->right, &right, depth + 1, steps)) return false;
+      if (!eval_meta_value(ctx, program, expr->left, &left, depth + 1, steps) ||
+          !eval_meta_value(ctx, program, expr->right, &right, depth + 1, steps)) return false;
       if (strcmp(expr->text, "==") == 0 || strcmp(expr->text, "!=") == 0) {
         bool equal = false;
         if (left.kind == right.kind && left.kind == META_VALUE_NUMBER) equal = left.number == right.number;
@@ -3251,30 +3271,32 @@ static bool eval_meta_value_uncached(const Program *program, const Expr *expr, M
   }
 }
 
-static bool eval_meta_value(const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps) {
+static bool eval_meta_value(CheckContext *ctx, const Program *program, const Expr *expr, MetaValue *out, size_t depth, size_t *steps) {
   ZBuf key;
   zbuf_init(&key);
-  zbuf_append(&key, current_check_target ? current_check_target->name : z_host_target());
+  const ZTargetInfo *target = check_context_target(ctx);
+  zbuf_append(&key, target && target->name ? target->name : z_host_target());
   zbuf_append_char(&key, ':');
   meta_expr_key(&key, expr);
-  if (meta_cache_get(key.data, out)) {
+  MetaCache *cache = check_context_meta_cache(ctx);
+  if (meta_cache_get(cache, key.data, out)) {
     zbuf_free(&key);
     return true;
   }
   MetaValue value = {0};
-  bool ok = eval_meta_value_uncached(program, expr, &value, depth, steps);
+  bool ok = eval_meta_value_uncached(ctx, program, expr, &value, depth, steps);
   if (ok) {
-    meta_cache_put(key.data, value);
+    meta_cache_put(cache, key.data, value);
     if (out) *out = value;
   }
   zbuf_free(&key);
   return ok;
 }
 
-static bool check_meta_expr(const Program *program, const Expr *expr, ZDiag *diag) {
+static bool check_meta_expr(CheckContext *ctx, const Program *program, const Expr *expr, ZDiag *diag) {
   MetaValue value = {0};
   size_t steps = 0;
-  if (!eval_meta_value(program, expr->left, &value, 0, &steps)) {
+  if (!eval_meta_value(ctx, program, expr->left, &value, 0, &steps)) {
     return set_diag_detail(diag, 3035, "unsupported meta expression", expr->line, expr->column, "literal arithmetic, target facts, or type facts within safety limits", "sandboxed meta evaluator rejected this expression or hit a safety limit/cycle", "use deterministic meta expressions such as meta 2 + 2, meta target.pointerWidth, or meta hasField(Shape, \"field\")");
   }
   char text[128];
@@ -3353,10 +3375,10 @@ static void strip_ref_like_type(const char *type, char *out, size_t out_len) {
   }
 }
 
-static bool infer_shape_method_binding(const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len) {
+static bool infer_shape_method_binding(const Program *program, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len) {
   if (!pattern || !actual) return true;
   for (size_t i = 0; i < binding_len; i++) {
-    if (strcmp(bindings[i].name, pattern) == 0) return generic_binding_set(bindings, binding_len, pattern, actual);
+    if (strcmp(bindings[i].name, pattern) == 0) return generic_binding_set(program, bindings, binding_len, pattern, actual);
   }
   const char *generic_names[] = {"Maybe", "Span", "MutSpan", "ref", "mutref", "owned", NULL};
   for (size_t i = 0; generic_names[i]; i++) {
@@ -3368,7 +3390,7 @@ static bool infer_shape_method_binding(const char *pattern, const char *actual, 
         type_has_generic_arg(actual, generic_names[i], &actual_inner, &actual_len)) {
       char *pattern_text = z_strndup(pattern_inner, pattern_len);
       char *actual_text = z_strndup(actual_inner, actual_len);
-      bool ok = infer_shape_method_binding(pattern_text, actual_text, bindings, binding_len);
+      bool ok = infer_shape_method_binding(program, pattern_text, actual_text, bindings, binding_len);
       free(pattern_text);
       free(actual_text);
       return ok;
@@ -3388,7 +3410,7 @@ static bool infer_shape_method_binding(const char *pattern, const char *actual, 
                 type_generic_arg_list(actual, name, &actual_args, &actual_arg_len) &&
                 pattern_arg_len == actual_arg_len;
       for (size_t arg_index = 0; ok && arg_index < pattern_arg_len; arg_index++) {
-        ok = infer_shape_method_binding(pattern_args[arg_index], actual_args[arg_index], bindings, binding_len);
+        ok = infer_shape_method_binding(program, pattern_args[arg_index], actual_args[arg_index], bindings, binding_len);
       }
       free_type_arg_list(pattern_args, pattern_arg_len);
       free_type_arg_list(actual_args, actual_arg_len);
@@ -3404,10 +3426,10 @@ static bool bind_shape_params_from_self(const Program *program, const Shape *sha
   if (!self_type) return true;
   char owner_type[192];
   strip_ref_like_type(self_type, owner_type, sizeof(owner_type));
-  if (shape->type_params.len == 0) return generic_binding_set(bindings, binding_len, "Self", shape->name);
+  if (shape->type_params.len == 0) return generic_binding_set(program, bindings, binding_len, "Self", shape->name);
   char **args = NULL;
   size_t arg_len = 0;
-  if (!type_generic_arg_list(resolve_alias_type(owner_type), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
+  if (!type_generic_arg_list(resolve_alias_type(program, owner_type), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
     free_type_arg_list(args, arg_len);
     return set_diag_detail(diag, 3047, "shape method Self argument has the wrong instantiation", call->line, call->column, "Self instantiated with the declaring generic shape", owner_type, "call the method with a value of the declaring shape type");
   }
@@ -3417,7 +3439,7 @@ static bool bind_shape_params_from_self(const Program *program, const Shape *sha
     if (shape->type_params.items[i].is_static && !value) {
       ok = set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call->line, call->column, static_value_expected_label(program, shape->type_params.items[i].type), args[i], "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
     } else {
-      ok = generic_binding_set(bindings, binding_len, shape->type_params.items[i].name, value);
+      ok = generic_binding_set(program, bindings, binding_len, shape->type_params.items[i].name, value);
     }
     free(value);
   }
@@ -3480,7 +3502,7 @@ static bool build_receiver_shape_method_bindings(CheckContext *ctx, const Progra
     }
     bindings[0].type = shape_concrete_instance_type(shape, bindings, binding_len);
   }
-  if (!infer_shape_method_binding(method->params.items[0].type, self_arg_type, bindings, binding_len)) {
+  if (!infer_shape_method_binding(program, method->params.items[0].type, self_arg_type, bindings, binding_len)) {
     generic_bindings_free(bindings, binding_len);
     free(bindings);
     return set_diag_detail(diag, 3047, "receiver method Self argument conflicts with explicit shape arguments", call->line, call->column, "matching receiver method instantiation", self_arg_type, "use one concrete shape instantiation for the receiver call");
@@ -3488,7 +3510,7 @@ static bool build_receiver_shape_method_bindings(CheckContext *ctx, const Progra
   for (size_t param_index = 1; method && param_index < method->params.len && param_index - 1 < call->args.len; param_index++) {
     if (!method->params.items[param_index].type || !strstr(method->params.items[param_index].type, "Self")) continue;
     const char *actual = expr_type(ctx, program, call->args.items[param_index - 1], scope);
-    if (!infer_shape_method_binding(method->params.items[param_index].type, actual, bindings, binding_len)) {
+    if (!infer_shape_method_binding(program, method->params.items[param_index].type, actual, bindings, binding_len)) {
       generic_bindings_free(bindings, binding_len);
       free(bindings);
       return set_diag_detail(diag, 3047, "receiver method argument conflicts with inferred Self type", call->args.items[param_index - 1]->line, call->args.items[param_index - 1]->column, "one concrete shape instantiation", actual, "make all receiver method arguments use the same shape instantiation");
@@ -3518,7 +3540,7 @@ static bool bind_shape_method_from_expected_self(const Program *program, const S
   if (!program || !shape || !method || !expected || !method->return_type || strcmp(method->return_type, "Self") != 0) return true;
   char **args = NULL;
   size_t arg_len = 0;
-  if (!type_generic_arg_list(resolve_alias_type(expected), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
+  if (!type_generic_arg_list(resolve_alias_type(program, expected), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
     free_type_arg_list(args, arg_len);
     return true;
   }
@@ -3529,13 +3551,13 @@ static bool bind_shape_method_from_expected_self(const Program *program, const S
         free_type_arg_list(args, arg_len);
         return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call->line, call->column, static_value_expected_label(program, shape->type_params.items[i].type), args[i], "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
       }
-      if (!generic_binding_set(bindings, binding_len, shape->type_params.items[i].name, value)) {
+      if (!generic_binding_set(program, bindings, binding_len, shape->type_params.items[i].name, value)) {
         free(value);
         free_type_arg_list(args, arg_len);
         return set_diag_detail(diag, 3047, "expected type conflicts with shape method Self type", call->line, call->column, "one concrete shape instantiation", expected, "use explicit shape method arguments when the expected type conflicts");
       }
       free(value);
-    } else if (!generic_binding_set(bindings, binding_len, shape->type_params.items[i].name, args[i])) {
+    } else if (!generic_binding_set(program, bindings, binding_len, shape->type_params.items[i].name, args[i])) {
       free_type_arg_list(args, arg_len);
       return set_diag_detail(diag, 3047, "expected type conflicts with shape method Self type", call->line, call->column, "one concrete shape instantiation", expected, "use explicit shape method arguments when the expected type conflicts");
     }
@@ -3579,7 +3601,7 @@ static bool build_shape_method_bindings(CheckContext *ctx, const Program *progra
   for (size_t i = 0; method && i < method->params.len && i < call->args.len; i++) {
     if (!method->params.items[i].type || !strstr(method->params.items[i].type, "Self")) continue;
     const char *actual = expr_type(ctx, program, call->args.items[i], scope);
-    if (!infer_shape_method_binding(method->params.items[i].type, actual, bindings, binding_len)) {
+    if (!infer_shape_method_binding(program, method->params.items[i].type, actual, bindings, binding_len)) {
       generic_bindings_free(bindings, binding_len);
       free(bindings);
       return set_diag_detail(diag, 3047, "shape method argument conflicts with inferred Self type", call->args.items[i]->line, call->args.items[i]->column, "one concrete shape instantiation", actual, "make all method arguments use the same shape instantiation");
@@ -4134,7 +4156,7 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
           const Param *field = find_shape_field(shape, expr->text);
           if (field) {
             static char resolved_field_type[160];
-            char *field_type = shape_field_type_for_owner(shape, left_type, field);
+            char *field_type = shape_field_type_for_owner(program, shape, left_type, field);
             snprintf(resolved_field_type, sizeof(resolved_field_type), "%s", field_type);
             free(field_type);
             return resolved_field_type;
@@ -4160,13 +4182,13 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
   return "Unknown";
 }
 
-static bool types_compatible(const char *expected, const char *actual) {
-  expected = resolve_alias_type(expected);
-  actual = resolve_alias_type(actual);
+static bool types_compatible(const Program *program, const char *expected, const char *actual) {
+  expected = resolve_alias_type(program, expected);
+  actual = resolve_alias_type(program, actual);
   if (!expected || strcmp(expected, "Unknown") == 0) return true;
   if (!actual || strcmp(actual, "Unknown") == 0) return true;
   if (strcmp(expected, actual) == 0) return true;
-  if (type_is_const(expected)) return types_compatible(type_strip_const(expected), type_strip_const(actual));
+  if (type_is_const(expected)) return types_compatible(program, type_strip_const(expected), type_strip_const(actual));
   if (type_is_const(actual) && !type_is_const(expected)) return false;
   if (is_int_type(expected) && is_int_type(actual)) return strcmp(expected, actual) == 0;
   if (is_float_type(expected) && is_float_type(actual)) return strcmp(expected, actual) == 0;
@@ -4179,7 +4201,7 @@ static bool types_compatible(const char *expected, const char *actual) {
     bool actual_is_owned = type_has_generic_arg(actual, "owned", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = actual_is_owned ? z_strndup(actual_inner, actual_len) : z_strdup(actual);
-    bool ok = types_compatible(expected_type, actual_type);
+    bool ok = types_compatible(program, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4191,7 +4213,7 @@ static bool types_compatible(const char *expected, const char *actual) {
     if (!actual_close || !actual_close[1]) return false;
     type_has_generic_arg(expected, "Span", &expected_inner, &expected_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
-    bool ok = types_compatible(expected_type, actual_close + 1);
+    bool ok = types_compatible(program, expected_type, actual_close + 1);
     free(expected_type);
     return ok;
   }
@@ -4204,7 +4226,7 @@ static bool types_compatible(const char *expected, const char *actual) {
     type_has_generic_arg(actual, "MutSpan", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = z_strndup(actual_inner, actual_len);
-    bool ok = types_compatible(expected_type, actual_type);
+    bool ok = types_compatible(program, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4218,7 +4240,7 @@ static bool types_compatible(const char *expected, const char *actual) {
     type_has_generic_arg(actual, "mutref", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = z_strndup(actual_inner, actual_len);
-    bool ok = types_compatible(expected_type, actual_type);
+    bool ok = types_compatible(program, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4234,7 +4256,7 @@ static bool types_compatible(const char *expected, const char *actual) {
       type_has_generic_arg(actual, name, &actual_inner, &actual_len);
       char *expected_type = z_strndup(expected_inner, expected_len);
       char *actual_type = z_strndup(actual_inner, actual_len);
-      bool ok = types_compatible(expected_type, actual_type);
+      bool ok = types_compatible(program, expected_type, actual_type);
       free(expected_type);
       free(actual_type);
       return ok;
@@ -4246,15 +4268,15 @@ static bool types_compatible(const char *expected, const char *actual) {
     if (!expected_close || !actual_close) return false;
     char *expected_length = z_strndup(expected + 1, (size_t)(expected_close - expected - 1));
     char *actual_length = z_strndup(actual + 1, (size_t)(actual_close - actual - 1));
-    char *expected_static = canonical_static_arg(current_type_program, expected_length);
-    char *actual_static = canonical_static_arg(current_type_program, actual_length);
+    char *expected_static = canonical_static_arg(program, expected_length);
+    char *actual_static = canonical_static_arg(program, actual_length);
     bool same_length = strcmp(expected_static ? expected_static : expected_length, actual_static ? actual_static : actual_length) == 0;
     free(expected_length);
     free(actual_length);
     free(expected_static);
     free(actual_static);
     if (!same_length) return false;
-    return types_compatible(expected_close + 1, actual_close + 1);
+    return types_compatible(program, expected_close + 1, actual_close + 1);
   }
   const char *expected_open = strchr(expected, '<');
   const char *actual_open = strchr(actual, '<');
@@ -4270,12 +4292,12 @@ static bool types_compatible(const char *expected, const char *actual) {
                 type_generic_arg_list(actual, name, &actual_args, &actual_arg_len) &&
                 expected_arg_len == actual_arg_len;
       for (size_t i = 0; ok && i < expected_arg_len; i++) {
-        char *expected_static = canonical_static_arg(current_type_program, expected_args[i]);
-        char *actual_static = canonical_static_arg(current_type_program, actual_args[i]);
+        char *expected_static = canonical_static_arg(program, expected_args[i]);
+        char *actual_static = canonical_static_arg(program, actual_args[i]);
         if (expected_static || actual_static) {
           ok = expected_static && actual_static && strcmp(expected_static, actual_static) == 0;
         } else {
-          ok = types_compatible(expected_args[i], actual_args[i]);
+          ok = types_compatible(program, expected_args[i], actual_args[i]);
         }
         free(expected_static);
         free(actual_static);
@@ -4290,8 +4312,8 @@ static bool types_compatible(const char *expected, const char *actual) {
 }
 
 static bool type_static_value_mismatch(const Program *program, const char *expected, const char *actual) {
-  expected = resolve_alias_type(expected);
-  actual = resolve_alias_type(actual);
+  expected = resolve_alias_type(program, expected);
+  actual = resolve_alias_type(program, actual);
   if (!expected || !actual) return false;
   const char *wrappers[] = {"ref", "mutref", "owned", "Span", "MutSpan", "Maybe", NULL};
   for (size_t i = 0; wrappers[i]; i++) {
@@ -4432,7 +4454,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           if (!scope_is_mutable(scope, expr->text)) {
             return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with let mut", "immutable array binding", "add mut to the array binding before creating a MutSpan");
           }
-          if (!types_compatible(expected_element, actual_element)) {
+          if (!types_compatible(program, expected_element, actual_element)) {
             return set_diag_detail(diag, 3006, "MutSpan element type does not match array element", expr->line, expr->column, expected_element, actual_element, "use a MutSpan with the same element type as the array");
           }
           set_expr_resolved_type(expr, expected);
@@ -4619,14 +4641,14 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       provenance_scope_snapshot_free(right_after);
       provenance_scope_snapshot_free(before_right);
       const char *fallback_type = expr_type(ctx, program, expr->right, scope);
-      if (!types_compatible(left_type, fallback_type)) {
+      if (!types_compatible(program, left_type, fallback_type)) {
         return set_diag_detail(diag, 3006, "rescue fallback type does not match recovered value", expr->line, expr->column, left_type, fallback_type, "return a fallback value with the same type as the fallible expression");
       }
       set_expr_resolved_type(expr, left_type);
       return true;
     }
     case EXPR_META:
-      return check_meta_expr(program, expr, diag);
+      return check_meta_expr(ctx, program, expr, diag);
     case EXPR_SLICE: {
       if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
       const char *base_type = expr_type(ctx, program, expr->left, scope);
@@ -4674,7 +4696,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           }
           if (item_case->type && expr->args.len == 1) {
             const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-            if (!types_compatible(item_case->type, actual)) return set_diag_detail(diag, 3109, "choice payload type mismatch", expr->args.items[0]->line, expr->args.items[0]->column, item_case->type, actual, "pass a payload value of the declared case type");
+            if (!types_compatible(program, item_case->type, actual)) return set_diag_detail(diag, 3109, "choice payload type mismatch", expr->args.items[0]->line, expr->args.items[0]->column, item_case->type, actual, "pass a payload value of the declared case type");
           }
           return true;
         }
@@ -4700,7 +4722,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(expected_type, actual)) {
+            if (!types_compatible(program, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to method '%s.%s' has incompatible type", i + 1, shape->name, method->name);
               bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -4809,7 +4831,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             char *expected_self = type_substitute_generic(receiver_method->params.items[0].type, receiver_bindings, receiver_binding_len);
-            if (!types_compatible(expected_self, self_arg_type)) {
+            if (!types_compatible(program, expected_self, self_arg_type)) {
               bool ok = set_diag_detail(diag, 3047, "receiver Self type does not match method receiver", receiver->line, receiver->column, expected_self, self_arg_type, "call the method on a receiver with the expected shape instantiation");
               free(expected_self);
               free(self_arg_type);
@@ -4828,7 +4850,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
                 return false;
               }
               const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-              if (!types_compatible(expected_type, actual)) {
+              if (!types_compatible(program, expected_type, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to receiver method '%s.%s' has incompatible type", i + 1, receiver_shape->name, receiver_method->name);
                 bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -4894,7 +4916,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(expected_type, actual)) {
+            if (!types_compatible(program, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to constrained method '%s.%s' has incompatible type", i + 1, interface->name, required->name);
               bool ok = set_diag_detail(diag, 3042, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a value matching the interface method parameter");
@@ -4972,7 +4994,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(expected_type, actual)) {
+            if (!types_compatible(program, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to generic '%s' has incompatible type", i + 1, fun->name);
               bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -5013,7 +5035,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (expr->left && expr->left->kind == EXPR_IDENT) {
           const Function *fun = find_function(program, expr->left->text);
           if (fun && i < fun->params.len && !check_expr_expected(ctx, program, expr->args.items[i], scope, diag, fun->params.items[i].type)) return false;
-          if (fun && i < fun->params.len && !types_compatible(fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope))) {
+          if (fun && i < fun->params.len && !types_compatible(program, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope))) {
             char message[256];
             snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, fun->name);
             return set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope), "pass a compatible value");
@@ -5031,7 +5053,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (expr->args.len != 1) return set_diag_detail(diag, 3004, "World stream write expects one argument", expr->line, expr->column, "world.out.write(text)", "wrong argument count", "pass exactly one String or byte span argument");
         if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "String")) return false;
         const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-        if (!types_compatible("String", actual) && !types_compatible("Span<u8>", actual)) {
+        if (!types_compatible(program, "String", actual) && !types_compatible(program, "Span<u8>", actual)) {
           return set_diag_detail(diag, 3005, "World stream write argument has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "String or Span<u8>", actual, "pass text or a byte span to the stream writer");
         }
         if ((!ctx || ctx->allow_fallible_call == 0)) {
@@ -5116,7 +5138,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.eqlBytes expects Span<T> arguments", expr->line, expr->column, "two Span<T> values", "non-span argument", "pass spans with matching element types");
             }
-            if (!types_compatible(left_element, right_element)) {
+            if (!types_compatible(program, left_element, right_element)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.eqlBytes span element types must match", expr->line, expr->column, left_element, right_element, "compare spans with the same element type");
             }
@@ -5192,7 +5214,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               first_expected = "mutref<File>";
               return_type = "Maybe<usize>";
             }
-            if (!types_compatible(first_expected, file_or_path_type)) {
+            if (!types_compatible(program, first_expected, file_or_path_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.fs.read expects a path or mutable File reference", expr->args.items[0]->line, expr->args.items[0]->column, "String path or mutref<File>", file_or_path_type, "use std.fs.readBytes(path, buffer) for paths or std.fs.read(&mut file, buffer) for file resources");
             }
@@ -5201,7 +5223,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *buf_type = expr_type(ctx, program, expr->args.items[1], scope);
-            if (!types_compatible("MutSpan<u8>", buf_type)) {
+            if (!types_compatible(program, "MutSpan<u8>", buf_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.fs.read expects a mutable byte buffer", expr->args.items[1]->line, expr->args.items[1]->column, "MutSpan<u8>", buf_type, "pass a mutable byte array or MutSpan<u8>");
             }
@@ -5231,7 +5253,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
                 return false;
               }
               const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-              if (expected && !types_compatible(expected, actual)) {
+              if (expected && !types_compatible(program, expected, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, std_name.data);
                 zbuf_free(&std_name);
@@ -5267,7 +5289,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
-            if (!types_compatible(expected, actual)) {
+            if (!types_compatible(program, expected, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument 2 to '%s' has incompatible type", std_name.data);
               zbuf_free(&std_name);
@@ -5297,10 +5319,10 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               char actual_element[128];
               if (span_element_text(expected, expected_element, sizeof(expected_element)) &&
                   fixed_array_type_parts(actual, NULL, 0, actual_element, sizeof(actual_element))) {
-                span_array_arg = types_compatible(expected_element, actual_element);
+                span_array_arg = types_compatible(program, expected_element, actual_element);
               }
             }
-            if (expected && !span_array_arg && !types_compatible(expected, actual)) {
+            if (expected && !span_array_arg && !types_compatible(program, expected, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, std_name.data);
               zbuf_free(&std_name);
@@ -5367,7 +5389,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       if (!check_expr_expected(ctx, program, expr->right, scope, diag, right_expected)) return false;
       const char *right_type = expr_type(ctx, program, expr->right, scope);
       if (comparison) {
-        if (!types_compatible(left_type, right_type)) {
+        if (!types_compatible(program, left_type, right_type)) {
           return set_diag_detail(diag, 3006, "comparison operands must have matching types", expr->line, expr->column, left_type, right_type, "compare values with the same type");
         }
         bool equality = strcmp(expr->text, "==") == 0 || strcmp(expr->text, "!=") == 0;
@@ -5403,7 +5425,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       if (shape->type_params.len > 0) {
         char **args = NULL;
         size_t arg_len = 0;
-        if (!expected_shape_type || !type_generic_arg_list(resolve_alias_type(expected_shape_type), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
+        if (!expected_shape_type || !type_generic_arg_list(resolve_alias_type(program, expected_shape_type), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
           free_type_arg_list(args, arg_len);
           return set_diag_detail(diag, 3034, "generic shape literal requires an explicit annotated type", expr->line, expr->column, "let value: Shape<T> = Shape { ... }", expected ? expected : "untyped shape literal", "add an explicit generic shape type annotation");
         }
@@ -5421,7 +5443,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
             shape_bindings[i].type = canonical_static_arg_for_type(program, args[i], shape->type_params.items[i].type);
             if (!shape_bindings[i].type) {
               const char *open_static_type = scope_type(scope, args[i]);
-              if (open_static_type && types_compatible(shape->type_params.items[i].type, open_static_type) && is_static_value_param_type(program, open_static_type)) shape_bindings[i].type = z_strdup(args[i]);
+              if (open_static_type && types_compatible(program, shape->type_params.items[i].type, open_static_type) && is_static_value_param_type(program, open_static_type)) shape_bindings[i].type = z_strdup(args[i]);
             }
             if (!shape_bindings[i].type) {
               free_type_arg_list(args, arg_len);
@@ -5459,7 +5481,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           return false;
         }
         const char *actual = expr_type(ctx, program, field->value, scope);
-        if (!types_compatible(field_type, actual)) {
+        if (!types_compatible(program, field_type, actual)) {
           char message[256];
           snprintf(message, sizeof(message), "field '%s' has incompatible type", field->name);
           bool ok = set_diag_detail(diag, 3006, message, field->line, field->column, field_type, actual, "initialize the field with a compatible value");
@@ -5488,7 +5510,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
             return false;
           }
           const char *actual = expr_type(ctx, program, shape_field->default_value, scope);
-          if (!types_compatible(field_type, actual)) {
+          if (!types_compatible(program, field_type, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "default for field '%s' has incompatible type", shape_field->name);
             bool ok = set_diag_detail(diag, 3006, message, shape_field->default_value->line, shape_field->default_value->column, field_type, actual, "initialize the field default with a compatible value");
@@ -5570,7 +5592,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, element_expected)) return false;
         if (element_expected) {
           const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-          if (!types_compatible(element_expected, actual)) {
+          if (!types_compatible(program, element_expected, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, element_expected, actual, "use elements whose types match the fixed-array element type");
@@ -5579,7 +5601,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
           if (i == 0) {
             snprintf(inferred_element_type, sizeof(inferred_element_type), "%s", actual ? actual : "Unknown");
-          } else if (!types_compatible(inferred_element_type, actual)) {
+          } else if (!types_compatible(program, inferred_element_type, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, inferred_element_type, actual, "annotate the array or use elements with one inferred element type");
@@ -5683,7 +5705,7 @@ static bool check_lvalue_target(CheckContext *ctx, const Program *program, const
       if (type_is_const(field->type)) {
         return set_diag_detail(diag, 3010, "cannot assign to const field", target->line, target->column, "mutable non-const field", field->type, "remove const from the field type or replace the containing value");
       }
-      char *field_type = shape_field_type_for_owner(shape, shape_type, field);
+      char *field_type = shape_field_type_for_owner(program, shape, shape_type, field);
       snprintf(out_type, out_type_len, "%s", field_type ? field_type : "Unknown");
       free(field_type);
       set_expr_resolved_type(target, out_type);
@@ -5758,10 +5780,10 @@ static bool generic_call_bindings_from_checked_call(CheckContext *ctx, const Pro
 
   bool ok = true;
   if (return_type && callee->return_type) {
-    ok = infer_generic_type_from_pattern(callee, callee->return_type, return_type, bindings, binding_len);
+    ok = infer_generic_type_from_pattern(program, callee, callee->return_type, return_type, bindings, binding_len);
   }
   for (size_t i = 0; ok && i < callee->params.len && i < call->args.len; i++) {
-    ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, expr_type(ctx, program, call->args.items[i], scope), bindings, binding_len);
+    ok = infer_generic_type_from_pattern(program, callee, callee->params.items[i].type, expr_type(ctx, program, call->args.items[i], scope), bindings, binding_len);
   }
   if (!ok) {
     generic_bindings_free(bindings, binding_len);
@@ -5966,7 +5988,7 @@ static bool type_value_provenance_from_place(
     for (size_t i = 0; i < shape->fields.len; i++) {
       const Param *field = &shape->fields.items[i];
       if (!field->name || !field->type) continue;
-      char *field_type = shape_field_type_for_owner(shape, type, field);
+      char *field_type = shape_field_type_for_owner(program, shape, type, field);
       char *next_value_path = origin_path_join(value_path, field->name);
       char *next_root_path = origin_path_join(root_path, field->name);
       if (type_value_provenance_from_place(program, field_type, scope, root, root_scope, next_root_path, next_value_path, origins, depth + 1)) added = true;
@@ -7240,7 +7262,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (!validate_local_type_names(program, fun, scope, stmt->type, diag, stmt->line, stmt->column)) return false;
     if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, stmt->type)) return false;
     const char *actual = expr_type(ctx, program, stmt->expr, scope);
-    if (stmt->type && !types_compatible(stmt->type, actual)) {
+    if (stmt->type && !types_compatible(program, stmt->type, actual)) {
       return set_diag_detail(diag, 3006, "let binding type does not match initializer", stmt->line, stmt->column, stmt->type, actual, "change the annotation or initializer");
     }
     const char *binding_type = stmt->type ? stmt->type : actual;
@@ -7263,7 +7285,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     }
     assignment_provenance_snapshot_restore(scope, &provenance_snapshot);
     const char *actual = expr_type(ctx, program, stmt->expr, scope);
-    if (!types_compatible(expected, actual)) {
+    if (!types_compatible(program, expected, actual)) {
       return set_diag_detail(diag, 3006, "assignment type does not match binding", stmt->line, stmt->column, expected, actual, "assign a compatible value");
     }
     mark_owned_move_if_needed(stmt->expr, scope, expected);
@@ -7308,7 +7330,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
   if (stmt->kind == STMT_RETURN) {
     if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, fun->return_type)) return false;
     const char *actual = stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Void";
-    if (!types_compatible(fun->return_type, actual)) {
+    if (!types_compatible(program, fun->return_type, actual)) {
       return set_diag_detail(diag, 3007, "return type does not match function return type", stmt->line, stmt->column, fun->return_type, actual, "return a value compatible with the function signature");
     }
     if (!check_return_reference_escape(ctx, program, stmt->expr, scope, diag)) return false;
@@ -7386,7 +7408,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (!check_expr_expected(ctx, program, stmt->range_end, scope, diag, is_int_type(start_type) ? start_type : NULL)) return false;
     const char *end_type = expr_type(ctx, program, stmt->range_end, scope);
     if (!is_int_type(start_type) || !is_int_type(end_type)) return set_diag_detail(diag, 3020, "range loop bounds must be integers", stmt->line, stmt->column, "integer-compatible range bounds", "non-integer bound", "use integer start and end expressions");
-    if (!types_compatible(start_type, end_type)) return set_diag_detail(diag, 3020, "range loop bounds must have matching integer types", stmt->line, stmt->column, start_type, end_type, "use matching integer bounds until explicit casts are supported");
+    if (!types_compatible(program, start_type, end_type)) return set_diag_detail(diag, 3020, "range loop bounds must have matching integer types", stmt->line, stmt->column, start_type, end_type, "use matching integer bounds until explicit casts are supported");
     set_stmt_resolved_type(stmt, start_type);
     ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
     Scope body_scope = {.parent = scope};
@@ -7914,10 +7936,8 @@ static bool validate_c_imports(const Program *program, ZDiag *diag) {
 }
 
 bool z_check_program(const Program *program, ZDiag *diag) {
-  meta_cache_free();
-  if (!current_check_target) current_check_target = z_find_target(z_host_target());
-  current_type_program = program;
-  CheckContext check_ctx = {0};
+  meta_cache_free(&default_meta_cache);
+  CheckContext check_ctx = {.program = program, .target = check_context_target(NULL), .meta_cache = &default_meta_cache};
   CheckContext *ctx = &check_ctx;
   const Function *main_fun = NULL;
   bool has_test = false;
@@ -7965,7 +7985,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
       return false;
     }
     const char *actual = expr_type(ctx, program, item->expr, &const_scope);
-    if (declared_type && !types_compatible(declared_type, actual)) {
+    if (declared_type && !types_compatible(program, declared_type, actual)) {
       bool ok = set_diag_detail(diag, 3006, "const initializer type does not match annotation", item->line, item->column, declared_type, actual, "change the literal or update the const annotation");
       scope_free(&const_scope);
       return ok;
