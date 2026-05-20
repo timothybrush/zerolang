@@ -1030,6 +1030,32 @@ assert.match(genericConflictBody.diagnostics[0].message, /generic inference/);
 assert.match(genericConflictBody.diagnostics[0].expected, /one concrete type/);
 assert.match(genericConflictBody.diagnostics[0].actual, /u8/);
 
+const genericStaticShadowConflictJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-shadow-conflict.0"]).catch((error) => error);
+assert.notEqual(genericStaticShadowConflictJson.code, 0);
+const genericStaticShadowConflictBody = JSON.parse(genericStaticShadowConflictJson.stdout);
+assert.equal(genericStaticShadowConflictBody.diagnostics[0].code, "TYP024");
+assert.match(genericStaticShadowConflictBody.diagnostics[0].actual, /ref<\[4\]i32>/);
+
+const genericStaticShadowExplicitJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-shadow-explicit-conflict.0"]).catch((error) => error);
+assert.notEqual(genericStaticShadowExplicitJson.code, 0);
+const genericStaticShadowExplicitBody = JSON.parse(genericStaticShadowExplicitJson.stdout);
+assert.equal(genericStaticShadowExplicitBody.diagnostics[0].code, "TYP001");
+assert.match(genericStaticShadowExplicitBody.diagnostics[0].expected, /ref<\[N\]i32>/);
+assert.match(genericStaticShadowExplicitBody.diagnostics[0].actual, /ref<\[4\]i32>/);
+
+const genericStaticMethodShadowJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-method-shadow-conflict.0"]).catch((error) => error);
+assert.notEqual(genericStaticMethodShadowJson.code, 0);
+const genericStaticMethodShadowBody = JSON.parse(genericStaticMethodShadowJson.stdout);
+assert.equal(genericStaticMethodShadowBody.diagnostics[0].code, "TYP001");
+assert.match(genericStaticMethodShadowBody.diagnostics[0].expected, /ref<\[N\]i32>/);
+assert.match(genericStaticMethodShadowBody.diagnostics[0].actual, /ref<\[4\]i32>/);
+
+const genericTypeParamShadowStaticJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-type-param-shadow-static-arg.0"]).catch((error) => error);
+assert.notEqual(genericTypeParamShadowStaticJson.code, 0);
+const genericTypeParamShadowStaticBody = JSON.parse(genericTypeParamShadowStaticJson.stdout);
+assert.equal(genericTypeParamShadowStaticBody.diagnostics[0].code, "STC002");
+assert.equal(genericTypeParamShadowStaticBody.diagnostics[0].actual, "T");
+
 const genericArgCountJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-type-arg-count.0"]).catch((error) => error);
 assert.notEqual(genericArgCountJson.code, 0);
 const genericArgCountBody = JSON.parse(genericArgCountJson.stdout);

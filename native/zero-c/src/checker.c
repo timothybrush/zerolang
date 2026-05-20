@@ -1862,6 +1862,9 @@ static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
 static bool check_lvalue_target(CheckContext *ctx, const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len);
 static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope);
 static bool types_compatible(const Program *program, const char *expected, const char *actual);
+static bool types_compatible_in_scope(const Program *program, Scope *scope, const char *expected, const char *actual);
+static bool scope_static_param_type(Scope *scope, const char *name, const char **out_type);
+static bool scope_type_name_shadows_static_const(Scope *scope, const char *name);
 static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
 static bool static_type_param_name_known_for_type(const Program *program, const ParamVec *primary, const ParamVec *secondary, const char *name, const char *expected_type);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
@@ -1929,6 +1932,7 @@ static bool apply_checked_call_storage_effects(
   ZDiag *diag
 );
 static char *canonical_static_arg(const Program *program, const char *text);
+static char *canonical_static_arg_for_type(const Program *program, const char *text, const char *type);
 
 static bool function_is_generic(const Function *fun) {
   return fun && fun->type_params.len > 0;
@@ -1960,32 +1964,45 @@ static void resolved_provenance_call_free(ResolvedProvenanceCall *resolved) {
   *resolved = (ResolvedProvenanceCall){0};
 }
 
-static bool generic_binding_values_compatible(const Program *program, const char *bound, const char *next) {
+static bool generic_binding_values_compatible_with_static_context(const Program *program, Scope *scope, const char *static_type, const char *bound, const char *next) {
   if (!next) return false;
-  char *bound_static = canonical_static_arg(program, bound);
-  char *next_static = canonical_static_arg(program, next);
+  const char *bound_param_type = NULL;
+  const char *next_param_type = NULL;
+  bool bound_open = scope_static_param_type(scope, bound, &bound_param_type);
+  bool next_open = scope_static_param_type(scope, next, &next_param_type);
+  if (bound_open || next_open) {
+    if (!bound_open || !next_open) return false;
+    if (static_type && (!types_compatible(program, static_type, bound_param_type) || !types_compatible(program, static_type, next_param_type))) return false;
+    return strcmp(bound, next) == 0;
+  }
+  char *bound_static = static_type ? canonical_static_arg_for_type(program, bound, static_type) : canonical_static_arg(program, bound);
+  char *next_static = static_type ? canonical_static_arg_for_type(program, next, static_type) : canonical_static_arg(program, next);
   bool ok = false;
   if (bound_static || next_static) {
     ok = bound_static && next_static && strcmp(bound_static, next_static) == 0;
   } else {
-    ok = types_compatible(program, bound, next);
+    ok = types_compatible_in_scope(program, scope, bound, next);
   }
   free(bound_static);
   free(next_static);
   return ok;
 }
 
-static bool generic_binding_set(const Program *program, GenericBinding *bindings, size_t len, const char *name, const char *type) {
+static bool generic_binding_set_with_static_context(const Program *program, Scope *scope, const char *static_type, GenericBinding *bindings, size_t len, const char *name, const char *type) {
   for (size_t i = 0; i < len; i++) {
     if (strcmp(bindings[i].name, name) == 0) {
       if (!bindings[i].type) {
         bindings[i].type = z_strdup(type ? type : "Unknown");
         return true;
       }
-      return generic_binding_values_compatible(program, bindings[i].type, type);
+      return generic_binding_values_compatible_with_static_context(program, scope, static_type, bindings[i].type, type);
     }
   }
   return true;
+}
+
+static bool generic_binding_set(const Program *program, GenericBinding *bindings, size_t len, const char *name, const char *type) {
+  return generic_binding_set_with_static_context(program, NULL, NULL, bindings, len, name, type);
 }
 
 static char *type_substitute_generic(const char *type, GenericBinding *bindings, size_t binding_len);
@@ -2418,16 +2435,27 @@ static char *canonical_static_arg_for_type(const Program *program, const char *t
   return static_value_canonical_text(&value);
 }
 
-static bool scope_static_param_matches_type(const Program *program, Scope *scope, const char *name, const char *expected_type) {
+static bool scope_static_param_type(Scope *scope, const char *name, const char **out_type) {
   if (!scope || !name) return false;
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->len; i++) {
       if (!cursor->is_static_param || !cursor->is_static_param[i]) continue;
       if (!cursor->names[i] || strcmp(cursor->names[i], name) != 0) continue;
-      return types_compatible(program, expected_type ? expected_type : "usize", cursor->types[i] ? cursor->types[i] : "usize");
+      if (out_type) *out_type = cursor->types[i] ? cursor->types[i] : "usize";
+      return true;
     }
   }
   return false;
+}
+
+static char *canonical_static_arg_for_type_in_scope(const Program *program, Scope *scope, const char *text, const char *type) {
+  const char *actual_type = NULL;
+  if (scope_static_param_type(scope, text, &actual_type)) {
+    if (!types_compatible(program, type ? type : "usize", actual_type ? actual_type : "usize")) return NULL;
+    return z_strdup(text);
+  }
+  if (scope_type_name_shadows_static_const(scope, text)) return NULL;
+  return canonical_static_arg_for_type(program, text, type);
 }
 
 static bool normalize_static_bindings(const Program *program, const Function *fun, Scope *scope, const Expr *call, ZDiag *diag, GenericBinding *bindings, size_t binding_len) {
@@ -2438,8 +2466,7 @@ static bool normalize_static_bindings(const Program *program, const Function *fu
     if (!is_static_value_param_type(program, param->type)) {
       return set_diag_detail(diag, 3043, "static value parameter type is not supported", param->line, param->column, "integer, Bool, or enum static parameter", param->type ? param->type : "Unknown", "use a concrete integer, Bool, or enum type for this static parameter");
     }
-    if (scope_static_param_matches_type(program, scope, bindings[i].type, param->type)) continue;
-    char *canonical = canonical_static_arg_for_type(program, bindings[i].type, param->type);
+    char *canonical = canonical_static_arg_for_type_in_scope(program, scope, bindings[i].type, param->type);
     if (!canonical) {
       return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call ? call->line : param->line, call ? call->column : param->column, static_value_expected_label(program, param->type), bindings[i].type ? bindings[i].type : "Unknown", "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
     }
@@ -2737,7 +2764,7 @@ static char *unify_binding_text(const ZTypeArena *arena, const ZUnifyBinding *bi
   return z_type_format(arena, binding->type);
 }
 
-static bool apply_unify_trace_to_generic_bindings(const Program *program, const Function *fun, const ZTypeArena *arena, const ZUnifyTrace *trace, GenericBinding *bindings, size_t binding_len) {
+static bool apply_unify_trace_to_generic_bindings(const Program *program, const Function *fun, Scope *scope, const ZTypeArena *arena, const ZUnifyTrace *trace, GenericBinding *bindings, size_t binding_len) {
   if (!function_is_generic(fun)) return true;
   for (size_t i = 0; i < fun->type_params.len && i < binding_len; i++) {
     const Param *param = &fun->type_params.items[i];
@@ -2745,7 +2772,7 @@ static bool apply_unify_trace_to_generic_bindings(const Program *program, const 
     const ZUnifyBinding *binding = z_unify_trace_lookup(trace, (ZTypeBinderId)(i + 1), kind);
     if (!binding) continue;
     char *value = unify_binding_text(arena, binding);
-    bool ok = value && generic_binding_set(program, bindings, binding_len, param->name, value);
+    bool ok = value && generic_binding_set_with_static_context(program, scope, param->is_static ? (param->type ? param->type : "usize") : NULL, bindings, binding_len, param->name, value);
     free(value);
     if (!ok) return false;
   }
@@ -2814,7 +2841,7 @@ static bool infer_generic_type_from_pattern_type_core(const Program *program, co
   bool ok = z_type_parse_with_binders(&arena, pattern, &pattern_scope, &pattern_type, &error) &&
             z_type_parse_with_binders(&arena, actual, &actual_type_scope, &actual_type, &error) &&
             z_type_unify(&arena, pattern_type, actual_type, &trace) &&
-            apply_unify_trace_to_generic_bindings(program, fun, &arena, &trace, bindings, binding_len);
+            apply_unify_trace_to_generic_bindings(program, fun, actual_scope, &arena, &trace, bindings, binding_len);
   z_unify_trace_free(&trace);
   z_type_arena_free(&arena);
   free(actual_decls);
@@ -3732,13 +3759,13 @@ typedef struct {
   const char *static_type;
 } TypeCoreInferenceBinder;
 
-static bool generic_binding_set_at(const Program *program, GenericBinding *bindings, size_t len, size_t index, const char *type) {
+static bool generic_binding_set_at_with_static_context(const Program *program, Scope *scope, const char *static_type, GenericBinding *bindings, size_t len, size_t index, const char *type) {
   if (!bindings || index >= len) return true;
   if (!bindings[index].type) {
     bindings[index].type = z_strdup(type ? type : "Unknown");
     return true;
   }
-  return generic_binding_values_compatible(program, bindings[index].type, type);
+  return generic_binding_values_compatible_with_static_context(program, scope, static_type, bindings[index].type, type);
 }
 
 static bool type_pattern_references_inference_binder(GenericBinding *bindings, size_t binding_len, const TypeCoreInferenceBinder *binders, size_t binder_len, const char *pattern) {
@@ -3799,7 +3826,7 @@ static bool seed_type_core_existing_generic_bindings(ZTypeArena *arena, const ZT
   return true;
 }
 
-static bool apply_type_core_inference_trace(const Program *program, const ZTypeArena *arena, const ZUnifyTrace *trace, GenericBinding *bindings, size_t binding_len, const TypeCoreInferenceBinder *binders, size_t binder_len) {
+static bool apply_type_core_inference_trace(const Program *program, Scope *scope, const ZTypeArena *arena, const ZUnifyTrace *trace, GenericBinding *bindings, size_t binding_len, const TypeCoreInferenceBinder *binders, size_t binder_len) {
   if (!bindings || !trace) return true;
   for (size_t i = 0; i < binder_len; i++) {
     size_t binding_index = binders[i].binding_index;
@@ -3808,7 +3835,7 @@ static bool apply_type_core_inference_trace(const Program *program, const ZTypeA
     const ZUnifyBinding *binding = z_unify_trace_lookup(trace, binders[i].id, kind);
     if (!binding) continue;
     char *value = unify_binding_text(arena, binding);
-    bool ok = value && generic_binding_set_at(program, bindings, binding_len, binding_index, value);
+    bool ok = value && generic_binding_set_at_with_static_context(program, scope, binders[i].is_static ? (binders[i].static_type ? binders[i].static_type : "usize") : NULL, bindings, binding_len, binding_index, value);
     free(value);
     if (!ok) return false;
   }
@@ -3839,7 +3866,7 @@ static bool infer_type_core_bindings(const Program *program, Scope *actual_scope
             z_type_parse_with_binders(&arena, pattern, &pattern_scope, &pattern_type, &error) &&
             z_type_parse_with_binders(&arena, actual, &actual_type_scope, &actual_type, &error) &&
             z_type_unify(&arena, pattern_type, actual_type, &trace) &&
-            apply_type_core_inference_trace(program, &arena, &trace, bindings, binding_len, binders, binder_len);
+            apply_type_core_inference_trace(program, actual_scope, &arena, &trace, bindings, binding_len, binders, binder_len);
   z_unify_trace_free(&trace);
   z_type_arena_free(&arena);
   free(actual_decls);
@@ -3905,11 +3932,7 @@ static bool bind_type_arg_to_param(const Program *program, Scope *scope, const P
     if (!is_static_value_param_type(program, static_type)) {
       return set_diag_detail(diag, 3043, "static value parameter type is not supported", param->line, param->column, "integer, Bool, or enum static parameter", static_type, "use a concrete integer, Bool, or enum type for this static parameter");
     }
-    if (scope_static_param_matches_type(program, scope, arg->type, static_type)) {
-      binding->type = z_strdup(arg->type);
-      return true;
-    }
-    binding->type = canonical_static_arg_for_type(program, arg->type, static_type);
+    binding->type = canonical_static_arg_for_type_in_scope(program, scope, arg->type, static_type);
     if (!binding->type) {
       return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call ? call->line : arg->line, call ? call->column : arg->column, static_value_expected_label(program, static_type), arg->type ? arg->type : "Unknown", "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
     }
@@ -3942,8 +3965,7 @@ static bool finish_type_param_bindings(const Program *program, Scope *scope, con
     if (!is_static_value_param_type(program, static_type)) {
       return set_diag_detail(diag, 3043, "static value parameter type is not supported", param->line, param->column, "integer, Bool, or enum static parameter", static_type, "use a concrete integer, Bool, or enum type for this static parameter");
     }
-    if (scope_static_param_matches_type(program, scope, binding->type, static_type)) continue;
-    char *canonical = canonical_static_arg_for_type(program, binding->type, static_type);
+    char *canonical = canonical_static_arg_for_type_in_scope(program, scope, binding->type, static_type);
     if (!canonical) {
       return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call ? call->line : param->line, call ? call->column : param->column, static_value_expected_label(program, static_type), binding->type ? binding->type : "Unknown", "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
     }
@@ -3999,15 +4021,14 @@ static bool bind_shape_params_from_self(const Program *program, Scope *scope, co
     char *value = NULL;
     if (shape->type_params.items[i].is_static) {
       const char *static_type = shape->type_params.items[i].type ? shape->type_params.items[i].type : "usize";
-      if (scope_static_param_matches_type(program, scope, args[i], static_type)) value = z_strdup(args[i]);
-      else value = canonical_static_arg_for_type(program, args[i], static_type);
+      value = canonical_static_arg_for_type_in_scope(program, scope, args[i], static_type);
     } else {
       value = z_strdup(args[i]);
     }
     if (!value) {
       ok = set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call->line, call->column, static_value_expected_label(program, shape->type_params.items[i].type), args[i], "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
     } else {
-      ok = generic_binding_set(program, bindings, binding_len, shape->type_params.items[i].name, value);
+      ok = generic_binding_set_with_static_context(program, scope, shape->type_params.items[i].is_static ? (shape->type_params.items[i].type ? shape->type_params.items[i].type : "usize") : NULL, bindings, binding_len, shape->type_params.items[i].name, value);
     }
     free(value);
   }
@@ -4118,14 +4139,12 @@ static bool bind_shape_method_from_expected_self(const Program *program, Scope *
   for (size_t i = 0; i < shape->type_params.len; i++) {
     if (shape->type_params.items[i].is_static) {
       const char *static_type = shape->type_params.items[i].type ? shape->type_params.items[i].type : "usize";
-      char *value = scope_static_param_matches_type(program, scope, args[i], static_type)
-        ? z_strdup(args[i])
-        : canonical_static_arg_for_type(program, args[i], static_type);
+      char *value = canonical_static_arg_for_type_in_scope(program, scope, args[i], static_type);
       if (!value) {
         free_type_arg_list(args, arg_len);
         return set_diag_detail(diag, 3044, "static value argument must be deterministic and concrete", call->line, call->column, static_value_expected_label(program, shape->type_params.items[i].type), args[i], "pass an explicit literal, top-level const, or supported meta value with the static parameter type");
       }
-      if (!generic_binding_set(program, bindings, binding_len, shape->type_params.items[i].name, value)) {
+      if (!generic_binding_set_with_static_context(program, scope, static_type, bindings, binding_len, shape->type_params.items[i].name, value)) {
         free(value);
         free_type_arg_list(args, arg_len);
         return set_diag_detail(diag, 3047, "expected type conflicts with shape method Self type", call->line, call->column, "one concrete shape instantiation", expected, "use explicit shape method arguments when the expected type conflicts");
@@ -4878,13 +4897,36 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
   return "Unknown";
 }
 
-static bool types_compatible(const Program *program, const char *expected, const char *actual) {
+static bool static_arg_texts_match_in_scope(const Program *program, Scope *scope, const char *expected, const char *actual) {
+  const char *expected_open_type = NULL;
+  const char *actual_open_type = NULL;
+  bool expected_open = scope_static_param_type(scope, expected, &expected_open_type);
+  bool actual_open = scope_static_param_type(scope, actual, &actual_open_type);
+  if (expected_open || actual_open) {
+    return expected_open && actual_open &&
+           types_compatible(program, expected_open_type, actual_open_type) &&
+           strcmp(expected, actual) == 0;
+  }
+  bool expected_type_shadow = scope_type_name_shadows_static_const(scope, expected);
+  bool actual_type_shadow = scope_type_name_shadows_static_const(scope, actual);
+  if (expected_type_shadow || actual_type_shadow) {
+    return expected_type_shadow && actual_type_shadow && strcmp(expected, actual) == 0;
+  }
+  char *expected_static = canonical_static_arg(program, expected);
+  char *actual_static = canonical_static_arg(program, actual);
+  bool ok = strcmp(expected_static ? expected_static : expected, actual_static ? actual_static : actual) == 0;
+  free(expected_static);
+  free(actual_static);
+  return ok;
+}
+
+static bool types_compatible_in_scope(const Program *program, Scope *scope, const char *expected, const char *actual) {
   expected = resolve_alias_type(program, expected);
   actual = resolve_alias_type(program, actual);
   if (!expected || strcmp(expected, "Unknown") == 0) return true;
   if (!actual || strcmp(actual, "Unknown") == 0) return true;
   if (strcmp(expected, actual) == 0) return true;
-  if (type_is_const(expected)) return types_compatible(program, type_strip_const(expected), type_strip_const(actual));
+  if (type_is_const(expected)) return types_compatible_in_scope(program, scope, type_strip_const(expected), type_strip_const(actual));
   if (type_is_const(actual) && !type_is_const(expected)) return false;
   if (is_int_type(expected) && is_int_type(actual)) return strcmp(expected, actual) == 0;
   if (is_float_type(expected) && is_float_type(actual)) return strcmp(expected, actual) == 0;
@@ -4897,7 +4939,7 @@ static bool types_compatible(const Program *program, const char *expected, const
     bool actual_is_owned = type_has_generic_arg(actual, "owned", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = actual_is_owned ? z_strndup(actual_inner, actual_len) : z_strdup(actual);
-    bool ok = types_compatible(program, expected_type, actual_type);
+    bool ok = types_compatible_in_scope(program, scope, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4909,7 +4951,7 @@ static bool types_compatible(const Program *program, const char *expected, const
     if (!actual_close || !actual_close[1]) return false;
     type_has_generic_arg(expected, "Span", &expected_inner, &expected_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
-    bool ok = types_compatible(program, expected_type, actual_close + 1);
+    bool ok = types_compatible_in_scope(program, scope, expected_type, actual_close + 1);
     free(expected_type);
     return ok;
   }
@@ -4922,7 +4964,7 @@ static bool types_compatible(const Program *program, const char *expected, const
     type_has_generic_arg(actual, "MutSpan", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = z_strndup(actual_inner, actual_len);
-    bool ok = types_compatible(program, expected_type, actual_type);
+    bool ok = types_compatible_in_scope(program, scope, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4936,7 +4978,7 @@ static bool types_compatible(const Program *program, const char *expected, const
     type_has_generic_arg(actual, "mutref", &actual_inner, &actual_len);
     char *expected_type = z_strndup(expected_inner, expected_len);
     char *actual_type = z_strndup(actual_inner, actual_len);
-    bool ok = types_compatible(program, expected_type, actual_type);
+    bool ok = types_compatible_in_scope(program, scope, expected_type, actual_type);
     free(expected_type);
     free(actual_type);
     return ok;
@@ -4952,7 +4994,7 @@ static bool types_compatible(const Program *program, const char *expected, const
       type_has_generic_arg(actual, name, &actual_inner, &actual_len);
       char *expected_type = z_strndup(expected_inner, expected_len);
       char *actual_type = z_strndup(actual_inner, actual_len);
-      bool ok = types_compatible(program, expected_type, actual_type);
+      bool ok = types_compatible_in_scope(program, scope, expected_type, actual_type);
       free(expected_type);
       free(actual_type);
       return ok;
@@ -4964,15 +5006,11 @@ static bool types_compatible(const Program *program, const char *expected, const
     if (!expected_close || !actual_close) return false;
     char *expected_length = z_strndup(expected + 1, (size_t)(expected_close - expected - 1));
     char *actual_length = z_strndup(actual + 1, (size_t)(actual_close - actual - 1));
-    char *expected_static = canonical_static_arg(program, expected_length);
-    char *actual_static = canonical_static_arg(program, actual_length);
-    bool same_length = strcmp(expected_static ? expected_static : expected_length, actual_static ? actual_static : actual_length) == 0;
+    bool same_length = static_arg_texts_match_in_scope(program, scope, expected_length, actual_length);
     free(expected_length);
     free(actual_length);
-    free(expected_static);
-    free(actual_static);
     if (!same_length) return false;
-    return types_compatible(program, expected_close + 1, actual_close + 1);
+    return types_compatible_in_scope(program, scope, expected_close + 1, actual_close + 1);
   }
   const char *expected_open = strchr(expected, '<');
   const char *actual_open = strchr(actual, '<');
@@ -4988,12 +5026,16 @@ static bool types_compatible(const Program *program, const char *expected, const
                 type_generic_arg_list(actual, name, &actual_args, &actual_arg_len) &&
                 expected_arg_len == actual_arg_len;
       for (size_t i = 0; ok && i < expected_arg_len; i++) {
-        char *expected_static = canonical_static_arg(program, expected_args[i]);
-        char *actual_static = canonical_static_arg(program, actual_args[i]);
-        if (expected_static || actual_static) {
-          ok = expected_static && actual_static && strcmp(expected_static, actual_static) == 0;
+        bool expected_open_static = scope_static_param_type(scope, expected_args[i], NULL);
+        bool actual_open_static = scope_static_param_type(scope, actual_args[i], NULL);
+        bool expected_type_shadow = scope_type_name_shadows_static_const(scope, expected_args[i]);
+        bool actual_type_shadow = scope_type_name_shadows_static_const(scope, actual_args[i]);
+        char *expected_static = (expected_open_static || expected_type_shadow) ? NULL : canonical_static_arg(program, expected_args[i]);
+        char *actual_static = (actual_open_static || actual_type_shadow) ? NULL : canonical_static_arg(program, actual_args[i]);
+        if (expected_open_static || actual_open_static || expected_type_shadow || actual_type_shadow || expected_static || actual_static) {
+          ok = static_arg_texts_match_in_scope(program, scope, expected_args[i], actual_args[i]);
         } else {
-          ok = types_compatible(program, expected_args[i], actual_args[i]);
+          ok = types_compatible_in_scope(program, scope, expected_args[i], actual_args[i]);
         }
         free(expected_static);
         free(actual_static);
@@ -5005,6 +5047,10 @@ static bool types_compatible(const Program *program, const char *expected, const
     }
   }
   return false;
+}
+
+static bool types_compatible(const Program *program, const char *expected, const char *actual) {
+  return types_compatible_in_scope(program, NULL, expected, actual);
 }
 
 static bool type_static_value_mismatch(const Program *program, const char *expected, const char *actual) {
@@ -5152,7 +5198,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           if (!scope_is_mutable(scope, expr->text)) {
             return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with let mut", "immutable array binding", "add mut to the array binding before creating a MutSpan");
           }
-          if (!types_compatible(program, expected_element, actual_element)) {
+          if (!types_compatible_in_scope(program, scope, expected_element, actual_element)) {
             return set_diag_detail(diag, 3006, "MutSpan element type does not match array element", expr->line, expr->column, expected_element, actual_element, "use a MutSpan with the same element type as the array");
           }
           set_expr_resolved_type(expr, expected);
@@ -5339,7 +5385,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       provenance_scope_snapshot_free(right_after);
       provenance_scope_snapshot_free(before_right);
       const char *fallback_type = expr_type(ctx, program, expr->right, scope);
-      if (!types_compatible(program, left_type, fallback_type)) {
+      if (!types_compatible_in_scope(program, scope, left_type, fallback_type)) {
         return set_diag_detail(diag, 3006, "rescue fallback type does not match recovered value", expr->line, expr->column, left_type, fallback_type, "return a fallback value with the same type as the fallible expression");
       }
       set_expr_resolved_type(expr, left_type);
@@ -5394,7 +5440,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           }
           if (item_case->type && expr->args.len == 1) {
             const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-            if (!types_compatible(program, item_case->type, actual)) return set_diag_detail(diag, 3109, "choice payload type mismatch", expr->args.items[0]->line, expr->args.items[0]->column, item_case->type, actual, "pass a payload value of the declared case type");
+            if (!types_compatible_in_scope(program, scope, item_case->type, actual)) return set_diag_detail(diag, 3109, "choice payload type mismatch", expr->args.items[0]->line, expr->args.items[0]->column, item_case->type, actual, "pass a payload value of the declared case type");
           }
           return true;
         }
@@ -5420,7 +5466,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(program, expected_type, actual)) {
+            if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to method '%s.%s' has incompatible type", i + 1, shape->name, method->name);
               bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -5529,7 +5575,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             char *expected_self = type_substitute_generic(receiver_method->params.items[0].type, receiver_bindings, receiver_binding_len);
-            if (!types_compatible(program, expected_self, self_arg_type)) {
+            if (!types_compatible_in_scope(program, scope, expected_self, self_arg_type)) {
               bool ok = set_diag_detail(diag, 3047, "receiver Self type does not match method receiver", receiver->line, receiver->column, expected_self, self_arg_type, "call the method on a receiver with the expected shape instantiation");
               free(expected_self);
               free(self_arg_type);
@@ -5548,7 +5594,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
                 return false;
               }
               const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-              if (!types_compatible(program, expected_type, actual)) {
+              if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to receiver method '%s.%s' has incompatible type", i + 1, receiver_shape->name, receiver_method->name);
                 bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -5608,7 +5654,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(program, expected_type, actual)) {
+            if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to constrained method '%s.%s' has incompatible type", i + 1, interface->name, required->name);
               bool ok = set_diag_detail(diag, 3042, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a value matching the interface method parameter");
@@ -5682,7 +5728,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-            if (!types_compatible(program, expected_type, actual)) {
+            if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to generic '%s' has incompatible type", i + 1, fun->name);
               bool ok = type_static_value_mismatch(program, expected_type, actual)
@@ -5723,7 +5769,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (expr->left && expr->left->kind == EXPR_IDENT) {
           const Function *fun = find_function(program, expr->left->text);
           if (fun && i < fun->params.len && !check_expr_expected(ctx, program, expr->args.items[i], scope, diag, fun->params.items[i].type)) return false;
-          if (fun && i < fun->params.len && !types_compatible(program, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope))) {
+          if (fun && i < fun->params.len && !types_compatible_in_scope(program, scope, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope))) {
             char message[256];
             snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, fun->name);
             return set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope), "pass a compatible value");
@@ -5741,7 +5787,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (expr->args.len != 1) return set_diag_detail(diag, 3004, "World stream write expects one argument", expr->line, expr->column, "world.out.write(text)", "wrong argument count", "pass exactly one String or byte span argument");
         if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "String")) return false;
         const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-        if (!types_compatible(program, "String", actual) && !types_compatible(program, "Span<u8>", actual)) {
+        if (!types_compatible_in_scope(program, scope, "String", actual) && !types_compatible_in_scope(program, scope, "Span<u8>", actual)) {
           return set_diag_detail(diag, 3005, "World stream write argument has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "String or Span<u8>", actual, "pass text or a byte span to the stream writer");
         }
         if ((!ctx || ctx->allow_fallible_call == 0)) {
@@ -5826,7 +5872,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.eqlBytes expects Span<T> arguments", expr->line, expr->column, "two Span<T> values", "non-span argument", "pass spans with matching element types");
             }
-            if (!types_compatible(program, left_element, right_element)) {
+            if (!types_compatible_in_scope(program, scope, left_element, right_element)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.eqlBytes span element types must match", expr->line, expr->column, left_element, right_element, "compare spans with the same element type");
             }
@@ -5941,7 +5987,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
                 return false;
               }
               const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-              if (expected && !types_compatible(program, expected, actual)) {
+              if (expected && !types_compatible_in_scope(program, scope, expected, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, std_name.data);
                 zbuf_free(&std_name);
@@ -5977,7 +6023,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               return false;
             }
             const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
-            if (!types_compatible(program, expected, actual)) {
+            if (!types_compatible_in_scope(program, scope, expected, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument 2 to '%s' has incompatible type", std_name.data);
               zbuf_free(&std_name);
@@ -6007,10 +6053,10 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               char actual_element[128];
               if (span_element_text(expected, expected_element, sizeof(expected_element)) &&
                   fixed_array_type_parts(actual, NULL, 0, actual_element, sizeof(actual_element))) {
-                span_array_arg = types_compatible(program, expected_element, actual_element);
+                span_array_arg = types_compatible_in_scope(program, scope, expected_element, actual_element);
               }
             }
-            if (expected && !span_array_arg && !types_compatible(program, expected, actual)) {
+            if (expected && !span_array_arg && !types_compatible_in_scope(program, scope, expected, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, std_name.data);
               zbuf_free(&std_name);
@@ -6077,7 +6123,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       if (!check_expr_expected(ctx, program, expr->right, scope, diag, right_expected)) return false;
       const char *right_type = expr_type(ctx, program, expr->right, scope);
       if (comparison) {
-        if (!types_compatible(program, left_type, right_type)) {
+        if (!types_compatible_in_scope(program, scope, left_type, right_type)) {
           return set_diag_detail(diag, 3006, "comparison operands must have matching types", expr->line, expr->column, left_type, right_type, "compare values with the same type");
         }
         bool equality = strcmp(expr->text, "==") == 0 || strcmp(expr->text, "!=") == 0;
@@ -6128,11 +6174,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
               free(shape_bindings);
               return set_diag_detail(diag, 3043, "static value parameter type is not supported", shape->type_params.items[i].line, shape->type_params.items[i].column, "integer, Bool, or enum static parameter", shape->type_params.items[i].type, "use a concrete integer, Bool, or enum type for this static parameter");
             }
-            shape_bindings[i].type = canonical_static_arg_for_type(program, args[i], shape->type_params.items[i].type);
-            if (!shape_bindings[i].type) {
-              const char *open_static_type = scope_type(scope, args[i]);
-              if (open_static_type && types_compatible(program, shape->type_params.items[i].type, open_static_type) && is_static_value_param_type(program, open_static_type)) shape_bindings[i].type = z_strdup(args[i]);
-            }
+            shape_bindings[i].type = canonical_static_arg_for_type_in_scope(program, scope, args[i], shape->type_params.items[i].type);
             if (!shape_bindings[i].type) {
               free_type_arg_list(args, arg_len);
               generic_bindings_free(shape_bindings, shape_binding_len);
@@ -6169,7 +6211,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           return false;
         }
         const char *actual = expr_type(ctx, program, field->value, scope);
-        if (!types_compatible(program, field_type, actual)) {
+        if (!types_compatible_in_scope(program, scope, field_type, actual)) {
           char message[256];
           snprintf(message, sizeof(message), "field '%s' has incompatible type", field->name);
           bool ok = set_diag_detail(diag, 3006, message, field->line, field->column, field_type, actual, "initialize the field with a compatible value");
@@ -6198,7 +6240,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
             return false;
           }
           const char *actual = expr_type(ctx, program, shape_field->default_value, scope);
-          if (!types_compatible(program, field_type, actual)) {
+          if (!types_compatible_in_scope(program, scope, field_type, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "default for field '%s' has incompatible type", shape_field->name);
             bool ok = set_diag_detail(diag, 3006, message, shape_field->default_value->line, shape_field->default_value->column, field_type, actual, "initialize the field default with a compatible value");
@@ -6259,19 +6301,14 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         const char *close = strchr(expected, ']');
         if (close && close[1]) {
           snprintf(expected_len_text, sizeof(expected_len_text), "%.*s", (int)(close - expected - 1), expected + 1);
-          char *expected_static = canonical_static_arg(program, expected_len_text);
-          bool length_ok = false;
-          if (expected_static) length_ok = strcmp(expected_static, actual_len_text) == 0;
-          else length_ok = strcmp(expected_len_text, actual_len_text) == 0;
+          bool length_ok = static_arg_texts_match_in_scope(program, scope, expected_len_text, actual_len_text);
           if (!length_ok) {
             char actual_detail[128];
             if (expr->array_repeat) snprintf(actual_detail, sizeof(actual_detail), "repeat count %s", actual_len_text);
             else snprintf(actual_detail, sizeof(actual_detail), "%zu element(s)", expr->args.len);
             bool ok = set_diag_detail(diag, 3006, "array literal length does not match expected fixed array", expr->line, expr->column, expected, actual_detail, "add or remove elements so the array literal length matches its fixed-array type");
-            free(expected_static);
             return ok;
           }
-          free(expected_static);
           element_expected = close + 1;
         }
       }
@@ -6280,7 +6317,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, element_expected)) return false;
         if (element_expected) {
           const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-          if (!types_compatible(program, element_expected, actual)) {
+          if (!types_compatible_in_scope(program, scope, element_expected, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, element_expected, actual, "use elements whose types match the fixed-array element type");
@@ -6289,7 +6326,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
           const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
           if (i == 0) {
             snprintf(inferred_element_type, sizeof(inferred_element_type), "%s", actual ? actual : "Unknown");
-          } else if (!types_compatible(program, inferred_element_type, actual)) {
+          } else if (!types_compatible_in_scope(program, scope, inferred_element_type, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, inferred_element_type, actual, "annotate the array or use elements with one inferred element type");
@@ -7949,7 +7986,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (!validate_local_type_names(program, fun, scope, stmt->type, diag, stmt->line, stmt->column)) return false;
     if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, stmt->type)) return false;
     const char *actual = expr_type(ctx, program, stmt->expr, scope);
-    if (stmt->type && !types_compatible(program, stmt->type, actual)) {
+    if (stmt->type && !types_compatible_in_scope(program, scope, stmt->type, actual)) {
       return set_diag_detail(diag, 3006, "let binding type does not match initializer", stmt->line, stmt->column, stmt->type, actual, "change the annotation or initializer");
     }
     const char *binding_type = stmt->type ? stmt->type : actual;
@@ -7972,7 +8009,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     }
     assignment_provenance_snapshot_restore(scope, &provenance_snapshot);
     const char *actual = expr_type(ctx, program, stmt->expr, scope);
-    if (!types_compatible(program, expected, actual)) {
+    if (!types_compatible_in_scope(program, scope, expected, actual)) {
       return set_diag_detail(diag, 3006, "assignment type does not match binding", stmt->line, stmt->column, expected, actual, "assign a compatible value");
     }
     mark_owned_move_if_needed(stmt->expr, scope, expected);
@@ -8017,7 +8054,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
   if (stmt->kind == STMT_RETURN) {
     if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, fun->return_type)) return false;
     const char *actual = stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Void";
-    if (!types_compatible(program, fun->return_type, actual)) {
+    if (!types_compatible_in_scope(program, scope, fun->return_type, actual)) {
       return set_diag_detail(diag, 3007, "return type does not match function return type", stmt->line, stmt->column, fun->return_type, actual, "return a value compatible with the function signature");
     }
     if (!check_return_reference_escape(ctx, program, stmt->expr, scope, diag)) return false;
@@ -8815,7 +8852,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
       return false;
     }
     const char *actual = expr_type(ctx, program, item->expr, &const_scope);
-    if (declared_type && !types_compatible(program, declared_type, actual)) {
+    if (declared_type && !types_compatible_in_scope(program, &const_scope, declared_type, actual)) {
       bool ok = set_diag_detail(diag, 3006, "const initializer type does not match annotation", item->line, item->column, declared_type, actual, "change the literal or update the const annotation");
       scope_free(&const_scope);
       return ok;
