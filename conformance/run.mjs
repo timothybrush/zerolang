@@ -396,6 +396,7 @@ for (const fixture of [
   "conformance/check/pass/generic-array-inference.0",
   "conformance/check/pass/generic-static-forwarding.0",
   "conformance/check/pass/generic-static-method-forwarding.0",
+  "conformance/check/pass/generic-static-return-substitution.0",
   "conformance/check/pass/generic-untyped-static-const-inference.0",
   "conformance/check/pass/generic-const-shadowing.0",
   "conformance/check/pass/generic-const-type-name-collision.0",
@@ -1044,15 +1045,15 @@ const genericStaticShadowExplicitJson = await execFileAsync(zero, ["check", "--j
 assert.notEqual(genericStaticShadowExplicitJson.code, 0);
 const genericStaticShadowExplicitBody = JSON.parse(genericStaticShadowExplicitJson.stdout);
 assert.equal(genericStaticShadowExplicitBody.diagnostics[0].code, "TYP001");
-assert.match(genericStaticShadowExplicitBody.diagnostics[0].expected, /ref<\[N\]i32>/);
-assert.match(genericStaticShadowExplicitBody.diagnostics[0].actual, /ref<\[4\]i32>/);
+assert.match(genericStaticShadowExplicitBody.diagnostics[0].expected, /ref<\[4\]i32>/);
+assert.match(genericStaticShadowExplicitBody.diagnostics[0].actual, /ref<\[N\]i32>/);
 
 const genericStaticMethodShadowJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-method-shadow-conflict.0"]).catch((error) => error);
 assert.notEqual(genericStaticMethodShadowJson.code, 0);
 const genericStaticMethodShadowBody = JSON.parse(genericStaticMethodShadowJson.stdout);
 assert.equal(genericStaticMethodShadowBody.diagnostics[0].code, "TYP001");
-assert.match(genericStaticMethodShadowBody.diagnostics[0].expected, /ref<\[N\]i32>/);
-assert.match(genericStaticMethodShadowBody.diagnostics[0].actual, /ref<\[4\]i32>/);
+assert.match(genericStaticMethodShadowBody.diagnostics[0].expected, /ref<\[4\]i32>/);
+assert.match(genericStaticMethodShadowBody.diagnostics[0].actual, /ref<\[N\]i32>/);
 
 const genericStaticShadowSignatureConstJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-shadow-signature-const.0"]).catch((error) => error);
 assert.notEqual(genericStaticShadowSignatureConstJson.code, 0);
