@@ -5446,6 +5446,24 @@ static bool type_core_static_value_mismatch_inner(const Program *program, ZTypeA
   if (depth > 64) return false;
   ZTypeNodeKind expected_kind = z_type_kind(arena, expected);
   ZTypeNodeKind actual_kind = z_type_kind(arena, actual);
+  if (expected_kind == Z_TYPE_NODE_NAME) {
+    const char *name = z_type_name(arena, expected);
+    const char *resolved = resolve_alias_type(program, name);
+    if (name && resolved && strcmp(name, resolved) != 0) {
+      ZTypeId resolved_type = Z_TYPE_ID_INVALID;
+      if (!type_core_parse_for_program(program, arena, resolved, &resolved_type)) return false;
+      return type_core_static_value_mismatch_inner(program, arena, resolved_type, actual, depth + 1);
+    }
+  }
+  if (actual_kind == Z_TYPE_NODE_NAME) {
+    const char *name = z_type_name(arena, actual);
+    const char *resolved = resolve_alias_type(program, name);
+    if (name && resolved && strcmp(name, resolved) != 0) {
+      ZTypeId resolved_type = Z_TYPE_ID_INVALID;
+      if (!type_core_parse_for_program(program, arena, resolved, &resolved_type)) return false;
+      return type_core_static_value_mismatch_inner(program, arena, expected, resolved_type, depth + 1);
+    }
+  }
   if (expected_kind == Z_TYPE_NODE_CONST) {
     ZTypeId actual_inner = actual_kind == Z_TYPE_NODE_CONST ? z_type_const_inner(arena, actual) : actual;
     return type_core_static_value_mismatch_inner(program, arena, z_type_const_inner(arena, expected), actual_inner, depth + 1);
