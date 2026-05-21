@@ -1054,14 +1054,6 @@ static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tre
   return stmt;
 }
 
-static Stmt *row_find_else_target(Stmt *stmt) {
-  if (!stmt || stmt->kind != STMT_IF) return NULL;
-  while (stmt->else_body.len == 1 && stmt->else_body.items[0]->kind == STMT_IF) {
-    stmt = stmt->else_body.items[0];
-  }
-  return stmt->else_body.len == 0 ? stmt : NULL;
-}
-
 static Stmt *row_parse_else_if_statement(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t row_index, size_t pos, size_t end, ZDiag *diag) {
   const ZRowToken *start = &tokens->items[pos];
   Stmt *stmt = row_new_stmt(STMT_IF, start);
@@ -1073,13 +1065,14 @@ static Stmt *row_parse_else_if_statement(const ZRowTokenVec *tokens, const ZRowT
 
 static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, ZDiag *diag) {
   StmtVec body = {0};
+  Stmt *pending_else_target = NULL;
   for (size_t i = 0; i < tree->len; i++) {
     if (tree->items[i].parent != parent) continue;
     const ZRowNode *node = &tree->items[i];
     size_t pos = node->first_token;
     size_t end = node->first_token + node->token_count;
     if (row_token_text_at(tokens, pos, end, "else")) {
-      Stmt *target = body.len > 0 ? row_find_else_target(body.items[body.len - 1]) : NULL;
+      Stmt *target = pending_else_target;
       if (!target) {
         row_diag(diag, node->line, node->column, 1, "else must follow an if row", "preceding if row", NULL);
         continue;
@@ -1090,13 +1083,18 @@ static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRow
           row_diag(diag, node->line, node->column, 1, "expected if after else row condition", "else or else if", NULL);
           continue;
         }
-        row_push_stmt(&target->else_body, row_parse_else_if_statement(tokens, tree, i, pos, end, diag));
+        Stmt *else_if = row_parse_else_if_statement(tokens, tree, i, pos, end, diag);
+        row_push_stmt(&target->else_body, else_if);
+        pending_else_target = else_if;
       } else {
         target->else_body = row_parse_child_statements(tokens, tree, i, diag);
+        pending_else_target = NULL;
       }
       continue;
     }
-    row_push_stmt(&body, row_parse_statement(tokens, tree, i, diag));
+    Stmt *stmt = row_parse_statement(tokens, tree, i, diag);
+    row_push_stmt(&body, stmt);
+    pending_else_target = stmt && stmt->kind == STMT_IF && stmt->else_body.len == 0 ? stmt : NULL;
   }
   return body;
 }
@@ -1229,7 +1227,8 @@ static void row_parse_type_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
     const ZRowToken *field = row_expect_word(tokens, &child_pos, child_end, diag, "expected field name");
     if (!field) continue;
     char *type = row_parse_type_text(tokens, &child_pos, child_end, diag);
-    row_push_param(&shape.fields, (Param){.name = z_strdup(field->text), .type = type, .line = field->line, .column = field->column});
+    Expr *default_value = child_pos < child_end ? row_parse_expr_range(tokens, child_pos, child_end, diag) : NULL;
+    row_push_param(&shape.fields, (Param){.name = z_strdup(field->text), .type = type, .default_value = default_value, .line = field->line, .column = field->column});
   }
 
   row_push_shape(&program->shapes, shape);
@@ -1302,11 +1301,32 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
 
     if (row_token_text_at(tokens, pos, end, "use")) {
       pos++;
+      size_t module_start = pos;
+      size_t module_end = pos;
+      while (module_end < end && !row_token_text(tokens, module_end, "as")) module_end++;
+      char *alias = NULL;
+      int end_column = node->column;
+      if (module_end > module_start) {
+        const ZRowToken *last_module = &tokens->items[module_end - 1];
+        end_column = last_module->column + (int)last_module->length;
+      }
+      if (row_token_text_at(tokens, module_end, end, "as")) {
+        size_t alias_pos = module_end + 1;
+        const ZRowToken *alias_token = row_expect_word(tokens, &alias_pos, end, diag, "expected import alias");
+        if (alias_token) {
+          alias = z_strdup(alias_token->text);
+          end_column = alias_token->column + (int)alias_token->length;
+        }
+        if (alias_pos < end) {
+          row_diag(diag, tokens->items[alias_pos].line, tokens->items[alias_pos].column, 1, "expected end of row after import alias", "end of row", NULL);
+        }
+      }
       row_push_use(&program.use_imports, (UseImport){
-        .module = row_join_tokens(tokens, pos, end),
+        .module = row_join_tokens(tokens, module_start, module_end),
+        .alias = alias,
         .line = node->line,
         .column = node->column,
-        .end_column = end > pos ? tokens->items[end - 1].column + (int)tokens->items[end - 1].length : node->column
+        .end_column = end_column
       });
     } else if (row_token_text_at(tokens, pos, end, "const")) {
       pos++;

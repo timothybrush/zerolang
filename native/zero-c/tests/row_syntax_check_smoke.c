@@ -55,10 +55,10 @@ static void shapes_and_members_check(void) {
     "shapes and members",
     "type Point\n"
     "  x i32\n"
-    "  y i32\n"
+    "  y i32 2\n"
     "\n"
     "pub fn main Void\n"
-    "  let point Point . x 40 y 2\n"
+    "  let point Point . x 40\n"
     "  let total i32 + point.x point.y\n"
   );
 }

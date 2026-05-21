@@ -278,7 +278,7 @@ static void rejects_short_hex_character_escape(void) {
 
 static void parses_core_function_program(void) {
   const char *source =
-    "use std.mem\n"
+    "use std.mem as mem\n"
     "const answer i32 42\n"
     "export c fn boot Void\n"
     "fn id<T> T value T\n"
@@ -302,6 +302,7 @@ static void parses_core_function_program(void) {
 
   expect(program.use_imports.len == 1, "expected one use import");
   expect(strcmp(program.use_imports.items[0].module, "std.mem") == 0, "expected dotted use import");
+  expect(strcmp(program.use_imports.items[0].alias, "mem") == 0, "expected use import alias");
   expect(program.consts.len == 1, "expected one const");
   expect(strcmp(program.consts.items[0].name, "answer") == 0, "expected const name");
   expect(strcmp(program.consts.items[0].type, "i32") == 0, "expected const type");
@@ -420,7 +421,7 @@ static void parses_core_data_declarations(void) {
   const char *source =
     "type Point\n"
     "  x i32\n"
-    "  y i32\n"
+    "  y i32 0\n"
     "  fn clear Void self mutref<Self>\n"
     "    set self.x 0\n"
     "enum Mode\n"
@@ -438,6 +439,8 @@ static void parses_core_data_declarations(void) {
   expect(program.shapes.len == 1, "expected one shape");
   expect(strcmp(program.shapes.items[0].name, "Point") == 0, "expected shape name");
   expect(program.shapes.items[0].fields.len == 2, "expected shape fields");
+  expect(program.shapes.items[0].fields.items[1].default_value, "expected shape field default");
+  expect(program.shapes.items[0].fields.items[1].default_value->kind == EXPR_NUMBER, "expected numeric shape field default");
   expect(program.shapes.items[0].methods.len == 1, "expected shape method");
   expect(program.shapes.items[0].methods.items[0].body.len == 1, "expected method body");
   expect(program.shapes.items[0].methods.items[0].body.items[0]->kind == STMT_ASSIGN, "expected method assignment");
@@ -470,6 +473,29 @@ static void rejects_unbracketed_named_errors(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void rejects_else_after_explicit_else_block(void) {
+  const char *source =
+    "fn pick i32 a Bool b Bool\n"
+    "  if a\n"
+    "    ret 1\n"
+    "  else\n"
+    "    if b\n"
+    "      ret 2\n"
+    "  else\n"
+    "    ret 3\n";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 0, diag.message);
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&tokens, &tree, &diag), diag.message);
+  Program program = z_parse_row(&tokens, &tree, &diag);
+  expect(diag.code == 100, "expected explicit else block to close else-if chain");
+  expect(strstr(diag.message, "else") != NULL, "expected else diagnostic");
+  z_free_program(&program);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
@@ -485,6 +511,7 @@ int main(void) {
   parses_match_statement();
   parses_core_data_declarations();
   rejects_unbracketed_named_errors();
+  rejects_else_after_explicit_else_block();
   printf("row syntax smoke ok\n");
   return 0;
 }
