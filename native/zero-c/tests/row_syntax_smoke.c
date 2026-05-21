@@ -228,6 +228,43 @@ static void attaches_block_comment_to_empty_block(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void formats_empty_block_comment_before_sibling(void) {
+  const char *source =
+    "pub fn main Void\n"
+    "  if ready\n"
+    "    # skipped branch\n"
+    "  if done\n"
+    "    check world.out.write \"done\\n\"\n";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 0, diag.message);
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&tokens, &tree, &diag), diag.message);
+  char *formatted = z_format_row_layout(&tokens, &tree);
+  expect(strcmp(formatted, source) == 0, "expected empty block comment to stay with original parent");
+  free(formatted);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
+static void formats_block_footer_comment_after_child_rows(void) {
+  const char *source =
+    "pub fn main Void\n"
+    "  if ready\n"
+    "    check world.out.write \"ready\\n\"\n"
+    "    # branch footer\n";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 0, diag.message);
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&tokens, &tree, &diag), diag.message);
+  char *formatted = z_format_row_layout(&tokens, &tree);
+  expect(strcmp(formatted, source) == 0, "expected block footer comment to stay after child rows");
+  free(formatted);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 static void formats_row_layout_with_trivia(void) {
   const char *source =
     "# file header\n"
@@ -977,6 +1014,8 @@ int main(void) {
   tokenizes_layout_and_trivia();
   attaches_comment_and_blank_line_trivia();
   attaches_block_comment_to_empty_block();
+  formats_empty_block_comment_before_sibling();
+  formats_block_footer_comment_after_child_rows();
   formats_row_layout_with_trivia();
   tracks_nested_dedents();
   accepts_trailing_whitespace_only_rows();

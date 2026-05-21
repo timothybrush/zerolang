@@ -557,7 +557,7 @@ static void row_attach_pending_trivia(RowPendingTrivia *pending, ZRowTree *tree,
     if (trivia.kind == Z_ROW_TRIVIA_BLANK_LINE) {
       attach = trivia.indent_depth == row_depth || trivia.parent == row_parent;
     } else {
-      attach = trivia.indent_depth == row_depth;
+      attach = trivia.indent_depth == row_depth && trivia.parent == row_parent;
     }
 
     if (attach) {
@@ -578,7 +578,6 @@ static void row_flush_block_trivia(RowPendingTrivia *pending, ZRowTree *tree, si
     ZRowTrivia trivia = pending->items[i];
     if (trivia.indent_depth > min_depth && trivia.parent != Z_ROW_NO_PARENT) {
       if (trivia.kind != Z_ROW_TRIVIA_BLANK_LINE) trivia.kind = Z_ROW_TRIVIA_BLOCK_COMMENT;
-      trivia.row = trivia.kind == Z_ROW_TRIVIA_BLOCK_COMMENT ? Z_ROW_NO_PARENT : trivia.row;
       row_push_tree_trivia(tree, trivia);
     } else {
       pending->items[write++] = pending->items[i];
@@ -1759,7 +1758,7 @@ bool z_row_parse_layout(const ZRowTokenVec *tokens, ZRowTree *tree, ZDiag *diag)
           if (comment_parent == Z_ROW_NO_PARENT && comment_depth > depth) comment_parent = last_row;
           row_pending_trivia_push(&pending, (ZRowTrivia){
             .kind = Z_ROW_TRIVIA_LEADING_COMMENT,
-            .row = Z_ROW_NO_PARENT,
+            .row = last_row,
             .parent = comment_parent,
             .token = i,
             .indent_depth = comment_depth,
@@ -1869,8 +1868,10 @@ static const ZRowTrivia *row_format_trailing_trivia(const ZRowTree *tree, size_t
 static void row_format_block_trivia(ZBuf *buf, const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, size_t depth) {
   for (size_t i = 0; tree && i < tree->trivia_len; i++) {
     const ZRowTrivia *trivia = &tree->trivia[i];
-    if (trivia->parent != parent || trivia->kind != Z_ROW_TRIVIA_BLOCK_COMMENT || !tokens || trivia->token >= tokens->len) continue;
-    row_format_indent(buf, depth + 1);
+    if (trivia->kind != Z_ROW_TRIVIA_BLOCK_COMMENT || !tokens || trivia->token >= tokens->len) continue;
+    size_t anchor = trivia->row == Z_ROW_NO_PARENT ? trivia->parent : trivia->row;
+    if (anchor != parent) continue;
+    row_format_indent(buf, trivia->indent_depth ? trivia->indent_depth : depth + 1);
     zbuf_append(buf, tokens->items[trivia->token].text);
     row_format_newline(buf);
   }
