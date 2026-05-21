@@ -183,6 +183,7 @@ static void packed_maybe_scalar_write_passes(void) {
     scalar_local("alloc", IR_TYPE_ALLOC, 0, false),
     scalar_local("parsed", IR_TYPE_MAYBE_SCALAR, 1, false)
   };
+  locals[0].is_mutable = true;
   IrValue bytes = byte_view_value();
   IrValue packed = value(IR_VALUE_JSON_PARSE_BYTES, IR_TYPE_I64);
   packed.local_index = 0;
@@ -432,6 +433,69 @@ static void vec_init_immutable_storage_fails(void) {
   expect_fail("Vec init immutable storage", &ir, "invalid Vec helper value");
 }
 
+static void alloc_bytes_immutable_allocator_fails(void) {
+  IrLocal locals[] = {
+    scalar_local("alloc", IR_TYPE_ALLOC, 0, false),
+    scalar_local("bytes", IR_TYPE_MAYBE_BYTE_VIEW, 1, false)
+  };
+  locals[1].frame_offset = 40;
+  IrValue length = value(IR_VALUE_INT, IR_TYPE_USIZE);
+  IrValue bytes = value(IR_VALUE_ALLOC_BYTES, IR_TYPE_MAYBE_BYTE_VIEW);
+  bytes.local_index = 0;
+  bytes.left = &length;
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &bytes, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 64, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_allocator_helper_count = 2;
+  expect_fail("AllocBytes immutable allocator", &ir, "invalid allocation helper target");
+}
+
+static void vec_push_immutable_vec_fails(void) {
+  IrLocal locals[] = {scalar_local("vec", IR_TYPE_VEC, 0, false)};
+  IrValue item = value(IR_VALUE_INT, IR_TYPE_U8);
+  IrValue push = value(IR_VALUE_VEC_PUSH, IR_TYPE_BOOL);
+  push.local_index = 0;
+  push.left = &item;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &push, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_BOOL, IR_TYPE_BOOL, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_buffer_helper_count = 2;
+  expect_fail("Vec push immutable Vec", &ir, "invalid Vec helper target");
+}
+
+static void json_parse_immutable_allocator_fails(void) {
+  IrLocal locals[] = {scalar_local("alloc", IR_TYPE_ALLOC, 0, false)};
+  IrValue bytes = byte_view_value();
+  IrValue parsed = value(IR_VALUE_JSON_PARSE_BYTES, IR_TYPE_I64);
+  parsed.local_index = 0;
+  parsed.left = &bytes;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &parsed, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I64, IR_TYPE_I64, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_allocator_helper_count = 2;
+  ir.direct_runtime_helper_count = 1;
+  ir.direct_host_runtime_import_count = 1;
+  expect_fail("JSON parse immutable allocator", &ir, "invalid JSON parse allocator");
+}
+
+static void fs_read_all_immutable_allocator_fails(void) {
+  IrLocal locals[] = {
+    scalar_local("alloc", IR_TYPE_ALLOC, 0, false),
+    scalar_local("body", IR_TYPE_MAYBE_BYTE_VIEW, 1, false)
+  };
+  locals[1].frame_offset = 40;
+  IrValue path = byte_view_value();
+  IrValue limit = value(IR_VALUE_INT, IR_TYPE_USIZE);
+  IrValue read = value(IR_VALUE_FS_READ_ALL, IR_TYPE_MAYBE_BYTE_VIEW);
+  read.local_index = 0;
+  read.left = &path;
+  read.right = &limit;
+  IrInstr set = {.kind = IR_INSTR_LOCAL_SET, .local_index = 1, .value = &read, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 2, 0, &set, 1, 64, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("filesystem readAll immutable allocator", &ir, "invalid filesystem readAll allocator");
+}
+
 static void fixed_buf_alloc_unknown_maybe_storage_fails(void) {
   IrLocal locals[] = {
     scalar_local("maybe", IR_TYPE_MAYBE_BYTE_VIEW, 0, false),
@@ -457,6 +521,7 @@ static void vec_init_known_maybe_storage_passes(void) {
     scalar_local("vec", IR_TYPE_VEC, 3, false)
   };
   locals[0].is_mutable = true;
+  locals[1].is_mutable = true;
   locals[2].byte_size = 24;
   locals[2].frame_offset = 56;
   locals[3].frame_offset = 72;
@@ -494,6 +559,7 @@ static void vec_init_maybe_before_mutable_assignment_fails(void) {
     scalar_local("vec", IR_TYPE_VEC, 3, false)
   };
   locals[0].is_mutable = true;
+  locals[1].is_mutable = true;
   locals[2].byte_size = 24;
   locals[2].frame_offset = 56;
   locals[3].frame_offset = 72;
@@ -531,6 +597,7 @@ static void vec_init_maybe_branch_only_assignment_fails(void) {
     scalar_local("vec", IR_TYPE_VEC, 3, false)
   };
   locals[0].is_mutable = true;
+  locals[1].is_mutable = true;
   locals[2].byte_size = 24;
   locals[2].frame_offset = 56;
   locals[3].frame_offset = 72;
@@ -572,6 +639,7 @@ static void vec_init_maybe_immutable_overwrite_fails(void) {
     scalar_local("vec", IR_TYPE_VEC, 3, false)
   };
   locals[0].is_mutable = true;
+  locals[1].is_mutable = true;
   locals[2].byte_size = 24;
   locals[2].frame_offset = 56;
   locals[3].frame_offset = 72;
@@ -859,6 +927,10 @@ int main(void) {
   vec_local_invalid_initializer_fails();
   fixed_buf_alloc_readonly_storage_fails();
   vec_init_immutable_storage_fails();
+  alloc_bytes_immutable_allocator_fails();
+  vec_push_immutable_vec_fails();
+  json_parse_immutable_allocator_fails();
+  fs_read_all_immutable_allocator_fails();
   fixed_buf_alloc_unknown_maybe_storage_fails();
   vec_init_known_maybe_storage_passes();
   vec_init_maybe_before_mutable_assignment_fails();

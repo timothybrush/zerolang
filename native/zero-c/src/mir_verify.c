@@ -368,6 +368,16 @@ static bool mir_verify_local_value_kind(IrProgram *ir, const IrFunction *fun, un
   return false;
 }
 
+static bool mir_verify_mutable_local_value_kind(IrProgram *ir, const IrFunction *fun, unsigned index, IrTypeKind expected, int line, int column, const char *message, const char *role) {
+  if (!mir_verify_local_value_kind(ir, fun, index, expected, line, column, message, role)) return false;
+  const IrLocal *local = &fun->locals[index];
+  if (local->is_mutable) return true;
+  char actual[192];
+  snprintf(actual, sizeof(actual), "%s local %s has %s and is immutable", role ? role : "helper", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+  mir_verify_mark_unsupported(ir, message, line, column, actual);
+  return false;
+}
+
 static bool mir_verify_record_field_span(IrProgram *ir, const IrLocal *local, unsigned field_offset, IrTypeKind type, int line, int column, const char *message) {
   if (!ir || !ir->mir_valid || !local) return false;
   unsigned byte_size = mir_type_byte_size(type);
@@ -433,7 +443,7 @@ static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunct
     case IR_VALUE_ALLOC_BYTES:
       mir_require_count(&requirements->allocator_helpers, 2, value->line, value->column, "std.mem.allocBytes");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_MAYBE_BYTE_VIEW, "allocation result")) return false;
-      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid allocation helper target", "allocator")) return false;
+      if (!mir_verify_mutable_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid allocation helper target", "allocator")) return false;
       return mir_verify_value_is_integer(ir, value->left, "MIR verifier found invalid allocation helper length", "allocation length");
     case IR_VALUE_VEC_INIT:
       mir_require_count(&requirements->buffer_helpers, 1, value->line, value->column, "std.mem.vec");
@@ -442,7 +452,7 @@ static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunct
     case IR_VALUE_VEC_PUSH:
       mir_require_count(&requirements->buffer_helpers, 2, value->line, value->column, "std.mem.vecPush");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "Vec push result")) return false;
-      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_VEC, value->line, value->column, "MIR verifier found invalid Vec helper target", "Vec")) return false;
+      if (!mir_verify_mutable_local_value_kind(ir, fun, value->local_index, IR_TYPE_VEC, value->line, value->column, "MIR verifier found invalid Vec helper target", "Vec")) return false;
       return mir_verify_value_type(ir, value->left, IR_TYPE_U8, "MIR verifier found invalid Vec push value", "Vec item");
     case IR_VALUE_VEC_LEN:
     case IR_VALUE_VEC_CAPACITY:
@@ -454,7 +464,7 @@ static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunct
       mir_require_count(&requirements->runtime_helpers, 1, value->line, value->column, "std.json.parseBytes");
       mir_require_count(&requirements->host_runtime_imports, 1, value->line, value->column, "std.json.parseBytes");
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_I64, "JSON parse result")) return false;
-      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid JSON parse allocator", "allocator")) return false;
+      if (!mir_verify_mutable_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid JSON parse allocator", "allocator")) return false;
       return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid JSON runtime helper input", "JSON bytes");
     case IR_VALUE_JSON_VALIDATE_BYTES:
     case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
@@ -740,7 +750,7 @@ static bool mir_verify_fs_value_contract(IrProgram *ir, const IrFunction *fun, c
         mir_verify_mark_unsupported(ir, "MIR verifier found filesystem readAll result type mismatch", value->line, value->column, actual);
         return false;
       }
-      if (!mir_verify_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid filesystem readAll allocator", "allocator")) return false;
+      if (!mir_verify_mutable_local_value_kind(ir, fun, value->local_index, IR_TYPE_ALLOC, value->line, value->column, "MIR verifier found invalid filesystem readAll allocator", "allocator")) return false;
       if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem readAll path", "filesystem readAll path")) return false;
       return mir_verify_value_is_integer(ir, value->right, "MIR verifier found invalid filesystem readAll limit", "filesystem readAll limit");
     case IR_VALUE_FS_READ_FILE:
