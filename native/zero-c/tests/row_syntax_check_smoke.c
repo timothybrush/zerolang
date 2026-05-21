@@ -113,6 +113,21 @@ static void match_check(void) {
   );
 }
 
+static void public_data_declarations_check(void) {
+  check_row_source(
+    "public data declarations",
+    "pub enum Mode\n"
+    "  off\n"
+    "  on\n"
+    "\n"
+    "pub choice Result\n"
+    "  ok i32\n"
+    "  err String\n"
+    "\n"
+    "pub fn main Void\n"
+  );
+}
+
 static void named_error_rejects_without_brackets(void) {
   const char *source = "fn validate i32 ok Bool ! InvalidInput\n";
   ZDiag diag = {0};
@@ -133,6 +148,7 @@ int main(void) {
   control_flow_check();
   slices_and_casts_check();
   match_check();
+  public_data_declarations_check();
   named_error_rejects_without_brackets();
   printf("row syntax check smoke ok\n");
   return 0;

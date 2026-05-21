@@ -1238,6 +1238,7 @@ static void row_parse_enum_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
   const ZRowNode *node = &tree->items[row_index];
   size_t pos = node->first_token;
   size_t end = node->first_token + node->token_count;
+  if (row_token_text_at(tokens, pos, end, "pub")) pos++;
   row_expect_text(tokens, &pos, end, diag, "enum", "expected enum declaration");
   const ZRowToken *name = row_expect_word(tokens, &pos, end, diag, "expected enum name");
   EnumDecl item = {.line = node->line, .column = node->column};
@@ -1257,6 +1258,7 @@ static void row_parse_choice_decl(const ZRowTokenVec *tokens, const ZRowTree *tr
   const ZRowNode *node = &tree->items[row_index];
   size_t pos = node->first_token;
   size_t end = node->first_token + node->token_count;
+  if (row_token_text_at(tokens, pos, end, "pub")) pos++;
   row_expect_text(tokens, &pos, end, diag, "choice", "expected choice declaration");
   const ZRowToken *name = row_expect_word(tokens, &pos, end, diag, "expected choice name");
   Choice item = {.line = node->line, .column = node->column};
