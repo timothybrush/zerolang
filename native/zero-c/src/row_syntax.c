@@ -455,6 +455,14 @@ static size_t row_finalize_node(ZRowTree *tree, size_t parent, size_t first_toke
   return tree->len - 1;
 }
 
+static bool row_dedent_leads_to_eof(const ZRowTokenVec *tokens, size_t index) {
+  for (size_t i = index; tokens && i < tokens->len; i++) {
+    if (tokens->items[i].kind == Z_ROW_TOKEN_EOF) return true;
+    if (tokens->items[i].kind != Z_ROW_TOKEN_DEDENT) return false;
+  }
+  return false;
+}
+
 bool z_row_parse_layout(const ZRowTokenVec *tokens, ZRowTree *tree, ZDiag *diag) {
   if (!tokens || !tree) {
     row_diag(diag, 1, 1, 1, "missing row token stream", "tokens", NULL);
@@ -492,9 +500,14 @@ bool z_row_parse_layout(const ZRowTokenVec *tokens, ZRowTree *tree, ZDiag *diag)
         break;
       case Z_ROW_TOKEN_DEDENT:
         if (first_token != Z_ROW_NO_PARENT) {
-          row_diag(diag, token->line, token->column, 1, "dedent appeared before row newline", "newline before dedent", NULL);
-          free(parents);
-          return false;
+          if (!row_dedent_leads_to_eof(tokens, i)) {
+            row_diag(diag, token->line, token->column, 1, "dedent appeared before row newline", "newline before dedent", NULL);
+            free(parents);
+            return false;
+          }
+          last_row = row_finalize_node(tree, parents[depth], first_token, token_count, depth, tokens);
+          first_token = Z_ROW_NO_PARENT;
+          token_count = 0;
         }
         if (depth == 0) {
           row_diag(diag, token->line, token->column, 1, "row layout contains an unmatched dedent", "matching indentation", NULL);

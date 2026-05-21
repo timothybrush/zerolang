@@ -143,6 +143,30 @@ static void accepts_trailing_whitespace_only_rows(void) {
   z_free_row_tokens(&nested_tokens);
 }
 
+static void accepts_indented_final_row_without_newline(void) {
+  const char *source =
+    "pub fn main Void\n"
+    "  check world.out.write \"ok\\n\"";
+  ZDiag diag = {0};
+  ZRowTokenVec tokens = z_row_tokenize(source, &diag);
+  expect(diag.code == 0, diag.message);
+  expect(count_kind(&tokens, Z_ROW_TOKEN_INDENT) == 1, "expected nested final row indent");
+  expect(count_kind(&tokens, Z_ROW_TOKEN_DEDENT) == 1, "expected EOF dedent after nested final row");
+
+  ZRowSyntaxFacts facts = {0};
+  expect(z_row_analyze_layout(&tokens, &facts, &diag), diag.message);
+  expect(facts.row_count == 2, "expected final row without newline to count");
+  expect(facts.max_indent_depth == 1, "expected final row indentation depth");
+
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&tokens, &tree, &diag), diag.message);
+  expect(tree.len == 2, "expected two row nodes without final newline");
+  expect(tree.items[1].parent == 0, "expected final row parent without newline");
+  expect(strcmp(tokens.items[tree.items[1].first_token].text, "check") == 0, "expected final row token span");
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 static void rejects_tabs(void) {
   const char *source =
     "pub fn main Void\n"
@@ -202,6 +226,7 @@ int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
   accepts_trailing_whitespace_only_rows();
+  accepts_indented_final_row_without_newline();
   rejects_tabs();
   rejects_odd_indent();
   rejects_indent_jump();
