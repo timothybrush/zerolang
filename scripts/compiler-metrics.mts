@@ -39,9 +39,9 @@ const fileBudgets = {
   "native/zero-c/src/emit_macho64.c": { maxLines: 1400, maxStrcmpCalls: 2 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 2560, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2500, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 205, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 1010, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 990, maxStrcmpCalls: 1 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -54,8 +54,8 @@ const fileBudgets = {
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.c": { maxLines: 160, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.h": { maxLines: 30, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 240, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.h": { maxLines: 45, maxStrcmpCalls: 0 },
 };
 
 const knownLargeFunctionLimits = new Map([
@@ -865,6 +865,16 @@ const backendFormats = {
       /\bz_x64_emit_epilogue\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_mov_eax_u32\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_ud2\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_push_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_pop_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_add_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_sub_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_imul_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_and_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_or_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_div_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(x64EmitSource) &&
       /\bz_x64_patch_rel32\s*\(/.test(x64EmitSource),
     elfUsesSharedEncodingPrimitives: /\bz_x64_append_u8\s*\(/.test(elfX64Source) &&
       /\bz_x64_append_u32\s*\(/.test(elfX64Source) &&
@@ -874,6 +884,16 @@ const backendFormats = {
       /\bz_x64_emit_epilogue\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_mov_eax_u32\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_ud2\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_push_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_pop_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_add_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_sub_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_imul_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_and_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_or_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_div_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(elfX64Source) &&
       /\bz_x64_patch_rel32\s*\(/.test(elfX64Source),
     coffUsesSharedEncodingPrimitives: /\bz_x64_append_u8\s*\(/.test(coffX64Source) &&
       /\bz_x64_append_u32\s*\(/.test(coffX64Source) &&
@@ -883,6 +903,13 @@ const backendFormats = {
       /\bz_x64_emit_epilogue\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_eax_u32\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_ud2\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_push_rax\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_pop_rax\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_add_rax_rcx\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_sub_rax_rcx\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_imul_rax_rcx\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(coffX64Source) &&
       /\bz_x64_patch_rel32\s*\(/.test(coffX64Source),
     formatFilesWithLocalEncodingPrimitives: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],

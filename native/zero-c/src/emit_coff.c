@@ -263,36 +263,26 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
     case IR_VALUE_BINARY:
       if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL) return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
       if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
-      z_x64_append_u8(text, 0x50);
+      z_x64_emit_push_rax(text);
       if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
-      z_x64_append_u8(text, 0x89);
-      z_x64_append_u8(text, 0xc1);
-      z_x64_append_u8(text, 0x58);
-      if (value->binary_op == IR_BIN_MUL) {
-        z_x64_append_u8(text, 0x0f);
-        z_x64_append_u8(text, 0xaf);
-        z_x64_append_u8(text, 0xc1);
+      z_x64_emit_mov_rcx_from_rax(text, false);
+      z_x64_emit_pop_rax(text);
+      if (value->binary_op == IR_BIN_ADD) {
+        z_x64_emit_add_rax_rcx(text, false);
+      } else if (value->binary_op == IR_BIN_SUB) {
+        z_x64_emit_sub_rax_rcx(text, false);
       } else {
-        z_x64_append_u8(text, value->binary_op == IR_BIN_ADD ? 0x01 : 0x29);
-        z_x64_append_u8(text, 0xc8);
+        z_x64_emit_imul_rax_rcx(text, false);
       }
       return true;
     case IR_VALUE_COMPARE:
       if (!value->left || !value->right) return coff_diag_at(diag, "direct COFF comparison requires two operands", value->line, value->column, "invalid comparison");
       if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
-      z_x64_append_u8(text, 0x50);
+      z_x64_emit_push_rax(text);
       if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
-      z_x64_append_u8(text, 0x89);
-      z_x64_append_u8(text, 0xc1);
-      z_x64_append_u8(text, 0x58);
-      z_x64_append_u8(text, 0x39);
-      z_x64_append_u8(text, 0xc8);
-      z_x64_append_u8(text, 0x0f);
-      z_x64_append_u8(text, coff_setcc_opcode(value->compare_op));
-      z_x64_append_u8(text, 0xc0);
-      z_x64_append_u8(text, 0x0f);
-      z_x64_append_u8(text, 0xb6);
-      z_x64_append_u8(text, 0xc0);
+      z_x64_emit_mov_rcx_from_rax(text, false);
+      z_x64_emit_pop_rax(text);
+      z_x64_emit_cmp_rax_rcx_to_bool(text, coff_setcc_opcode(value->compare_op), false);
       return true;
     case IR_VALUE_CALL: {
       static const unsigned param_regs[] = {1, 2, 8, 9};

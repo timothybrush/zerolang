@@ -202,7 +202,7 @@ static void elf_emit_epilogue(ZBuf *code, const IrFunction *fun, const ElfEmitCo
 }
 
 static void elf_emit_push_rax(ZBuf *code) {
-  z_x64_append_u8(code, 0x50);
+  z_x64_emit_push_rax(code);
 }
 
 static void elf_emit_store_local_slot_reg(ZBuf *code, const IrLocal *local, unsigned slot_offset, unsigned reg, bool wide);
@@ -549,70 +549,24 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
     case IR_VALUE_BINARY: {
       bool wide = elf_type_is_i64(value->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
-      z_x64_append_u8(code, 0x50);
+      z_x64_emit_push_rax(code);
       if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
-      if (wide) z_x64_append_u8(code, 0x48);
-      z_x64_append_u8(code, 0x89);
-      z_x64_append_u8(code, 0xc1);
-      z_x64_append_u8(code, 0x58);
+      z_x64_emit_mov_rcx_from_rax(code, wide);
+      z_x64_emit_pop_rax(code);
       if (value->binary_op == IR_BIN_ADD) {
-        if (wide) z_x64_append_u8(code, 0x48);
-        z_x64_append_u8(code, 0x01);
-        z_x64_append_u8(code, 0xc8);
+        z_x64_emit_add_rax_rcx(code, wide);
       } else if (value->binary_op == IR_BIN_SUB) {
-        if (wide) z_x64_append_u8(code, 0x48);
-        z_x64_append_u8(code, 0x29);
-        z_x64_append_u8(code, 0xc8);
+        z_x64_emit_sub_rax_rcx(code, wide);
       } else if (value->binary_op == IR_BIN_MUL) {
-        if (wide) z_x64_append_u8(code, 0x48);
-        z_x64_append_u8(code, 0x0f);
-        z_x64_append_u8(code, 0xaf);
-        z_x64_append_u8(code, 0xc1);
-      } else if (value->binary_op == IR_BIN_AND || value->binary_op == IR_BIN_OR) {
-        if (wide) z_x64_append_u8(code, 0x48);
-        z_x64_append_u8(code, value->binary_op == IR_BIN_AND ? 0x21 : 0x09);
-        z_x64_append_u8(code, 0xc8);
+        z_x64_emit_imul_rax_rcx(code, wide);
+      } else if (value->binary_op == IR_BIN_AND) {
+        z_x64_emit_and_rax_rcx(code, wide);
+      } else if (value->binary_op == IR_BIN_OR) {
+        z_x64_emit_or_rax_rcx(code, wide);
       } else if (value->binary_op == IR_BIN_DIV) {
-        if (elf_type_is_unsigned(value->type)) {
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0x31);
-          z_x64_append_u8(code, 0xd2);
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0xf7);
-          z_x64_append_u8(code, 0xf1);
-        } else {
-          if (wide) {
-            z_x64_append_u8(code, 0x48);
-            z_x64_append_u8(code, 0x99);
-          } else {
-            z_x64_append_u8(code, 0x99);
-          }
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0xf7);
-          z_x64_append_u8(code, 0xf9);
-        }
+        z_x64_emit_div_rax_rcx(code, wide, elf_type_is_unsigned(value->type), false);
       } else if (value->binary_op == IR_BIN_MOD) {
-        if (elf_type_is_unsigned(value->type)) {
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0x31);
-          z_x64_append_u8(code, 0xd2);
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0xf7);
-          z_x64_append_u8(code, 0xf1);
-        } else {
-          if (wide) {
-            z_x64_append_u8(code, 0x48);
-            z_x64_append_u8(code, 0x99);
-          } else {
-            z_x64_append_u8(code, 0x99);
-          }
-          if (wide) z_x64_append_u8(code, 0x48);
-          z_x64_append_u8(code, 0xf7);
-          z_x64_append_u8(code, 0xf9);
-        }
-        if (wide) z_x64_append_u8(code, 0x48);
-        z_x64_append_u8(code, 0x89);
-        z_x64_append_u8(code, 0xd0);
+        z_x64_emit_div_rax_rcx(code, wide, elf_type_is_unsigned(value->type), true);
       } else {
         return elf_diag(diag, "direct ELF64 binary operator is unsupported", value->line, value->column, "unsupported operator");
       }
@@ -624,21 +578,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       }
       bool wide = elf_type_is_i64(value->left->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
-      z_x64_append_u8(code, 0x50);
+      z_x64_emit_push_rax(code);
       if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
-      if (wide) z_x64_append_u8(code, 0x48);
-      z_x64_append_u8(code, 0x89);
-      z_x64_append_u8(code, 0xc1);
-      z_x64_append_u8(code, 0x58);
-      if (wide) z_x64_append_u8(code, 0x48);
-      z_x64_append_u8(code, 0x39);
-      z_x64_append_u8(code, 0xc8);
-      z_x64_append_u8(code, 0x0f);
-      z_x64_append_u8(code, elf_setcc_opcode(value->compare_op, elf_type_is_unsigned(value->left->type)));
-      z_x64_append_u8(code, 0xc0);
-      z_x64_append_u8(code, 0x0f);
-      z_x64_append_u8(code, 0xb6);
-      z_x64_append_u8(code, 0xc0);
+      z_x64_emit_mov_rcx_from_rax(code, wide);
+      z_x64_emit_pop_rax(code);
+      z_x64_emit_cmp_rax_rcx_to_bool(code, elf_setcc_opcode(value->compare_op, elf_type_is_unsigned(value->left->type)), wide);
       return true;
     }
     case IR_VALUE_CALL: {

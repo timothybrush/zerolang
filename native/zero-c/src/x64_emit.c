@@ -16,6 +16,10 @@ void z_x64_append_u64(ZBuf *buf, uint64_t value) {
   z_x64_append_u32(buf, (uint32_t)(value >> 32));
 }
 
+static void z_x64_emit_wide_prefix(ZBuf *buf, bool wide) {
+  if (wide) z_x64_append_u8(buf, 0x48);
+}
+
 void z_x64_patch_u32(ZBuf *buf, size_t offset, uint32_t value) {
   buf->data[offset + 0] = (char)(value & 0xffu);
   buf->data[offset + 1] = (char)((value >> 8) & 0xffu);
@@ -85,6 +89,85 @@ void z_x64_emit_push_reg64(ZBuf *buf, unsigned reg) {
 void z_x64_emit_pop_reg64(ZBuf *buf, unsigned reg) {
   if (reg >= 8) z_x64_append_u8(buf, 0x41);
   z_x64_append_u8(buf, 0x58 + (reg & 7u));
+}
+
+void z_x64_emit_push_rax(ZBuf *buf) {
+  z_x64_emit_push_reg64(buf, 0);
+}
+
+void z_x64_emit_pop_rax(ZBuf *buf) {
+  z_x64_emit_pop_reg64(buf, 0);
+}
+
+void z_x64_emit_mov_rcx_from_rax(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc1);
+}
+
+void z_x64_emit_add_rax_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x01);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_sub_rax_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x29);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_imul_rax_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0xaf);
+  z_x64_append_u8(buf, 0xc1);
+}
+
+void z_x64_emit_and_rax_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x21);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_or_rax_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x09);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_div_rax_rcx(ZBuf *buf, bool wide, bool uns, bool keep_remainder) {
+  if (uns) {
+    z_x64_emit_wide_prefix(buf, wide);
+    z_x64_append_u8(buf, 0x31);
+    z_x64_append_u8(buf, 0xd2);
+    z_x64_emit_wide_prefix(buf, wide);
+    z_x64_append_u8(buf, 0xf7);
+    z_x64_append_u8(buf, 0xf1);
+  } else {
+    z_x64_emit_wide_prefix(buf, wide);
+    z_x64_append_u8(buf, 0x99);
+    z_x64_emit_wide_prefix(buf, wide);
+    z_x64_append_u8(buf, 0xf7);
+    z_x64_append_u8(buf, 0xf9);
+  }
+  if (keep_remainder) {
+    z_x64_emit_wide_prefix(buf, wide);
+    z_x64_append_u8(buf, 0x89);
+    z_x64_append_u8(buf, 0xd0);
+  }
+}
+
+void z_x64_emit_cmp_rax_rcx_to_bool(ZBuf *buf, unsigned setcc_opcode, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x39);
+  z_x64_append_u8(buf, 0xc8);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, setcc_opcode);
+  z_x64_append_u8(buf, 0xc0);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0xb6);
+  z_x64_append_u8(buf, 0xc0);
 }
 
 void z_x64_emit_prologue(ZBuf *buf, unsigned stack_size) {

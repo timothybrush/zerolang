@@ -16,6 +16,16 @@ void z_x64_emit_rbp_disp_reg(ZBuf *buf, unsigned opcode, unsigned reg, unsigned 
 void z_x64_emit_load_rbp_positive_reg(ZBuf *buf, unsigned reg, unsigned offset, bool wide);
 void z_x64_emit_push_reg64(ZBuf *buf, unsigned reg);
 void z_x64_emit_pop_reg64(ZBuf *buf, unsigned reg);
+void z_x64_emit_push_rax(ZBuf *buf);
+void z_x64_emit_pop_rax(ZBuf *buf);
+void z_x64_emit_mov_rcx_from_rax(ZBuf *buf, bool wide);
+void z_x64_emit_add_rax_rcx(ZBuf *buf, bool wide);
+void z_x64_emit_sub_rax_rcx(ZBuf *buf, bool wide);
+void z_x64_emit_imul_rax_rcx(ZBuf *buf, bool wide);
+void z_x64_emit_and_rax_rcx(ZBuf *buf, bool wide);
+void z_x64_emit_or_rax_rcx(ZBuf *buf, bool wide);
+void z_x64_emit_div_rax_rcx(ZBuf *buf, bool wide, bool uns, bool keep_remainder);
+void z_x64_emit_cmp_rax_rcx_to_bool(ZBuf *buf, unsigned setcc_opcode, bool wide);
 void z_x64_emit_prologue(ZBuf *buf, unsigned stack_size);
 void z_x64_emit_epilogue(ZBuf *buf);
 void z_x64_emit_mov_eax_u32(ZBuf *buf, uint32_t value);
