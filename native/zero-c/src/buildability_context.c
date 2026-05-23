@@ -182,4 +182,3 @@ bool z_build_select(const IrProgram *ir, const ZTargetInfo *target, const char *
   }
   return true;
 }
-
