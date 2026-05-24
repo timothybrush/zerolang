@@ -23,7 +23,7 @@
 #endif
 #include <unistd.h>
 
-#define ZERO_VERSION "0.1.3"
+#define ZERO_VERSION "0.1.4"
 
 #include "embedded_runtime_sources.inc"
 #include "embedded_skills.inc"

@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.1.3
+## 0.1.4
 
 <!-- release:start -->
+
+- Adopts row syntax as the current Zero surface across parsing, import resolution, package manifests, command workflows, docs, fixtures, trivia preservation, and artifact contracts.
+- Rebuilds checker internals around TypeCore, binder-aware unification, generic inference, static interface validation, provenance substitution, and shared call-resolution facts.
+- Hardens direct emitters and native artifacts through MIR verifier contracts, direct specialization metadata, target buildability checks, and shared x64, AArch64, ELF, Mach-O, and COFF emission helpers.
+- Adds clearer direct backend selection, target readiness, and buildability reporting so command JSON and failed native builds expose deterministic blocker facts.
+- Removes stale wasm, compiler-zero, and superseded parser surfaces while refreshing public docs, README guidance, and zerolang branding around the current system.
+- Strengthens compiler structure guardrails, metrics budgets, TypeScript-based repo scripts, docs build infrastructure, CI workspace commands, and eval harness isolation.
+- Renames bundled version-matched skills to the current flat skill names while keeping `zero skills` discovery focused on the native compiler.
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.1.3
 
 - Adds hosted HTTP client runtime support, including runtime packaging fixes, JSON byte helpers for wasm, HTTP final-header parsing fixes, and direct array span lowering repairs.
 - Parses `use` declarations into syntax graph facts and reports import diagnostics, fix plans, and graph edges against the specific import source ranges.
@@ -17,8 +33,6 @@
 - @ctate
 - @PeterXMR
 - @h4ckf0r0day
-
-<!-- release:end -->
 
 ## 0.1.2
 
