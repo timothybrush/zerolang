@@ -844,6 +844,28 @@ static bool mir_verify_platform_value_contract(IrProgram *ir, const IrFunction *
   }
 }
 
+static bool mir_verify_local_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value) {
+  if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found local value outside the local table")) return false;
+  const IrLocal *local = &fun->locals[value->local_index];
+  if (value->type == local->type) return true;
+  char actual[192];
+  snprintf(actual, sizeof(actual), "local value %u has %s but local %s has %s", value->local_index, mir_type_kind_name(value->type), local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+  mir_verify_mark_unsupported(ir, "MIR verifier found local value type mismatch", value->line, value->column, actual);
+  return false;
+}
+
+static bool mir_verify_field_load_value_contract(IrProgram *ir, const IrFunction *fun, const IrValue *value) {
+  if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found field load outside the local table")) return false;
+  const IrLocal *local = &fun->locals[value->local_index];
+  if (!local->is_record) {
+    char actual[160];
+    snprintf(actual, sizeof(actual), "local %s is %s", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
+    mir_verify_mark_unsupported(ir, "MIR verifier found field load from a non-record local", value->line, value->column, actual);
+    return false;
+  }
+  return mir_verify_record_field_span(ir, local, value->field_offset, value->type, value->line, value->column, "MIR verifier found field load outside the local storage");
+}
+
 static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {
   if (!ir || !ir->mir_valid) return false;
   if (!value) return true;
@@ -852,17 +874,8 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
       return mir_verify_value_is_integer(ir, value, "MIR verifier found integer literal type mismatch", "integer literal");
     case IR_VALUE_BOOL:
       return mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found boolean literal type mismatch", "boolean literal");
-    case IR_VALUE_LOCAL: {
-      if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found local value outside the local table")) return false;
-      const IrLocal *local = &fun->locals[value->local_index];
-      if (value->type != local->type) {
-        char actual[192];
-        snprintf(actual, sizeof(actual), "local value %u has %s but local %s has %s", value->local_index, mir_type_kind_name(value->type), local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
-        mir_verify_mark_unsupported(ir, "MIR verifier found local value type mismatch", value->line, value->column, actual);
-        return false;
-      }
-      return true;
-    }
+    case IR_VALUE_LOCAL:
+      return mir_verify_local_value_contract(ir, fun, value);
     case IR_VALUE_CAST: return mir_verify_cast_value_contract(ir, value);
     case IR_VALUE_BINARY: return mir_verify_binary_value_contract(ir, value);
     case IR_VALUE_COMPARE:
@@ -958,17 +971,8 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
     case IR_VALUE_FS_TEMP_NAME:
     case IR_VALUE_FS_ATOMIC_WRITE:
       return mir_verify_fs_value_contract(ir, fun, state, value);
-    case IR_VALUE_FIELD_LOAD: {
-      if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found field load outside the local table")) return false;
-      const IrLocal *local = &fun->locals[value->local_index];
-      if (!local->is_record) {
-        char actual[160];
-        snprintf(actual, sizeof(actual), "local %s is %s", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
-        mir_verify_mark_unsupported(ir, "MIR verifier found field load from a non-record local", value->line, value->column, actual);
-        return false;
-      }
-      return mir_verify_record_field_span(ir, local, value->field_offset, value->type, value->line, value->column, "MIR verifier found field load outside the local storage");
-    }
+    case IR_VALUE_FIELD_LOAD:
+      return mir_verify_field_load_value_contract(ir, fun, value);
     case IR_VALUE_CHECK:
     case IR_VALUE_RESCUE:
       return mir_verify_fallible_flow_value_contract(ir, fun, value);

@@ -176,7 +176,6 @@ static ElfRuntimeHelper elf_runtime_helper_for_value(IrValueKind kind) {
 }
 
 static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
-static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag);
 
 static bool elf_function_propagates_to_process_exit(const IrFunction *fun) {
   return fun && (fun->raises ||
@@ -356,6 +355,12 @@ static void elf_emit_error_condition_from_rax(ZBuf *code) {
 
 static void elf_emit_packed_error_rax(ZBuf *code, unsigned code_value) {
   z_x64_emit_mov_rax_u64(code, ((uint64_t)code_value) << 32);
+}
+
+static void elf_emit_packed_error_epilogue(ZBuf *code, const IrFunction *fun, const ElfEmitContext *ctx, unsigned code_value) {
+  elf_emit_packed_error_rax(code, code_value);
+  if (!fun->raises) z_x64_emit_mov_eax_u32(code, 1);
+  elf_emit_epilogue(code, fun, ctx);
 }
 
 static bool elf_emit_rodata_ptr_rax(ZBuf *code, unsigned data_offset, ElfEmitContext *ctx, ZDiag *diag, const IrValue *value) {
@@ -1401,28 +1406,10 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   return true;
 }
 
-static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {
-  if (!fun || !instr || instr->local_index >= fun->local_len || fun->locals[instr->local_index].type != IR_TYPE_BYTE_VIEW) {
-    return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise local is invalid", instr ? instr->line : 1, instr ? instr->column : 1, "invalid ByteBuf local");
-  }
-  if (!instr->value || instr->value->kind != IR_VALUE_CHECK || !instr->value->left || instr->value->left->kind != IR_VALUE_FS_READ_ALL) {
-    return elf_diag(diag, "direct ELF64 checked std.fs.readAllOrRaise local requires a readAllOrRaise check", instr->line, instr->column, "unsupported checked readAll");
-  }
-  if (!elf_function_propagates_to_process_exit(fun)) {
-    return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise check requires a fallible function context", instr->line, instr->column, "non-fallible context");
-  }
-
-  const IrValue *value = instr->value->left;
-  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_ALLOC) {
-    return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise allocator is invalid", value->line, value->column, "invalid allocator");
-  }
-
-  const IrLocal *local = &fun->locals[instr->local_index];
-  const IrLocal *alloc = &fun->locals[value->local_index];
+static bool elf_emit_read_all_open_and_tell(ZBuf *text, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag, size_t *open_fail, size_t *tell_fail) {
   if (!elf_emit_openat_path(text, fun, value->left, 0, 0, ctx, diag)) return false;
   z_x64_emit_test_rax_rax(text, true);
-  size_t open_fail = elf_emit_js_placeholder(text);
-
+  *open_fail = elf_emit_js_placeholder(text);
   z_x64_emit_push_rax(text);
   z_x64_emit_mov_rdi_from_rax(text);
   z_x64_emit_xor_reg_reg(text, 6, true);
@@ -1430,24 +1417,25 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   z_x64_emit_mov_eax_u32(text, 8);
   z_x64_emit_syscall(text);
   z_x64_emit_test_rax_rax(text, true);
-  size_t tell_fail = elf_emit_js_placeholder(text);
-  if (value->right) {
-    z_x64_emit_push_rax(text);
-    if (!elf_emit_value(text, fun, value->right, ctx, diag)) return false;
-    z_x64_emit_pop_reg64(text, 1);
-    z_x64_emit_cmp_reg_reg(text, 1, 0, true);
-    size_t size_ok = z_x64_emit_jcc32_placeholder(text, 0x83);
-    z_x64_emit_pop_rax(text);
-    elf_emit_close_rax_fd(text);
-    elf_emit_packed_error_rax(text, IR_ERROR_TOO_LARGE);
-    if (!fun->raises) {
-      z_x64_emit_mov_eax_u32(text, 1);
-    }
-    elf_emit_epilogue(text, fun, ctx);
-    z_x64_patch_rel32(text, size_ok, text->len);
-  }
-  z_x64_emit_pop_rax(text);
+  *tell_fail = elf_emit_js_placeholder(text);
+  return true;
+}
 
+static bool elf_emit_read_all_limit_check(ZBuf *text, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!value->right) return true;
+  z_x64_emit_push_rax(text);
+  if (!elf_emit_value(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(text, 1);
+  z_x64_emit_cmp_reg_reg(text, 1, 0, true);
+  size_t size_ok = z_x64_emit_jcc32_placeholder(text, 0x83);
+  z_x64_emit_pop_rax(text);
+  elf_emit_close_rax_fd(text);
+  elf_emit_packed_error_epilogue(text, fun, ctx, IR_ERROR_TOO_LARGE);
+  z_x64_patch_rel32(text, size_ok, text->len);
+  return true;
+}
+
+static bool elf_emit_read_all_sysread(ZBuf *text, const IrFunction *fun, const IrValue *value, const IrLocal *alloc, ElfEmitContext *ctx, ZDiag *diag) {
   z_x64_emit_push_rax(text);
   z_x64_emit_push_rax(text);
   elf_emit_load_local_slot_reg(text, alloc, 0, 6, true);
@@ -1470,9 +1458,10 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   elf_emit_close_rax_fd(text);
   z_x64_emit_pop_rax(text);
   z_x64_emit_add_rsp(text, 8);
-  z_x64_emit_test_rax_rax(text, true);
-  size_t read_fail = elf_emit_js_placeholder(text);
+  return true;
+}
 
+static void elf_emit_read_all_store_result(ZBuf *text, const IrLocal *local, const IrLocal *alloc) {
   z_x64_emit_push_rax(text);
   elf_emit_load_local_slot_rax(text, alloc, 0);
   elf_emit_load_local_slot_reg(text, alloc, 12, 1, false);
@@ -1483,31 +1472,37 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   elf_emit_load_local_slot_reg(text, alloc, 12, 1, false);
   z_x64_emit_add_rax_rcx(text, false);
   elf_emit_store_local_slot_reg(text, alloc, 12, 0, false);
-  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+}
 
+static void elf_emit_read_all_failures(ZBuf *text, const IrFunction *fun, const ElfEmitContext *ctx, size_t open_fail, size_t tell_fail, size_t read_fail, size_t end) {
   z_x64_patch_rel32(text, open_fail, text->len);
-  elf_emit_packed_error_rax(text, IR_ERROR_NOT_FOUND);
-  if (!fun->raises) {
-    z_x64_emit_mov_eax_u32(text, 1);
-  }
-  elf_emit_epilogue(text, fun, ctx);
-
+  elf_emit_packed_error_epilogue(text, fun, ctx, IR_ERROR_NOT_FOUND);
   z_x64_patch_rel32(text, tell_fail, text->len);
   z_x64_emit_pop_rax(text);
   elf_emit_close_rax_fd(text);
-  elf_emit_packed_error_rax(text, IR_ERROR_IO);
-  if (!fun->raises) {
-    z_x64_emit_mov_eax_u32(text, 1);
-  }
-  elf_emit_epilogue(text, fun, ctx);
-
+  elf_emit_packed_error_epilogue(text, fun, ctx, IR_ERROR_IO);
   z_x64_patch_rel32(text, read_fail, text->len);
-  elf_emit_packed_error_rax(text, IR_ERROR_IO);
-  if (!fun->raises) {
-    z_x64_emit_mov_eax_u32(text, 1);
-  }
-  elf_emit_epilogue(text, fun, ctx);
+  elf_emit_packed_error_epilogue(text, fun, ctx, IR_ERROR_IO);
   z_x64_patch_rel32(text, end, text->len);
+}
+
+static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!fun || !instr || instr->local_index >= fun->local_len || fun->locals[instr->local_index].type != IR_TYPE_BYTE_VIEW) return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise local is invalid", instr ? instr->line : 1, instr ? instr->column : 1, "invalid ByteBuf local");
+  if (!instr->value || instr->value->kind != IR_VALUE_CHECK || !instr->value->left || instr->value->left->kind != IR_VALUE_FS_READ_ALL) return elf_diag(diag, "direct ELF64 checked std.fs.readAllOrRaise local requires a readAllOrRaise check", instr->line, instr->column, "unsupported checked readAll");
+  if (!elf_function_propagates_to_process_exit(fun)) return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise check requires a fallible function context", instr->line, instr->column, "non-fallible context");
+  const IrValue *value = instr->value->left;
+  if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_ALLOC) return elf_diag(diag, "direct ELF64 std.fs.readAllOrRaise allocator is invalid", value->line, value->column, "invalid allocator");
+  const IrLocal *local = &fun->locals[instr->local_index], *alloc = &fun->locals[value->local_index];
+  size_t open_fail = 0, tell_fail = 0;
+  if (!elf_emit_read_all_open_and_tell(text, fun, value, ctx, diag, &open_fail, &tell_fail)) return false;
+  if (!elf_emit_read_all_limit_check(text, fun, value, ctx, diag)) return false;
+  z_x64_emit_pop_rax(text);
+  if (!elf_emit_read_all_sysread(text, fun, value, alloc, ctx, diag)) return false;
+  z_x64_emit_test_rax_rax(text, true);
+  size_t read_fail = elf_emit_js_placeholder(text);
+  elf_emit_read_all_store_result(text, local, alloc);
+  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  elf_emit_read_all_failures(text, fun, ctx, open_fail, tell_fail, read_fail, end);
   return true;
 }
 

@@ -942,27 +942,29 @@ static bool ir_lower_array_literal_byte_view(IrProgram *ir, const Expr *expr, Ir
   return true;
 }
 
+static bool ir_lower_string_literal_byte_view(IrProgram *ir, const Expr *expr, IrValue **out) {
+  const char *text = expr->text ? expr->text : "";
+  unsigned offset = 0;
+  unsigned len = (unsigned)strlen(text);
+  unsigned char *nul_terminated = z_checked_malloc((size_t)len + 1);
+  memcpy(nul_terminated, text, len);
+  nul_terminated[len] = 0;
+  bool added = ir_add_readonly_data(ir, nul_terminated, len + 1, expr->line, expr->column, &offset);
+  free(nul_terminated);
+  if (!added) return false;
+  IrValue *value = ir_new_value(ir, IR_VALUE_STRING_LITERAL, IR_TYPE_BYTE_VIEW, expr->line, expr->column);
+  value->data_offset = offset;
+  value->data_len = len;
+  *out = value;
+  return true;
+}
+
 static bool ir_lower_byte_view(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
   if (!expr) {
     ir_mark_unsupported(ir, "direct backend byte view is missing", 1, 1, "missing expression");
     return false;
   }
-  if (expr->kind == EXPR_STRING) {
-    const char *text = expr->text ? expr->text : "";
-    unsigned offset = 0;
-    unsigned len = (unsigned)strlen(text);
-    unsigned char *nul_terminated = z_checked_malloc((size_t)len + 1);
-    memcpy(nul_terminated, text, len);
-    nul_terminated[len] = 0;
-    bool added = ir_add_readonly_data(ir, nul_terminated, len + 1, expr->line, expr->column, &offset);
-    free(nul_terminated);
-    if (!added) return false;
-    IrValue *value = ir_new_value(ir, IR_VALUE_STRING_LITERAL, IR_TYPE_BYTE_VIEW, expr->line, expr->column);
-    value->data_offset = offset;
-    value->data_len = len;
-    *out = value;
-    return true;
-  }
+  if (expr->kind == EXPR_STRING) return ir_lower_string_literal_byte_view(ir, expr, out);
   if (expr->kind == EXPR_ARRAY_LITERAL) {
     return ir_lower_array_literal_byte_view(ir, expr, out);
   }
