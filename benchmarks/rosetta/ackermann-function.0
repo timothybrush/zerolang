@@ -1,0 +1,6 @@
+fn ack2 u32 n u32
+  ret + (* 2 n) 3
+
+pub fn main Void world World !
+  if == (ack2 4) 11
+    check world.out.write "ackermann ok\n"

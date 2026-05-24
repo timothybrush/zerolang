@@ -929,6 +929,11 @@ await assertMachOObjectBuildabilityBlocked(
   "macho-open-byte-slice.o",
   /byte-view length/,
 );
+await assertMachOObjectBuildabilityBlocked(
+  "conformance/native/pass/bool-arrays.0",
+  "macho-bool-arrays.o",
+  /fixed-array local/,
+);
 
 const directCallArm64ObjReadiness = await execFileAsync(zero, [
   "check",
@@ -2802,6 +2807,8 @@ assert.equal(JSON.parse(abiCheck.stdout).ok, true);
 for (const runtimeFixture of [
   ["conformance/native/pass/indexing-primitives.0", "indexing-primitives", { stdout: "indexing primitives ok\n" }],
   ["conformance/native/pass/range-slices.0", "range-slices", { stdout: "range slices ok\n" }],
+  ["conformance/native/pass/byte-view-params.0", "byte-view-params", { stdout: "byte view params ok\n" }],
+  ["conformance/native/pass/bool-arrays.0", "bool-arrays", { stdout: "bool arrays ok\n" }],
   ["conformance/native/pass/generic-spans.0", "generic-spans", { stdout: "generic spans ok\n" }],
   ["conformance/native/pass/open-ended-slices.0", "open-ended-slices", { stdout: "open ended slices ok\n" }],
   ["conformance/native/pass/string-slices.0", "string-slices", { stdout: "string slices ok\n" }],

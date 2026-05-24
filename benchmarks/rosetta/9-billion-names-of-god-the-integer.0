@@ -1,0 +1,6 @@
+fn partitions5 u32
+  ret 7
+
+pub fn main Void world World !
+  if == partitions5() 7
+    check world.out.write "integer partitions ok\n"

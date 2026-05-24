@@ -1,0 +1,4 @@
+pub fn main Void world World !
+  let ok == (+ 20 22) 42
+  if ok
+    check world.out.write "assertions ok\n"

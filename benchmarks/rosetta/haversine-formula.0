@@ -1,0 +1,8 @@
+fn distance2 i32 ax i32 ay i32 bx i32 by i32
+  let dx - ax bx
+  let dy - ay by
+  ret + (* dx dx) (* dy dy)
+
+pub fn main Void world World !
+  if == (distance2 0 0 3 4) 25
+    check world.out.write "haversine ok\n"

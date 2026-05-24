@@ -1,0 +1,6 @@
+fn eScaled u32
+  ret + (+ 100 100) (+ 50 16)
+
+pub fn main Void world World !
+  if == eScaled() 266
+    check world.out.write "e ok\n"

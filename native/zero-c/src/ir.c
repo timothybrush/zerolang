@@ -212,6 +212,10 @@ static bool ir_type_is_direct_abi(IrTypeKind type) {
   return type == IR_TYPE_BOOL || ir_type_is_value(type);
 }
 
+static bool ir_type_is_direct_param_abi(IrTypeKind type) {
+  return ir_type_is_direct_abi(type) || type == IR_TYPE_BYTE_VIEW;
+}
+
 static bool ir_type_is_direct_fallible_value(IrTypeKind type) {
   return type == IR_TYPE_VOID || type == IR_TYPE_BOOL || type == IR_TYPE_U8 ||
          type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 ||
@@ -523,7 +527,8 @@ static bool ir_parse_fixed_array_type_for_program(const Program *program, const 
     if (len > UINT_MAX) return false;
   }
   IrTypeKind element = ir_type_kind_for_program(program, close + 1);
-  if (element != IR_TYPE_I32 && element != IR_TYPE_U32 && element != IR_TYPE_U8) {
+  if (element != IR_TYPE_BOOL && element != IR_TYPE_U8 && element != IR_TYPE_I32 && element != IR_TYPE_U32 &&
+      element != IR_TYPE_USIZE && element != IR_TYPE_I64 && element != IR_TYPE_U64) {
     return false;
   }
   if (out_len) *out_len = (unsigned)len;
@@ -1067,6 +1072,10 @@ static bool ir_lower_byte_view(const Program *program, IrProgram *ir, const IrFu
   }
   ir_mark_unsupported(ir, "direct backend byte views currently support string literals and slices", expr->line, expr->column, "unsupported byte view source");
   return false;
+}
+
+static bool ir_lower_call_arg(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrTypeKind expected, IrValue **out) {
+  return expected == IR_TYPE_BYTE_VIEW ? ir_lower_byte_view(program, ir, fun, expr, out) : ir_lower_expr(program, ir, fun, expr, out);
 }
 
 static void ir_instr_vec_push(IrProgram *ir, IrInstr **items, size_t *len, size_t *cap, IrInstr instr) {
@@ -2498,7 +2507,7 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         char *specialized_param_type = generic_call ? ir_specialize_type_text(callee->params.items[i].type, callee, type_args) : NULL;
         const char *param_type_text = generic_call ? specialized_param_type : callee->params.items[i].type;
         IrTypeKind expected = ir_type_kind(param_type_text);
-        if (!ir_type_is_direct_abi(expected)) {
+        if (!ir_type_is_direct_param_abi(expected)) {
           free(specialized_param_type);
           free(specialized_return_type);
           free(specialized_name);
@@ -2507,7 +2516,7 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
           return false;
         }
         IrValue *arg = NULL;
-        if (!ir_lower_expr(program, ir, fun, expr->args.items[i], &arg)) {
+        if (!ir_lower_call_arg(program, ir, fun, expr->args.items[i], expected, &arg)) {
           free(specialized_param_type);
           free(specialized_return_type);
           free(specialized_name);
@@ -3097,7 +3106,7 @@ static bool ir_collect_function_locals(const Program *program, IrProgram *ir, Ir
     const Param *param = &source->params.items[i];
     if (hosted_world_main && i == 0 && strcmp(param->type ? param->type : "", "World") == 0) continue;
     IrTypeKind type = ir_type_kind(param->type);
-    if (!ir_type_is_direct_abi(type)) {
+    if (!ir_type_is_direct_param_abi(type)) {
       ir_mark_unsupported(ir, "direct backend parameter type is unsupported", param->line, param->column, param->type);
       return false;
     }

@@ -1,0 +1,10 @@
+fn mask8 u8 prefix u8
+  if == prefix 0
+    ret 0
+  if == prefix 8
+    ret 255
+  ret 240
+
+pub fn main Void world World !
+  if == (mask8 4) 240
+    check world.out.write "cidr ok\n"

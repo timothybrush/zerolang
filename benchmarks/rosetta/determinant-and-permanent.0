@@ -1,0 +1,9 @@
+fn determinant i32 a i32 b i32 c i32 d i32
+  ret - (* a d) (* b c)
+
+fn permanent i32 a i32 b i32 c i32 d i32
+  ret + (* a d) (* b c)
+
+pub fn main Void world World !
+  if && (== (determinant 1 2 3 4) (- 0 2)) (== (permanent 1 2 3 4) 10)
+    check world.out.write "determinant permanent ok\n"

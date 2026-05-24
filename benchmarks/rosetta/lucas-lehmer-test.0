@@ -1,0 +1,22 @@
+fn pow2 u64 exp u32
+  mut result u64 1
+  mut i u32 0
+  while < i exp
+    set result * result 2
+    set i + i 1
+  ret result
+
+fn lucasLehmer Bool p u32
+  if == p 2
+    ret true
+  let m - (pow2 p) 1
+  mut s u64 4
+  mut i u32 0
+  while < i (- p 2)
+    set s % (- (* s s) 2) m
+    set i + i 1
+  ret == s 0
+
+pub fn main Void world World !
+  if lucasLehmer 5
+    check world.out.write "lucas lehmer ok\n"

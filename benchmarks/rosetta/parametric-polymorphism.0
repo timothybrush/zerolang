@@ -1,0 +1,7 @@
+fn id<T: Type> T value T
+  ret value
+
+pub fn main Void world World !
+  let value i32 id<i32> 42
+  if == value 42
+    check world.out.write "parametric polymorphism ok\n"

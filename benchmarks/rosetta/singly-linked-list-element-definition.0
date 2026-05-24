@@ -1,0 +1,8 @@
+type Node
+  value i32
+  next usize
+
+pub fn main Void world World !
+  let node Node . value 42 next 0
+  if == node.value 42
+    check world.out.write "list element definition ok\n"

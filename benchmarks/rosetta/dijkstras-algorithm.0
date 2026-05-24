@@ -1,0 +1,9 @@
+fn shortest i32 ab i32 ac i32 cb i32
+  let via + ac cb
+  if < via ab
+    ret via
+  ret ab
+
+pub fn main Void world World !
+  if == (shortest 9 2 3) 5
+    check world.out.write "dijkstra ok\n"

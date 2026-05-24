@@ -1,0 +1,4 @@
+pub fn main Void world World !
+  let code u8 "A"[0]
+  if == code 65
+    check world.out.write "character codes ok\n"

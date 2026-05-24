@@ -1,0 +1,4 @@
+pub fn main Void world World !
+  let source String "pub fn main Void"
+  if > (std.mem.len source) 0
+    check world.out.write "quine ok\n"

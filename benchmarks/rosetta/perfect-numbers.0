@@ -1,0 +1,12 @@
+fn properSum u32 n u32
+  mut sum u32 0
+  mut d u32 1
+  while < d n
+    if == (% n d) 0
+      set sum + sum d
+    set d + d 1
+  ret sum
+
+pub fn main Void world World !
+  if == (properSum 28) 28
+    check world.out.write "perfect numbers ok\n"

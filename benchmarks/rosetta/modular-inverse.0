@@ -1,0 +1,20 @@
+fn inverse i32 a0 i32 m0 i32
+  mut t i32 0
+  mut newt i32 1
+  mut r m0
+  mut newr a0
+  while != newr 0
+    let q / r newr
+    let nextT - t (* q newt)
+    set t newt
+    set newt nextT
+    let nextR - r (* q newr)
+    set r newr
+    set newr nextR
+  if < t 0
+    set t + t m0
+  ret t
+
+pub fn main Void world World !
+  if == (inverse 3 11) 4
+    check world.out.write "modular inverse ok\n"

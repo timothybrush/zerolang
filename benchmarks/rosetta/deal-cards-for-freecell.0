@@ -1,0 +1,9 @@
+fn rank u8 card u8
+  ret + (% card 13) 1
+
+fn suit u8 card u8
+  ret / card 13
+
+pub fn main Void world World !
+  if && (== (rank 12) 13) (== (suit 26) 2)
+    check world.out.write "freecell deal ok\n"

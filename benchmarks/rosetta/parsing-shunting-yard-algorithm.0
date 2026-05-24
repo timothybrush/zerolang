@@ -1,0 +1,10 @@
+fn precedence u8 op u8
+  if || (== op 42) (== op 47)
+    ret 2
+  if || (== op 43) (== op 45)
+    ret 1
+  ret 0
+
+pub fn main Void world World !
+  if > (precedence 42) (precedence 43)
+    check world.out.write "shunting yard ok\n"

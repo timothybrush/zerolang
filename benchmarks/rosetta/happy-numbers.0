@@ -1,0 +1,22 @@
+fn digitSquareSum u32 value u32
+  mut n value
+  mut sum u32 0
+  while > n 0
+    let d % n 10
+    set sum + sum (* d d)
+    set n / n 10
+  ret sum
+
+fn happy Bool value u32
+  mut n value
+  mut steps u32 0
+  while < steps 16
+    if == n 1
+      ret true
+    set n digitSquareSum n
+    set steps + steps 1
+  ret false
+
+pub fn main Void world World !
+  if && (happy 19) (== (happy 20) false)
+    check world.out.write "happy numbers ok\n"

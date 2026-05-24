@@ -1,0 +1,6 @@
+fn square i32 value i32
+  ret * value value
+
+pub fn main Void world World !
+  if == (square 9) 81
+    check world.out.write "function definition ok\n"

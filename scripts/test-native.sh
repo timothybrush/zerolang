@@ -1013,6 +1013,16 @@ bin/zero build --json --emit exe --backend zero-elf64 --target linux-musl-x64 ex
 node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-span-read"); if (b[0]!==0x7f || b[1]!==0x45 || b.readUInt16LE(16)!==2 || b.readUInt16LE(18)!==62) process.exit(1);'
 test ! -f .zero/native-test/direct-span-read.c
 grep -q '"readonlyDataBytes":6' .zero/native-test/direct-span-read.json
+rm -f .zero/native-test/direct-byte-view-params .zero/native-test/direct-byte-view-params.c
+bin/zero build --json --emit exe --backend zero-elf64 --target linux-musl-x64 conformance/native/pass/byte-view-params.0 --out .zero/native-test/direct-byte-view-params > .zero/native-test/direct-byte-view-params.json
+node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-byte-view-params"); if (b[0]!==0x7f || b[1]!==0x45 || b.readUInt16LE(16)!==2 || b.readUInt16LE(18)!==62) process.exit(1);'
+test ! -f .zero/native-test/direct-byte-view-params.c
+grep -q '"path":"direct-elf64-exe"' .zero/native-test/direct-byte-view-params.json
+rm -f .zero/native-test/direct-bool-arrays .zero/native-test/direct-bool-arrays.c
+bin/zero build --json --emit exe --backend zero-elf64 --target linux-musl-x64 conformance/native/pass/bool-arrays.0 --out .zero/native-test/direct-bool-arrays > .zero/native-test/direct-bool-arrays.json
+node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-bool-arrays"); if (b[0]!==0x7f || b[1]!==0x45 || b.readUInt16LE(16)!==2 || b.readUInt16LE(18)!==62) process.exit(1);'
+test ! -f .zero/native-test/direct-bool-arrays.c
+grep -q '"path":"direct-elf64-exe"' .zero/native-test/direct-bool-arrays.json
 rm -f .zero/native-test/direct-byte-view-reloc .zero/native-test/direct-byte-view-reloc.c
 bin/zero build --json --emit exe --backend zero-elf64 --target linux-musl-x64 examples/direct-byte-view-reloc.0 --out .zero/native-test/direct-byte-view-reloc > .zero/native-test/direct-byte-view-reloc.json
 node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-byte-view-reloc"); if (b[0]!==0x7f || b[1]!==0x45 || b.readUInt16LE(16)!==2 || b.readUInt16LE(18)!==62) process.exit(1);'

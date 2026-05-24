@@ -1,0 +1,6 @@
+fn readLen usize bytes Span<u8>
+  ret std.mem.len bytes
+
+pub fn main Void world World !
+  if == (readLen (std.mem.span "file")) 4
+    check world.out.write "file io ok\n"

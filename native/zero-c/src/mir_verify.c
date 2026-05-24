@@ -35,6 +35,10 @@ static bool mir_type_is_direct_abi(IrTypeKind type) {
   return type == IR_TYPE_BOOL || mir_type_is_value(type);
 }
 
+static bool mir_type_is_direct_param_abi(IrTypeKind type) {
+  return mir_type_is_direct_abi(type) || type == IR_TYPE_BYTE_VIEW;
+}
+
 static bool mir_type_is_direct_fallible_value(IrTypeKind type) {
   return type == IR_TYPE_VOID || type == IR_TYPE_BOOL || type == IR_TYPE_U8 ||
          type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 ||
@@ -222,7 +226,7 @@ static bool mir_verify_direct_function_contract(IrProgram *ir, const IrFunction 
       mir_verify_mark_unsupported(ir, "MIR verifier found invalid parameter local layout", local->line, local->column, actual);
       return false;
     }
-    if (!mir_type_is_direct_abi(local->type)) {
+    if (!mir_type_is_direct_param_abi(local->type)) {
       char actual[160];
       snprintf(actual, sizeof(actual), "parameter %s has %s", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type));
       mir_verify_mark_unsupported(ir, "MIR verifier found non-ABI parameter type", local->line, local->column, actual);

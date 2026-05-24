@@ -1,0 +1,9 @@
+fn mediantNum u32 a u32 c u32
+  ret + a c
+
+fn mediantDen u32 b u32 d u32
+  ret + b d
+
+pub fn main Void world World !
+  if && (== (mediantNum 1 1) 2) (== (mediantDen 2 3) 5)
+    check world.out.write "stern brocot ok\n"

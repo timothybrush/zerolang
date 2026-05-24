@@ -1,0 +1,9 @@
+fn relax i32 current i32 left i32 right i32
+  let via + left right
+  if < via current
+    ret via
+  ret current
+
+pub fn main Void world World !
+  if == (relax 9 2 3) 5
+    check world.out.write "floyd warshall ok\n"

@@ -1,0 +1,29 @@
+fn gcd u32 a0 u32 b0 u32
+  mut a a0
+  mut b b0
+  while != b 0
+    let next % a b
+    set a b
+    set b next
+  ret a
+
+fn phi u32 n u32
+  mut count u32 0
+  mut k u32 1
+  while <= k n
+    if == (gcd n k) 1
+      set count + count 1
+    set k + k 1
+  ret count
+
+fn fareyLength u32 order u32
+  mut total u32 1
+  mut n u32 1
+  while <= n order
+    set total + total (phi n)
+    set n + n 1
+  ret total
+
+pub fn main Void world World !
+  if == (fareyLength 5) 11
+    check world.out.write "farey ok\n"

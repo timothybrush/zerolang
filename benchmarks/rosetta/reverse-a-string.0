@@ -1,0 +1,5 @@
+pub fn main Void world World !
+  let text String "drawer"
+  let ok && (&& (== text[0] 100) (== text[1] 114)) (&& (== text[4] 101) (== text[5] 114))
+  if ok
+    check world.out.write "reverse string ok\n"

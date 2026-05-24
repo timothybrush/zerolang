@@ -1,0 +1,6 @@
+fn nextAngle i32 angle i32 velocity i32
+  ret + angle velocity
+
+pub fn main Void world World !
+  if == (nextAngle 10 (- 0 3)) 7
+    check world.out.write "pendulum ok\n"

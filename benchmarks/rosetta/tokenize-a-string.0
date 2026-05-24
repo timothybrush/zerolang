@@ -1,0 +1,17 @@
+fn words u32 text Span<u8>
+  mut count u32 0
+  mut inWord Bool false
+  mut i usize 0
+  while < i (std.mem.len text)
+    if == text[i] 32
+      set inWord false
+    else
+      if == inWord false
+        set count + count 1
+      set inWord true
+    set i + i 1
+  ret count
+
+pub fn main Void world World !
+  if == (words (std.mem.span "zero row syntax")) 3
+    check world.out.write "tokenize ok\n"

@@ -1,0 +1,11 @@
+pub fn main Void world World !
+  mut outer u32 0
+  mut count u32 0
+  while < outer 3
+    mut inner u32 0
+    while < inner 4
+      set count + count 1
+      set inner + inner 1
+    set outer + outer 1
+  if == count 12
+    check world.out.write "nested loops ok\n"

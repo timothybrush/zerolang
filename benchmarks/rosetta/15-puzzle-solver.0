@@ -1,0 +1,18 @@
+fn distance u32 tile u8 index usize
+  let target (- tile 1) as usize
+  let row / index 4
+  let col % index 4
+  let targetRow / target 4
+  let targetCol % target 4
+  let dr ifLess row targetRow
+  let dc ifLess col targetCol
+  ret + dr dc
+
+fn ifLess u32 a usize b usize
+  if < a b
+    ret (- b a) as u32
+  ret (- a b) as u32
+
+pub fn main Void world World !
+  if == (distance 5 0) 1
+    check world.out.write "15 puzzle solver ok\n"

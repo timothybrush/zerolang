@@ -1,0 +1,6 @@
+fn codeCount usize text Span<u8>
+  ret std.mem.len text
+
+pub fn main Void world World !
+  if == (codeCount (std.mem.span "TOBE")) 4
+    check world.out.write "lzw ok\n"

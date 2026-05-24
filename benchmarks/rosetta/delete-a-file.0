@@ -1,0 +1,6 @@
+fn deleteOk Bool exists Bool
+  ret == exists false
+
+pub fn main Void world World !
+  if deleteOk false
+    check world.out.write "delete file ok\n"

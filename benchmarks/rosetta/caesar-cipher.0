@@ -1,0 +1,8 @@
+fn shift u8 c u8 amount u8
+  if && (>= c 97) (<= c 122)
+    ret + (% (+ (- c 97) amount) 26) 97
+  ret c
+
+pub fn main Void world World !
+  if == (shift 120 3) 97
+    check world.out.write "caesar cipher ok\n"

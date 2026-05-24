@@ -1,0 +1,11 @@
+type Pair
+  left i32
+  right i32
+
+fn fieldCount u32
+  ret 2
+
+pub fn main Void world World !
+  let pair Pair . left 20 right 22
+  if && (== (+ pair.left pair.right) 42) (== fieldCount() 2)
+    check world.out.write "introspection ok\n"

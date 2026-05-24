@@ -1,0 +1,6 @@
+fn foreignAdd i32 a i32 b i32
+  ret + a b
+
+pub fn main Void world World !
+  if == (foreignAdd 20 22) 42
+    check world.out.write "foreign call ok\n"

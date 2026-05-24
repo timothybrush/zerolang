@@ -1,0 +1,8 @@
+fn binaryEntropyBits u32 zeroes u32 ones u32
+  if == zeroes ones
+    ret 1
+  ret 0
+
+pub fn main Void world World !
+  if == (binaryEntropyBits 4 4) 1
+    check world.out.write "entropy ok\n"

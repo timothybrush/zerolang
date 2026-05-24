@@ -1,0 +1,6 @@
+fn m1 i32 a i32 d i32 e i32 h i32
+  ret * (+ a d) (+ e h)
+
+pub fn main Void world World !
+  if == (m1 1 4 5 8) 65
+    check world.out.write "strassen ok\n"

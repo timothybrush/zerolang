@@ -1,0 +1,27 @@
+fn blockFor i32 c u8
+  if || (== c 66) (== c 79)
+    ret 0
+  if || (== c 88) (== c 75)
+    ret 1
+  if || (== c 78) (== c 65)
+    ret 2
+  if || (== c 82) (== c 69)
+    ret 3
+  ret - 0 1
+
+fn canSpell Bool word Span<u8>
+  mut used [4]Bool [false;4]
+  mut i usize 0
+  while < i (std.mem.len word)
+    let block blockFor word[i]
+    if < block 0
+      ret false
+    if used[block as usize]
+      ret false
+    set used[block as usize] true
+    set i + i 1
+  ret true
+
+pub fn main Void world World !
+  if && (canSpell (std.mem.span "BARK")) (== (canSpell (std.mem.span "BOOK")) false)
+    check world.out.write "abc blocks ok\n"

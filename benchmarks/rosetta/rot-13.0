@@ -1,0 +1,8 @@
+fn rot13 u8 c u8
+  if && (>= c 97) (<= c 122)
+    ret + (% (+ (- c 97) 13) 26) 97
+  ret c
+
+pub fn main Void world World !
+  if && (== (rot13 97) 110) (== (rot13 122) 109)
+    check world.out.write "rot13 ok\n"

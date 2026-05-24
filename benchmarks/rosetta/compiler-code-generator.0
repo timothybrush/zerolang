@@ -1,0 +1,6 @@
+fn bytecodeLen u32 nodes u32
+  ret * nodes 2
+
+pub fn main Void world World !
+  if == (bytecodeLen 3) 6
+    check world.out.write "code generator ok\n"

@@ -1,0 +1,14 @@
+fn modPow u32 base u32 exp u32 modulus u32
+  mut result u32 1
+  mut b % base modulus
+  mut e exp
+  while > e 0
+    if == (% e 2) 1
+      set result % (* result b) modulus
+    set b % (* b b) modulus
+    set e / e 2
+  ret result
+
+pub fn main Void world World !
+  if == (modPow 4 13 497) 445
+    check world.out.write "modular arithmetic ok\n"

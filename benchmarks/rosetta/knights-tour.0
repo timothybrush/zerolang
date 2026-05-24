@@ -1,0 +1,13 @@
+fn abs i32 value i32
+  if < value 0
+    ret - 0 value
+  ret value
+
+fn knightMove Bool ax i32 ay i32 bx i32 by i32
+  let dx abs (- ax bx)
+  let dy abs (- ay by)
+  ret || (&& (== dx 1) (== dy 2)) (&& (== dx 2) (== dy 1))
+
+pub fn main Void world World !
+  if knightMove 0 0 1 2
+    check world.out.write "knight tour ok\n"

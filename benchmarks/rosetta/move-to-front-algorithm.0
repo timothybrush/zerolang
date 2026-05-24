@@ -1,0 +1,8 @@
+pub fn main Void world World !
+  mut values [4]u8 [1, 2, 3, 4]
+  let chosen values[2]
+  set values[2] values[1]
+  set values[1] values[0]
+  set values[0] chosen
+  if == values[0] 3
+    check world.out.write "move to front ok\n"

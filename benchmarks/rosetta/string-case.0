@@ -1,0 +1,8 @@
+fn upper u8 c u8
+  if && (>= c 97) (<= c 122)
+    ret - c 32
+  ret c
+
+pub fn main Void world World !
+  if == (upper 122) 90
+    check world.out.write "string case ok\n"

@@ -1,0 +1,11 @@
+pub fn main Void world World !
+  mut doors [101]Bool [false;101]
+  mut pass usize 1
+  while <= pass 100
+    mut door usize pass
+    while <= door 100
+      set doors[door] == doors[door] false
+      set door + door pass
+    set pass + pass 1
+  if && (&& doors[1] doors[4]) (&& doors[81] (== doors[2] false))
+    check world.out.write "100 doors ok\n"

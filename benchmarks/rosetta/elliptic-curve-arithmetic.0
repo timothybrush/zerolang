@@ -1,0 +1,6 @@
+fn curveY2 u32 x u32
+  ret + (+ (* (* x x) x) (* 2 x)) 3
+
+pub fn main Void world World !
+  if == (curveY2 1) 6
+    check world.out.write "elliptic curve ok\n"

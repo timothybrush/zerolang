@@ -1,0 +1,14 @@
+pub fn main Void world World !
+  mut prime [31]Bool [true;31]
+  set prime[0] false
+  set prime[1] false
+  mut p usize 2
+  while <= (* p p) 30
+    if prime[p]
+      mut n usize * p p
+      while <= n 30
+        set prime[n] false
+        set n + n p
+    set p + p 1
+  if && (&& prime[2] prime[29]) (== prime[30] false)
+    check world.out.write "sieve ok\n"

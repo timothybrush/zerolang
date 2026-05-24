@@ -1,0 +1,21 @@
+fn prime Bool n u32
+  if < n 2
+    ret false
+  mut d u32 2
+  while <= (* d d) n
+    if == (% n d) 0
+      ret false
+    set d + d 1
+  ret true
+
+fn nextPrime u32 after u32
+  mut n + after 1
+  while true
+    if prime n
+      ret n
+    set n + n 1
+  ret 0
+
+pub fn main Void world World !
+  if == (nextPrime 30) 31
+    check world.out.write "prime generator ok\n"

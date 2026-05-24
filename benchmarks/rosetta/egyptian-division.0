@@ -1,0 +1,14 @@
+fn egyptianProduct u32 a u32 b u32
+  mut x a
+  mut y b
+  mut total u32 0
+  while > y 0
+    if == (% y 2) 1
+      set total + total x
+    set x * x 2
+    set y / y 2
+  ret total
+
+pub fn main Void world World !
+  if == (egyptianProduct 17 23) 391
+    check world.out.write "egyptian division ok\n"

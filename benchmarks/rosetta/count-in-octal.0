@@ -1,0 +1,11 @@
+fn octalDigits u32 value u32
+  mut n value
+  mut count u32 0
+  while > n 0
+    set count + count 1
+    set n / n 8
+  ret count
+
+pub fn main Void world World !
+  if == (octalDigits 511) 3
+    check world.out.write "count in octal ok\n"

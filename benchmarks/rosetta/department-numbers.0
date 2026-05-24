@@ -1,0 +1,6 @@
+fn valid Bool police u32 sanitation u32 fire u32
+  ret && (== (+ (+ police sanitation) fire) 12) (== (* (* police sanitation) fire) 48)
+
+pub fn main Void world World !
+  if valid 2 4 6
+    check world.out.write "departments ok\n"

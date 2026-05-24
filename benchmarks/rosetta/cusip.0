@@ -1,0 +1,24 @@
+fn value u32 c u8
+  if && (>= c 48) (<= c 57)
+    ret (- c 48) as u32
+  if && (>= c 65) (<= c 90)
+    ret (+ (- c 65) 10) as u32
+  ret 0
+
+fn digitSum u32 n u32
+  ret + (/ n 10) (% n 10)
+
+fn checkDigit u32 text Span<u8>
+  mut sum u32 0
+  mut i usize 0
+  while < i 8
+    mut v value text[i]
+    if == (% i 2) 1
+      set v * v 2
+    set sum + sum (digitSum v)
+    set i + i 1
+  ret % (- 10 (% sum 10)) 10
+
+pub fn main Void world World !
+  if == (checkDigit (std.mem.span "03783310")) 0
+    check world.out.write "cusip ok\n"

@@ -48,6 +48,9 @@ jobs:
       - name: Native tests
         run: pnpm run native:test:local
 
+      - name: Rosetta tasks
+        run: pnpm run rosetta:local
+
       - name: Native sanitizer smoke
         run: pnpm run native:sanitize
 

@@ -1,0 +1,14 @@
+fn eth i32 a0 i32 b0 i32
+  mut a a0
+  mut b b0
+  mut total i32 0
+  while > a 0
+    if == (% a 2) 1
+      set total + total b
+    set a / a 2
+    set b * b 2
+  ret total
+
+pub fn main Void world World !
+  if == (eth 17 34) 578
+    check world.out.write "ethiopian multiplication ok\n"

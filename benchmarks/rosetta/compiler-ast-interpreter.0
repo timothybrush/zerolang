@@ -1,0 +1,10 @@
+fn eval i32 op u8 left i32 right i32
+  if == op 43
+    ret + left right
+  if == op 42
+    ret * left right
+  ret 0
+
+pub fn main Void world World !
+  if == (eval 42 6 7) 42
+    check world.out.write "ast interpreter ok\n"

@@ -1,0 +1,12 @@
+fn factorCount u32 n u32
+  mut count u32 0
+  mut d u32 1
+  while <= d n
+    if == (% n d) 0
+      set count + count 1
+    set d + d 1
+  ret count
+
+pub fn main Void world World !
+  if == (factorCount 28) 6
+    check world.out.write "factors ok\n"

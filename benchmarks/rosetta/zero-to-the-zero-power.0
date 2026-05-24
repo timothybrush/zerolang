@@ -1,0 +1,13 @@
+fn pow u32 base u32 exp u32
+  if == exp 0
+    ret 1
+  mut result u32 1
+  mut i u32 0
+  while < i exp
+    set result * result base
+    set i + i 1
+  ret result
+
+pub fn main Void world World !
+  if == (pow 0 0) 1
+    check world.out.write "zero power ok\n"

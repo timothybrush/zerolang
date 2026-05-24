@@ -1,0 +1,6 @@
+fn concatLen usize left Span<u8> right Span<u8>
+  ret + (std.mem.len left) (std.mem.len right)
+
+pub fn main Void world World !
+  if == (concatLen (std.mem.span "zero") (std.mem.span "lang")) 8
+    check world.out.write "string concatenation ok\n"

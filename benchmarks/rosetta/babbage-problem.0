@@ -1,0 +1,11 @@
+fn babbage u32
+  mut n u32 1
+  while < n 30000
+    if == (% (* n n) 1000000) 269696
+      ret n
+    set n + n 1
+  ret 0
+
+pub fn main Void world World !
+  if == babbage() 25264
+    check world.out.write "babbage ok\n"

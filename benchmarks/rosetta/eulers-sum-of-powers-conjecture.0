@@ -1,0 +1,6 @@
+fn cube u32 n u32
+  ret * (* n n) n
+
+pub fn main Void world World !
+  if == (+ (+ (cube 3) (cube 4)) (cube 5)) (cube 6)
+    check world.out.write "euler powers ok\n"

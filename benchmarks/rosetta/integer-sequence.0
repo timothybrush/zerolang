@@ -1,0 +1,6 @@
+fn square u32 n u32
+  ret * n n
+
+pub fn main Void world World !
+  if == (square 12) 144
+    check world.out.write "integer sequence ok\n"

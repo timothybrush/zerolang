@@ -1,0 +1,4 @@
+pub fn main Void world World !
+  let ok && true (== false false)
+  if ok
+    check world.out.write "boolean values ok\n"
