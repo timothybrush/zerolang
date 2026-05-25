@@ -100,6 +100,7 @@ typedef struct {
   unsigned schema_version;
   ZProgramGraphValidationState validation_state;
   const char *id_strategy;
+  char *module_identity;
   char *graph_hash;
   ZProgramGraphNode *nodes;
   size_t node_len;

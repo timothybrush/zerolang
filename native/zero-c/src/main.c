@@ -3164,7 +3164,7 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump] [--json] [--out <file>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero graph [dump|validate] [--json] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3242,10 +3242,11 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json>\n\n");
-    printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or the deterministic ProgramGraph.\n\n");
+    printf("Usage: zero graph [dump|validate] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n\n");
+    printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
     printf("  dump    print or write only the deterministic ProgramGraph\n");
+    printf("  validate  read a ProgramGraph artifact and optionally write its canonical form\n");
   } else if (strcmp(command, "doc") == 0) {
     printf("Usage: zero doc [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Emit package API documentation facts without emitting artifacts.\n");
@@ -3385,7 +3386,7 @@ static bool parse_command(int argc, char **argv, Command *command) {
     command->kind = argv[2];
     arg_start = 3;
   }
-  if (is_graph_command && argc >= 3 && strcmp(argv[2], "dump") == 0) {
+  if (is_graph_command && argc >= 3 && (strcmp(argv[2], "dump") == 0 || strcmp(argv[2], "validate") == 0)) {
     command->kind = argv[2];
     arg_start = 3;
   }
@@ -9097,6 +9098,56 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, "\n}\n");
 }
 
+static void append_graph_validate_json(ZBuf *buf, const Command *command, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
+  zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"artifact\": ");
+  append_json_string(buf, command->input);
+  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  append_json_string(buf, graph ? graph->module_identity : "");
+  zbuf_append(buf, ",\n  \"graphHash\": ");
+  append_json_string(buf, graph ? graph->graph_hash : "");
+  zbuf_appendf(buf, ",\n  \"counts\": {\"nodes\": %zu, \"edges\": %zu}", graph ? graph->node_len : 0, graph ? graph->edge_len : 0);
+  zbuf_append(buf, ",\n  \"validation\": {\"state\": ");
+  append_json_string(buf, z_program_graph_validation_state_name(validation ? validation->state : Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID));
+  zbuf_append(buf, ", \"ok\": true}");
+  zbuf_append(buf, ",\n  \"saved\": ");
+  if (command->out) {
+    zbuf_append(buf, "{\"path\": ");
+    append_json_string(buf, command->out);
+    zbuf_append(buf, ", \"byteStable\": true}");
+  } else {
+    zbuf_append(buf, "null");
+  }
+  zbuf_append(buf, "\n}\n");
+}
+
+static int run_graph_validate_command(const Command *command, ZDiag *diag) {
+  ZProgramGraph graph;
+  if (!z_program_graph_load(command->input, &graph, diag)) {
+    if (command->json) print_diag_json(diag->path ? diag->path : command->input, diag);
+    else print_diag(diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
+  if (command->out && !z_program_graph_save(command->out, &graph, diag)) {
+    if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+    else print_diag(diag->path ? diag->path : command->out, diag);
+    z_program_graph_free(&graph);
+    return 1;
+  }
+  ZProgramGraphValidation validation = {0};
+  z_program_graph_validate(&graph, &validation);
+  if (command->json) {
+    ZBuf json;
+    zbuf_init(&json);
+    append_graph_validate_json(&json, command, &graph, &validation);
+    fputs(json.data, stdout);
+    zbuf_free(&json);
+  } else {
+    printf("program graph ok\n");
+  }
+  z_program_graph_free(&graph);
+  return 0;
+}
+
 static int run_graph_command(const Command *command, SourceInput *input, Program *program, const ZTargetInfo *target, ZDiag *diag) {
   bool graph_dump = command->kind && strcmp(command->kind, "dump") == 0;
   if (command->kind && !graph_dump) {
@@ -9118,16 +9169,15 @@ static int run_graph_command(const Command *command, SourceInput *input, Program
       zbuf_free(&graph);
       return 1;
     }
-    ZProgramGraphValidation stored_validation = {0};
-    if (!z_program_graph_validate(&stored, &stored_validation)) {
-      *diag = (ZDiag){.code = 1, .path = command->out, .line = 1, .column = 1};
-      snprintf(diag->message, sizeof(diag->message), "stored program graph failed validation: %s", stored_validation.message);
+    if (!z_program_graph_save(command->out, &stored, diag)) {
       z_program_graph_free(&stored);
-      print_diag(command->out, diag);
+      print_diag(diag->path ? diag->path : command->out, diag);
       zbuf_free(&graph);
       return 1;
     }
     z_program_graph_free(&stored);
+    zbuf_free(&graph);
+    return 0;
   }
   if (command->out) {
     if (!z_write_file(command->out, graph.data ? graph.data : "", diag)) {
@@ -9290,6 +9340,10 @@ int main(int argc, char **argv) {
     if (command.json) print_diag_json(command.input, &diag);
     else print_diag(command.input, &diag);
     return 1;
+  }
+
+  if (strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "validate") == 0) {
+    return run_graph_validate_command(&command, &diag);
   }
 
   if (strcmp(command.command, "fmt") == 0) {

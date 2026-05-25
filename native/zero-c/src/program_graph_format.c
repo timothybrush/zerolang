@@ -85,13 +85,14 @@ static void graph_format_append_validation_dump(ZBuf *buf, const ZProgramGraphVa
 }
 
 static void graph_format_append_failed_json(ZBuf *buf) {
-  zbuf_append(buf, "{\"schemaVersion\":1,\"canonicalSource\":false,\"idStrategy\":\"deterministic-traversal-r0\",\"graphHash\":\"\",\"validation\":{\"state\":\"decoded\",\"ok\":false,\"diagnostics\":[{\"code\":\"GRF001\",\"message\":\"program graph construction failed\"}]},\"counts\":{\"nodes\":0,\"edges\":0},\"nodes\":[],\"edges\":[]}");
+  zbuf_append(buf, "{\"schemaVersion\":1,\"canonicalSource\":false,\"idStrategy\":\"deterministic-traversal-r0\",\"moduleIdentity\":\"module:main\",\"graphHash\":\"\",\"validation\":{\"state\":\"decoded\",\"ok\":false,\"diagnostics\":[{\"code\":\"GRF001\",\"message\":\"program graph construction failed\"}]},\"counts\":{\"nodes\":0,\"edges\":0},\"nodes\":[],\"edges\":[]}");
 }
 
 static void graph_format_append_failed_dump(ZBuf *buf) {
   zbuf_append(buf, "zero-program-graph v1\n");
   zbuf_append(buf, "canonicalSource false\n");
   zbuf_append(buf, "idStrategy \"deterministic-traversal-r0\"\n");
+  zbuf_append(buf, "moduleIdentity \"module:main\"\n");
   zbuf_append(buf, "graphHash \"\"\n");
   zbuf_append(buf, "validation \"decoded\" failed\n");
   zbuf_append(buf, "diagnostic code=\"GRF001\" message=\"program graph construction failed\"\n");
@@ -388,6 +389,8 @@ static bool graph_format_identities_match(const ZProgramGraph *graph) {
   ZProgramGraph expected;
   z_program_graph_init(&expected);
   expected.schema_version = graph->schema_version;
+  free(expected.module_identity);
+  expected.module_identity = z_strdup(graph->module_identity ? graph->module_identity : "");
   expected.nodes = z_checked_calloc(graph->node_len, sizeof(ZProgramGraphNode));
   expected.node_len = graph->node_len;
   expected.node_cap = graph->node_len;
@@ -423,20 +426,32 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
   size_t node_count = 0;
   size_t edge_count = 0;
   bool validation_ok = true;
+  const char *error_message = "invalid program graph dump";
+  size_t error_line = 1;
 
+#define FAIL_AT(line, message) \
+  do { \
+    error_line = (line); \
+    error_message = (message); \
+    goto fail; \
+  } while (0)
+#define FAIL(message) FAIL_AT(line_no, message)
 #define NEXT_REQUIRED_LINE() \
   do { \
     free(line); \
     line = NULL; \
     line_no++; \
-    if (!graph_format_next_line(&cursor, &line)) goto fail_incomplete; \
+    if (!graph_format_next_line(&cursor, &line)) FAIL("incomplete program graph dump"); \
   } while (0)
 
   NEXT_REQUIRED_LINE();
-  if (!graph_format_text_eq(line, "zero-program-graph v1")) goto fail_header;
+  if (!graph_format_text_eq(line, "zero-program-graph v1")) {
+    if (strncmp(line, "zero-program-graph v", 20) == 0) FAIL("unknown program graph schema version");
+    FAIL("expected zero-program-graph v1 header");
+  }
   out->schema_version = 1;
   NEXT_REQUIRED_LINE();
-  if (!graph_format_text_eq(line, "canonicalSource false")) goto fail_canonical;
+  if (!graph_format_text_eq(line, "canonicalSource false")) FAIL("expected canonicalSource false");
   NEXT_REQUIRED_LINE();
   const char *strategy_cursor = line;
   char *strategy = NULL;
@@ -445,98 +460,121 @@ bool z_program_graph_parse_dump(const char *text, ZProgramGraph *out, ZDiag *dia
       !graph_format_text_eq(strategy, "deterministic-traversal-r0") ||
       *strategy_cursor != 0) {
     free(strategy);
-    goto fail_strategy;
+    FAIL("expected deterministic graph id strategy");
   }
   free(strategy);
+  NEXT_REQUIRED_LINE();
+  const char *module_cursor = line;
+  free(out->module_identity);
+  out->module_identity = NULL;
+  if (!graph_format_parse_literal(&module_cursor, "moduleIdentity ") ||
+      !graph_format_parse_quoted(&module_cursor, &out->module_identity) ||
+      *module_cursor != 0) FAIL("expected moduleIdentity field");
   NEXT_REQUIRED_LINE();
   const char *hash_cursor = line;
   if (!graph_format_parse_literal(&hash_cursor, "graphHash ") ||
       !graph_format_parse_quoted(&hash_cursor, &out->graph_hash) ||
-      *hash_cursor != 0) goto fail_graphhash;
+      *hash_cursor != 0) FAIL("expected graphHash field");
   NEXT_REQUIRED_LINE();
-  if (!graph_format_parse_validation_line(line, &out->validation_state, &validation_ok)) goto fail_validation;
+  if (!graph_format_parse_validation_line(line, &out->validation_state, &validation_ok)) FAIL("expected validation field");
   if (!validation_ok) {
+    size_t validation_line = line_no;
     NEXT_REQUIRED_LINE();
-    if (strncmp(line, "diagnostic ", 11) != 0) goto fail_diagnostic;
+    if (strncmp(line, "diagnostic ", 11) != 0) FAIL("expected diagnostic field after failed validation");
+    FAIL_AT(validation_line, "program graph artifact reports failed validation");
   }
   NEXT_REQUIRED_LINE();
-  if (!graph_format_parse_counts_line(line, &node_count, &edge_count)) goto fail_counts;
+  if (!graph_format_parse_counts_line(line, &node_count, &edge_count)) FAIL("expected node and edge counts");
   out->nodes = z_checked_calloc(node_count, sizeof(ZProgramGraphNode));
   out->node_cap = node_count;
   out->edges = z_checked_calloc(edge_count, sizeof(ZProgramGraphEdge));
   out->edge_cap = edge_count;
   for (size_t i = 0; i < node_count; i++) {
     NEXT_REQUIRED_LINE();
-    if (!graph_format_parse_node_line(line, &out->nodes[i])) goto fail_node;
+    if (!graph_format_parse_node_line(line, &out->nodes[i])) FAIL("invalid node record");
     out->node_len++;
   }
   for (size_t i = 0; i < edge_count; i++) {
     NEXT_REQUIRED_LINE();
-    if (!graph_format_parse_edge_line(line, &out->edges[i])) goto fail_edge;
+    if (!graph_format_parse_edge_line(line, &out->edges[i])) FAIL("invalid edge record");
     out->edge_len++;
   }
   free(line);
   line = NULL;
-  if (graph_format_next_line(&cursor, &line)) {
+  while (graph_format_next_line(&cursor, &line)) {
+    line_no++;
     bool extra = line[0] != 0;
     free(line);
-    if (extra) goto fail_extra;
+    line = NULL;
+    if (extra) FAIL_AT(line_no, "unexpected content after graph dump");
   }
-  if (validation_ok && !graph_format_identities_match(out)) goto fail_identity;
+  if (validation_ok && !graph_format_identities_match(out)) FAIL_AT(1, "program graph identities do not match graph content");
 #undef NEXT_REQUIRED_LINE
+#undef FAIL
+#undef FAIL_AT
   return true;
 
-fail_header:
+fail:
   z_program_graph_free(out);
   free(line);
-  return graph_format_parse_fail(diag, line_no, "expected zero-program-graph v1 header");
-fail_canonical:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected canonicalSource false");
-fail_strategy:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected deterministic graph id strategy");
-fail_graphhash:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected graphHash field");
-fail_validation:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected validation field");
-fail_diagnostic:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected diagnostic field after failed validation");
-fail_counts:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "expected node and edge counts");
-fail_node:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "invalid node record");
-fail_edge:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "invalid edge record");
-fail_extra:
-  z_program_graph_free(out);
-  return graph_format_parse_fail(diag, line_no + 1, "unexpected content after graph dump");
-fail_identity:
-  z_program_graph_free(out);
-  return graph_format_parse_fail(diag, 1, "program graph identities do not match graph content");
-fail_incomplete:
-  z_program_graph_free(out);
-  free(line);
-  return graph_format_parse_fail(diag, line_no, "incomplete program graph dump");
+  return graph_format_parse_fail(diag, error_line, error_message);
+}
+
+static bool graph_format_storage_validation_fail(const char *path, const ZProgramGraphValidation *validation, ZDiag *diag) {
+  if (diag) {
+    *diag = (ZDiag){0};
+    diag->code = 1001;
+    diag->path = path;
+    diag->line = 1;
+    diag->column = 1;
+    snprintf(diag->message, sizeof(diag->message), "stored program graph failed validation: %s",
+             validation && validation->message[0] ? validation->message : "invalid graph shape");
+    snprintf(diag->expected, sizeof(diag->expected), "shape-valid program graph");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", validation && validation->code[0] ? validation->code : "invalid graph");
+  }
+  return false;
+}
+
+bool z_program_graph_load(const char *path, ZProgramGraph *out, ZDiag *diag) {
+  char *text = z_read_file(path, diag);
+  if (!text) return false;
+  bool parsed = z_program_graph_parse_dump(text, out, diag);
+  free(text);
+  if (!parsed) {
+    if (diag) diag->path = path;
+    return false;
+  }
+  ZProgramGraphValidation validation = {0};
+  if (!z_program_graph_validate(out, &validation)) {
+    z_program_graph_free(out);
+    return graph_format_storage_validation_fail(path, &validation, diag);
+  }
+  return true;
+}
+
+bool z_program_graph_save(const char *path, const ZProgramGraph *graph, ZDiag *diag) {
+  ZProgramGraphValidation validation = {0};
+  if (!z_program_graph_validate(graph, &validation)) return graph_format_storage_validation_fail(path, &validation, diag);
+  ZBuf dump;
+  zbuf_init(&dump);
+  z_program_graph_append_dump(&dump, graph, &validation);
+  ZProgramGraph parsed;
+  if (!z_program_graph_parse_dump(dump.data ? dump.data : "", &parsed, diag)) {
+    if (diag) diag->path = path;
+    zbuf_free(&dump);
+    return false;
+  }
+  z_program_graph_free(&parsed);
+  bool ok = z_write_file(path, dump.data ? dump.data : "", diag);
+  zbuf_free(&dump);
+  return ok;
 }
 
 void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
   zbuf_appendf(buf, "{\"schemaVersion\":%u,\"canonicalSource\":false,\"idStrategy\":", graph ? graph->schema_version : 1);
   graph_format_append_quoted(buf, graph ? graph->id_strategy : "deterministic-traversal-r0");
+  zbuf_append(buf, ",\"moduleIdentity\":");
+  graph_format_append_quoted(buf, graph ? graph->module_identity : "module:main");
   zbuf_append(buf, ",\"graphHash\":");
   graph_format_append_quoted(buf, graph ? graph->graph_hash : NULL);
   zbuf_append(buf, ",\"validation\":");
@@ -590,6 +628,9 @@ void z_program_graph_append_dump(ZBuf *buf, const ZProgramGraph *graph, const ZP
   zbuf_append(buf, "canonicalSource false\n");
   zbuf_append(buf, "idStrategy ");
   graph_format_append_quoted(buf, graph ? graph->id_strategy : "deterministic-traversal-r0");
+  zbuf_append_char(buf, '\n');
+  zbuf_append(buf, "moduleIdentity ");
+  graph_format_append_quoted(buf, graph ? graph->module_identity : "module:main");
   zbuf_append_char(buf, '\n');
   zbuf_append(buf, "graphHash ");
   graph_format_append_quoted(buf, graph ? graph->graph_hash : NULL);

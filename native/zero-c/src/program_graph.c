@@ -35,11 +35,29 @@ static char *graph_next_node_id(ZProgramGraph *graph) {
   return z_strdup(id);
 }
 
+static char *graph_module_identity(const SourceInput *input) {
+  ZBuf identity;
+  zbuf_init(&identity);
+  if (input && input->package_name && input->package_name[0]) {
+    zbuf_append(&identity, "package:");
+    zbuf_append(&identity, input->package_name);
+    if (input->package_version && input->package_version[0]) {
+      zbuf_append_char(&identity, '@');
+      zbuf_append(&identity, input->package_version);
+    }
+  } else {
+    zbuf_append(&identity, "module:");
+    zbuf_append(&identity, input && input->module_count == 1 && input->module_names[0] ? input->module_names[0] : "main");
+  }
+  return identity.data ? identity.data : z_strdup("module:main");
+}
+
 void z_program_graph_init(ZProgramGraph *graph) {
   *graph = (ZProgramGraph){
     .schema_version = 1,
     .validation_state = Z_PROGRAM_GRAPH_VALIDATION_DECODED,
     .id_strategy = "deterministic-traversal-r0",
+    .module_identity = z_strdup("module:main"),
   };
 }
 
@@ -61,6 +79,7 @@ void z_program_graph_free(ZProgramGraph *graph) {
     free(graph->edges[i].to);
     free(graph->edges[i].kind);
   }
+  free(graph->module_identity);
   free(graph->graph_hash);
   free(graph->nodes);
   free(graph->edges);
@@ -382,6 +401,8 @@ static void graph_build_sum_decls(ZProgramGraph *graph, const SourceInput *input
 bool z_program_graph_from_program(const SourceInput *input, const Program *program, ZProgramGraph *graph) {
   if (!graph) return false;
   z_program_graph_init(graph);
+  free(graph->module_identity);
+  graph->module_identity = graph_module_identity(input);
   graph_build_modules(graph, input);
   graph_build_imports(graph, input, program);
   graph_build_consts_and_aliases(graph, input, program);
@@ -448,6 +469,7 @@ static bool graph_validation_fail(ZProgramGraphValidation *validation, const cha
 bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidation *validation) {
   if (validation) *validation = (ZProgramGraphValidation){.ok = true, .state = Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID};
   if (!graph) return graph_validation_fail(validation, "GRF001", "program graph is missing", NULL, NULL, NULL, NULL);
+  if (!graph->module_identity || !graph->module_identity[0]) return graph_validation_fail(validation, "GRF009", "program graph is missing module identity", NULL, NULL, NULL, NULL);
   for (size_t i = 0; i < graph->node_len; i++) {
     if (!graph->nodes[i].id) return graph_validation_fail(validation, "GRF002", "node is missing required identity", graph->nodes[i].id, NULL, NULL, NULL);
     if (!graph->nodes[i].node_hash) return graph_validation_fail(validation, "GRF007", "node is missing content hash", graph->nodes[i].id, NULL, NULL, NULL);

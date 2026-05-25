@@ -2594,17 +2594,30 @@ const programGraphDump = (await execFileAsync(zero, ["graph", "dump", "examples/
 const programGraphDumpAgain = (await execFileAsync(zero, ["graph", "dump", "examples/hello.0"])).stdout;
 const programGraphDumpJson = JSON.parse((await execFileAsync(zero, ["graph", "dump", "--json", "examples/hello.0"])).stdout);
 const programGraphDumpPath = `${outDir}/hello.program-graph`;
+const programGraphCanonicalPath = `${outDir}/hello.canonical.program-graph`;
 await rm(programGraphDumpPath, { force: true });
+await rm(programGraphCanonicalPath, { force: true });
 const programGraphDumpOut = await execFileAsync(zero, ["graph", "dump", "--out", programGraphDumpPath, "examples/hello.0"]);
 const programGraphDumpFile = await readFile(programGraphDumpPath, "utf8");
+const programGraphValidate = await execFileAsync(zero, ["graph", "validate", programGraphDumpPath]);
+const programGraphValidateJson = JSON.parse((await execFileAsync(zero, ["graph", "validate", "--json", "--out", programGraphCanonicalPath, programGraphDumpPath])).stdout);
+const programGraphCanonicalFile = await readFile(programGraphCanonicalPath, "utf8");
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, false);
+assert.equal(programGraphBody.moduleIdentity, "module:hello");
 assert.deepEqual(programGraphBodyAgain, programGraphBody);
 assert.equal(programGraphDumpAgain, programGraphDump);
 assert.equal(programGraphDumpOut.stdout, "");
 assert.equal(programGraphDumpFile, programGraphDump);
+assert.equal(programGraphValidate.stdout, "program graph ok\n");
+assert.equal(programGraphCanonicalFile, programGraphDump);
+assert.equal(programGraphValidateJson.ok, true);
+assert.equal(programGraphValidateJson.moduleIdentity, "module:hello");
+assert.equal(programGraphValidateJson.graphHash, programGraphBody.graphHash);
+assert.equal(programGraphValidateJson.saved.path, programGraphCanonicalPath);
 assert.deepEqual(programGraphDumpJson, programGraphBody);
 assert.match(programGraphDump, /^zero-program-graph v1\n/);
+assert.match(programGraphDump, /moduleIdentity "module:hello"/);
 assert.match(programGraphDump, /graphHash "graph:[0-9a-f]{16}"/);
 assert.match(programGraphDump, /validation "shape-valid" ok/);
 assert.match(programGraphDump, /node id="node:000001" kind="Module"/);
@@ -2623,6 +2636,31 @@ assert(programGraphBody.nodes.some((item) => item.kind === "EffectRef" && item.n
 assert(programGraphBody.nodes.some((item) => item.kind === "Check"));
 assert(programGraphBody.nodes.some((item) => item.kind === "MethodCall"));
 assert(programGraphBody.edges.some((item) => item.kind === "body"));
+const programGraphWrongSchemaPath = `${outDir}/wrong-schema.program-graph`;
+await writeFile(programGraphWrongSchemaPath, "zero-program-graph v2\n");
+const programGraphWrongSchema = await execFileAsync(zero, ["graph", "validate", "--json", programGraphWrongSchemaPath]).catch((error) => error);
+assert(programGraphWrongSchema.code);
+assert.equal(JSON.parse(programGraphWrongSchema.stdout).diagnostics[0].message, "unknown program graph schema version");
+const programGraphFailedArtifactPath = `${outDir}/failed-validation.program-graph`;
+await writeFile(programGraphFailedArtifactPath, [
+  "zero-program-graph v1",
+  "canonicalSource false",
+  "idStrategy \"deterministic-traversal-r0\"",
+  "moduleIdentity \"module:main\"",
+  "graphHash \"\"",
+  "validation \"decoded\" failed",
+  "diagnostic code=\"GRF001\" message=\"program graph construction failed\"",
+  "counts nodes=0 edges=0",
+  "",
+].join("\n"));
+const programGraphFailedArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphFailedArtifactPath]).catch((error) => error);
+assert(programGraphFailedArtifact.code);
+assert.equal(JSON.parse(programGraphFailedArtifact.stdout).diagnostics[0].message, "program graph artifact reports failed validation");
+const programGraphTrailingArtifactPath = `${outDir}/trailing-content.program-graph`;
+await writeFile(programGraphTrailingArtifactPath, `${programGraphDump}\nextra\n`);
+const programGraphTrailingArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphTrailingArtifactPath]).catch((error) => error);
+assert(programGraphTrailingArtifact.code);
+assert.equal(JSON.parse(programGraphTrailingArtifact.stdout).diagnostics[0].message, "unexpected content after graph dump");
 assert(programGraphBody.edges.some((item) => item.kind === "statement" && item.order === 0));
 
 const programGraphControlFixture = `${outDir}/program-graph-control.0`;

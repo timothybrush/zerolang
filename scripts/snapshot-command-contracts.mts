@@ -262,20 +262,56 @@ const graphDump = zero(["graph", "dump", "examples/hello.0"]).stdout;
 const graphDumpAgain = zero(["graph", "dump", "examples/hello.0"]).stdout;
 assert.equal(graphDumpAgain, graphDump);
 assert.match(graphDump, /^zero-program-graph v1\n/);
+assert.match(graphDump, /moduleIdentity "module:hello"/);
 assert.match(graphDump, /graphHash "graph:[0-9a-f]{16}"/);
 assert.match(graphDump, /validation "shape-valid" ok/);
 assert.match(graphDump, /node id="node:000001" kind="Module"/);
 assert.match(graphDump, /edge from="node:000001" to="node:000002" kind="function" target="node" order=0/);
 const graphDumpJson = json(["graph", "dump", "--json", "examples/hello.0"]).body;
 assert.equal(graphDumpJson.schemaVersion, 1);
+assert.equal(graphDumpJson.moduleIdentity, "module:hello");
 assert.equal(graphDumpJson.validation.ok, true);
 assert.match(graphDumpJson.graphHash, /^graph:[0-9a-f]{16}$/);
 const graphDumpPath = join(outDir, "hello.program-graph");
+const graphCanonicalPath = join(outDir, "hello.canonical.program-graph");
 rmSync(graphDumpPath, { force: true });
+rmSync(graphCanonicalPath, { force: true });
 assert.equal(zero(["graph", "dump", "--out", graphDumpPath, "examples/hello.0"]).stdout, "");
 assert.equal(readFileSync(graphDumpPath, "utf8"), graphDump);
 assert.equal(zero(["graph", "dump", "--out", graphDumpPath, "examples/hello.0"]).stdout, "");
 assert.equal(readFileSync(graphDumpPath, "utf8"), graphDump);
+assert.equal(zero(["graph", "validate", graphDumpPath]).stdout, "program graph ok\n");
+const graphValidateJson = json(["graph", "validate", "--json", "--out", graphCanonicalPath, graphDumpPath]).body;
+assert.equal(graphValidateJson.ok, true);
+assert.equal(graphValidateJson.moduleIdentity, "module:hello");
+assert.equal(graphValidateJson.graphHash, graphDumpJson.graphHash);
+assert.equal(graphValidateJson.saved.path, graphCanonicalPath);
+assert.equal(readFileSync(graphCanonicalPath, "utf8"), graphDump);
+const graphWrongSchemaPath = join(outDir, "wrong-schema.program-graph");
+writeFileSync(graphWrongSchemaPath, "zero-program-graph v2\n");
+const graphWrongSchema = json(["graph", "validate", "--json", graphWrongSchemaPath], { allowFailure: true });
+assert(graphWrongSchema.code);
+assert.equal(graphWrongSchema.body.diagnostics[0].message, "unknown program graph schema version");
+const graphFailedArtifactPath = join(outDir, "failed-validation.program-graph");
+writeFileSync(graphFailedArtifactPath, [
+  "zero-program-graph v1",
+  "canonicalSource false",
+  "idStrategy \"deterministic-traversal-r0\"",
+  "moduleIdentity \"module:main\"",
+  "graphHash \"\"",
+  "validation \"decoded\" failed",
+  "diagnostic code=\"GRF001\" message=\"program graph construction failed\"",
+  "counts nodes=0 edges=0",
+  "",
+].join("\n"));
+const graphFailedArtifact = json(["graph", "validate", "--json", graphFailedArtifactPath], { allowFailure: true });
+assert(graphFailedArtifact.code);
+assert.equal(graphFailedArtifact.body.diagnostics[0].message, "program graph artifact reports failed validation");
+const graphTrailingArtifactPath = join(outDir, "trailing-content.program-graph");
+writeFileSync(graphTrailingArtifactPath, `${graphDump}\nextra\n`);
+const graphTrailingArtifact = json(["graph", "validate", "--json", graphTrailingArtifactPath], { allowFailure: true });
+assert(graphTrailingArtifact.code);
+assert.equal(graphTrailingArtifact.body.diagnostics[0].message, "unexpected content after graph dump");
 
 const skillsList = json(["skills", "list", "--json"]).body;
 assert.equal(skillsList.success, true);

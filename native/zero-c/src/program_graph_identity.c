@@ -170,6 +170,7 @@ void z_program_graph_finalize_identities(ZProgramGraph *graph) {
   if (!graph) return;
   uint64_t graph_hash = 1469598103934665603ull;
   graph_hash = graph_hash_u64(graph_hash, graph->schema_version);
+  graph_hash = graph_hash_text(graph_hash, graph->module_identity);
   for (size_t i = 0; i < graph->node_len; i++) {
     ZProgramGraphNode *node = &graph->nodes[i];
     free(node->symbol_id);

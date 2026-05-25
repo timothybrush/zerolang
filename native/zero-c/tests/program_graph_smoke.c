@@ -46,6 +46,33 @@ char *z_strndup(const char *text, size_t len) {
   return copy;
 }
 
+char *z_read_file(const char *path, ZDiag *diag) {
+  FILE *file = fopen(path, "rb");
+  if (!file) {
+    if (diag) snprintf(diag->message, sizeof(diag->message), "failed to read test graph");
+    return NULL;
+  }
+  fseek(file, 0, SEEK_END);
+  long size = ftell(file);
+  rewind(file);
+  char *data = z_checked_malloc((size_t)size + 1);
+  size_t read = fread(data, 1, (size_t)size, file);
+  fclose(file);
+  data[read] = 0;
+  return data;
+}
+
+bool z_write_file(const char *path, const char *text, ZDiag *diag) {
+  FILE *file = fopen(path, "wb");
+  if (!file) {
+    if (diag) snprintf(diag->message, sizeof(diag->message), "failed to write test graph");
+    return false;
+  }
+  fputs(text ? text : "", file);
+  fclose(file);
+  return true;
+}
+
 void zbuf_init(ZBuf *buf) { *buf = (ZBuf){0}; }
 void zbuf_free(ZBuf *buf) {
   free(buf->data);
@@ -137,6 +164,22 @@ int main(void) {
   z_program_graph_append_dump(&redump, &parsed, &parsed_validation);
   expect(strcmp(dump.data, redump.data) == 0, "parsed graph dump was not byte-stable");
 
+  char storage_path[128];
+  snprintf(storage_path, sizeof(storage_path), "/tmp/zero-program-graph-smoke-%p.graph", (void *)&graph);
+  ZDiag storage_diag = {0};
+  expect(z_program_graph_save(storage_path, &graph, &storage_diag), storage_diag.message);
+  ZProgramGraph loaded;
+  expect(z_program_graph_load(storage_path, &loaded, &storage_diag), storage_diag.message);
+  ZProgramGraphValidation loaded_validation = {0};
+  expect(z_program_graph_validate(&loaded, &loaded_validation), "loaded graph failed validation");
+  ZBuf loaded_dump;
+  zbuf_init(&loaded_dump);
+  z_program_graph_append_dump(&loaded_dump, &loaded, &loaded_validation);
+  expect(strcmp(dump.data, loaded_dump.data) == 0, "loaded graph dump was not byte-stable");
+  zbuf_free(&loaded_dump);
+  z_program_graph_free(&loaded);
+  remove(storage_path);
+
   char *saved_hash = parsed.nodes[1].node_hash;
   parsed.nodes[1].node_hash = z_strdup("nodehash:0000000000000000");
   ZBuf corrupted;
@@ -149,6 +192,35 @@ int main(void) {
   free(parsed.nodes[1].node_hash);
   parsed.nodes[1].node_hash = saved_hash;
 
+  ZProgramGraph wrong_schema;
+  ZDiag wrong_schema_diag = {0};
+  expect(!z_program_graph_parse_dump("zero-program-graph v2\n", &wrong_schema, &wrong_schema_diag), "unknown schema parsed");
+  expect(strstr(wrong_schema_diag.message, "schema") != NULL, "unknown schema reported wrong diagnostic");
+
+  const char *failed_dump =
+      "zero-program-graph v1\n"
+      "canonicalSource false\n"
+      "idStrategy \"deterministic-traversal-r0\"\n"
+      "moduleIdentity \"module:main\"\n"
+      "graphHash \"\"\n"
+      "validation \"decoded\" failed\n"
+      "diagnostic code=\"GRF001\" message=\"program graph construction failed\"\n"
+      "counts nodes=0 edges=0\n";
+  ZProgramGraph failed_artifact;
+  ZDiag failed_artifact_diag = {0};
+  expect(!z_program_graph_parse_dump(failed_dump, &failed_artifact, &failed_artifact_diag), "failed validation artifact parsed");
+  expect(strstr(failed_artifact_diag.message, "failed validation") != NULL, "failed validation artifact reported wrong diagnostic");
+
+  ZBuf trailing_extra;
+  zbuf_init(&trailing_extra);
+  zbuf_append(&trailing_extra, dump.data);
+  zbuf_append(&trailing_extra, "\nextra\n");
+  ZProgramGraph trailing_artifact;
+  ZDiag trailing_artifact_diag = {0};
+  expect(!z_program_graph_parse_dump(trailing_extra.data, &trailing_artifact, &trailing_artifact_diag), "trailing content parsed");
+  expect(strstr(trailing_artifact_diag.message, "unexpected content") != NULL, "trailing content reported wrong diagnostic");
+
+  zbuf_free(&trailing_extra);
   zbuf_free(&corrupted);
   zbuf_free(&redump);
   z_program_graph_free(&parsed);
