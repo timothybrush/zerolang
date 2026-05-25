@@ -2589,15 +2589,21 @@ assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "function" && 
 assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.len" && item.owner === "main" && item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "String")));
 
 const programGraphBody = JSON.parse((await execFileAsync(zero, ["graph", "--json", "examples/hello.0"])).stdout).programGraph;
+const programGraphBodyAgain = JSON.parse((await execFileAsync(zero, ["graph", "--json", "examples/hello.0"])).stdout).programGraph;
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, false);
+assert.deepEqual(programGraphBodyAgain, programGraphBody);
+assert.match(programGraphBody.graphHash, /^graph:[0-9a-f]{16}$/);
 assert.equal(programGraphBody.validation.ok, true);
 assert.equal(programGraphBody.validation.state, "shape-valid");
 assert(programGraphBody.counts.nodes > 0);
 assert(programGraphBody.counts.edges > 0);
-assert(programGraphBody.nodes.some((item) => item.kind === "Module" && item.name === "hello"));
-assert(programGraphBody.nodes.some((item) => item.kind === "Function" && item.name === "main" && item.public === true && item.fallible === true));
-assert(programGraphBody.nodes.some((item) => item.kind === "Param" && item.name === "world" && item.type === "World"));
+assert(programGraphBody.nodes.every((item) => /^node:[0-9]{6}$/.test(item.id) && /^nodehash:[0-9a-f]{16}$/.test(item.nodeHash)));
+assert(programGraphBody.edges.every((item) => item.target === "node"));
+assert(programGraphBody.nodes.some((item) => item.kind === "Module" && item.name === "hello" && /^symbol:[0-9a-f]{16}$/.test(item.symbolId)));
+assert(programGraphBody.nodes.some((item) => item.kind === "Function" && item.name === "main" && item.public === true && item.fallible === true && /^symbol:[0-9a-f]{16}$/.test(item.symbolId) && /^type:[0-9a-f]{16}$/.test(item.typeId)));
+assert(programGraphBody.nodes.some((item) => item.kind === "Param" && item.name === "world" && item.type === "World" && /^symbol:[0-9a-f]{16}$/.test(item.symbolId)));
+assert(programGraphBody.nodes.some((item) => item.kind === "EffectRef" && item.name === "error" && /^effect:[0-9a-f]{16}$/.test(item.effectId)));
 assert(programGraphBody.nodes.some((item) => item.kind === "Check"));
 assert(programGraphBody.nodes.some((item) => item.kind === "MethodCall"));
 assert(programGraphBody.edges.some((item) => item.kind === "body"));

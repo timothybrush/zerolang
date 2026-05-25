@@ -55,14 +55,14 @@ static const char *graph_module_name_for_path(const SourceInput *input, const ch
 
 static char *graph_next_node_id(ZProgramGraph *graph) {
   char id[32];
-  snprintf(id, sizeof(id), "n%06zu", ++graph->next_id);
+  snprintf(id, sizeof(id), "node:%06zu", ++graph->next_id);
   return z_strdup(id);
 }
 
 void z_program_graph_init(ZProgramGraph *graph) {
   *graph = (ZProgramGraph){
     .schema_version = 1,
-    .validation_state = "decoded",
+    .validation_state = Z_PROGRAM_GRAPH_VALIDATION_DECODED,
     .id_strategy = "deterministic-traversal-r0",
   };
 }
@@ -75,17 +75,22 @@ void z_program_graph_free(ZProgramGraph *graph) {
     free(graph->nodes[i].type);
     free(graph->nodes[i].value);
     free(graph->nodes[i].path);
+    free(graph->nodes[i].symbol_id);
+    free(graph->nodes[i].type_id);
+    free(graph->nodes[i].effect_id);
+    free(graph->nodes[i].node_hash);
   }
   for (size_t i = 0; i < graph->edge_len; i++) {
     free(graph->edges[i].from);
     free(graph->edges[i].to);
   }
+  free(graph->graph_hash);
   free(graph->nodes);
   free(graph->edges);
   *graph = (ZProgramGraph){0};
 }
 
-static ZProgramGraphNode *graph_add_node(ZProgramGraph *graph, const char *kind, const char *name, const char *type, const char *value, const char *path, int line, int column) {
+static ZProgramGraphNode *graph_add_node(ZProgramGraph *graph, ZProgramGraphNodeKind kind, const char *name, const char *type, const char *value, const char *path, int line, int column) {
   if (graph->node_len == graph->node_cap) {
     size_t next = z_grow_capacity(graph->node_cap, graph->node_len + 1, 32);
     graph->nodes = z_checked_reallocarray(graph->nodes, next, sizeof(ZProgramGraphNode));
@@ -104,7 +109,7 @@ static ZProgramGraphNode *graph_add_node(ZProgramGraph *graph, const char *kind,
   return node;
 }
 
-static void graph_add_edge(ZProgramGraph *graph, const char *from, const char *to, const char *kind, size_t order) {
+static void graph_add_edge_target(ZProgramGraph *graph, const char *from, const char *to, const char *kind, ZProgramGraphEdgeTarget target, size_t order) {
   if (!from || !to || !kind) return;
   if (graph->edge_len == graph->edge_cap) {
     size_t next = z_grow_capacity(graph->edge_cap, graph->edge_len + 1, 64);
@@ -116,13 +121,18 @@ static void graph_add_edge(ZProgramGraph *graph, const char *from, const char *t
   edge->from = z_strdup(from);
   edge->to = z_strdup(to);
   edge->kind = kind;
+  edge->target = target;
   edge->order = order;
+}
+
+static void graph_add_edge(ZProgramGraph *graph, const char *from, const char *to, const char *kind, size_t order) {
+  graph_add_edge_target(graph, from, to, kind, Z_PROGRAM_GRAPH_EDGE_TARGET_NODE, order);
 }
 
 static const char *graph_find_module_id(const ZProgramGraph *graph, const char *module_name) {
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
-    if (node->kind && strcmp(node->kind, "Module") == 0 && node->name && module_name && strcmp(node->name, module_name) == 0) return node->id;
+    if (node->kind == Z_PROGRAM_GRAPH_NODE_MODULE && node->name && module_name && strcmp(node->name, module_name) == 0) return node->id;
   }
   return graph && graph->node_len > 0 ? graph->nodes[0].id : NULL;
 }
@@ -135,7 +145,7 @@ static const char *graph_module_id_for_line(const ZProgramGraph *graph, const So
 
 static const char *graph_add_type_ref(ZProgramGraph *graph, const char *owner_id, const char *edge_kind, const char *type, const char *path, int line, int column, size_t order) {
   if (!type || !type[0]) return NULL;
-  ZProgramGraphNode *node = graph_add_node(graph, "TypeRef", NULL, type, NULL, path, line, column);
+  ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_TYPE_REF, NULL, type, NULL, path, line, column);
   graph_add_edge(graph, owner_id, node->id, edge_kind, order);
   return node->id;
 }
@@ -156,29 +166,29 @@ static const char *graph_expr_value(const Expr *expr) {
   return NULL;
 }
 
-static const char *graph_expr_kind_name(const Expr *expr) {
-  if (!expr) return "Expression";
+static ZProgramGraphNodeKind graph_expr_kind(const Expr *expr) {
+  if (!expr) return Z_PROGRAM_GRAPH_NODE_EXPRESSION;
   switch (expr->kind) {
-    case EXPR_IDENT: return "Identifier";
+    case EXPR_IDENT: return Z_PROGRAM_GRAPH_NODE_IDENTIFIER;
     case EXPR_STRING:
     case EXPR_CHAR:
     case EXPR_NUMBER:
     case EXPR_BOOL:
-    case EXPR_NULL: return "Literal";
-    case EXPR_MEMBER: return "FieldAccess";
-    case EXPR_INDEX: return "IndexAccess";
-    case EXPR_SLICE: return "Slice";
-    case EXPR_CALL: return expr->left && expr->left->kind == EXPR_MEMBER ? "MethodCall" : "Call";
-    case EXPR_BINARY: return "Call";
-    case EXPR_CAST: return "Cast";
-    case EXPR_BORROW: return "Borrow";
-    case EXPR_CHECK: return "Check";
-    case EXPR_RESCUE: return "Rescue";
-    case EXPR_META: return "Meta";
-    case EXPR_SHAPE_LITERAL: return "ShapeLiteral";
-    case EXPR_ARRAY_LITERAL: return "ArrayLiteral";
+    case EXPR_NULL: return Z_PROGRAM_GRAPH_NODE_LITERAL;
+    case EXPR_MEMBER: return Z_PROGRAM_GRAPH_NODE_FIELD_ACCESS;
+    case EXPR_INDEX: return Z_PROGRAM_GRAPH_NODE_INDEX_ACCESS;
+    case EXPR_SLICE: return Z_PROGRAM_GRAPH_NODE_SLICE;
+    case EXPR_CALL: return expr->left && expr->left->kind == EXPR_MEMBER ? Z_PROGRAM_GRAPH_NODE_METHOD_CALL : Z_PROGRAM_GRAPH_NODE_CALL;
+    case EXPR_BINARY: return Z_PROGRAM_GRAPH_NODE_CALL;
+    case EXPR_CAST: return Z_PROGRAM_GRAPH_NODE_CAST;
+    case EXPR_BORROW: return Z_PROGRAM_GRAPH_NODE_BORROW;
+    case EXPR_CHECK: return Z_PROGRAM_GRAPH_NODE_CHECK;
+    case EXPR_RESCUE: return Z_PROGRAM_GRAPH_NODE_RESCUE;
+    case EXPR_META: return Z_PROGRAM_GRAPH_NODE_META;
+    case EXPR_SHAPE_LITERAL: return Z_PROGRAM_GRAPH_NODE_SHAPE_LITERAL;
+    case EXPR_ARRAY_LITERAL: return Z_PROGRAM_GRAPH_NODE_ARRAY_LITERAL;
   }
-  return "Expression";
+  return Z_PROGRAM_GRAPH_NODE_EXPRESSION;
 }
 
 static const char *graph_build_expr(ZProgramGraph *graph, const SourceInput *input, const Expr *expr);
@@ -190,7 +200,7 @@ static void graph_build_expr_edges(ZProgramGraph *graph, const SourceInput *inpu
   for (size_t i = 0; i < expr->fields.len; i++) {
     const FieldInit *field = &expr->fields.items[i];
     const char *field_value = graph_build_expr(graph, input, field->value);
-    ZProgramGraphNode *field_node = graph_add_node(graph, "FieldInit", field->name, NULL, NULL, graph_source_path(input, field->line), graph_source_line(input, field->line), field->column);
+    ZProgramGraphNode *field_node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_FIELD_INIT, field->name, NULL, NULL, graph_source_path(input, field->line), graph_source_line(input, field->line), field->column);
     graph_add_edge(graph, field_node->id, field_value, "value", 0);
     graph_add_edge(graph, node_id, field_node->id, "field", i);
   }
@@ -203,31 +213,31 @@ static void graph_build_expr_edges(ZProgramGraph *graph, const SourceInput *inpu
 static const char *graph_build_expr(ZProgramGraph *graph, const SourceInput *input, const Expr *expr) {
   if (!expr) return NULL;
   const char *path = graph_source_path(input, expr->line);
-  ZProgramGraphNode *node = graph_add_node(graph, graph_expr_kind_name(expr), graph_expr_name(expr), expr->resolved_type, graph_expr_value(expr), path, graph_source_line(input, expr->line), expr->column);
+  ZProgramGraphNode *node = graph_add_node(graph, graph_expr_kind(expr), graph_expr_name(expr), expr->resolved_type, graph_expr_value(expr), path, graph_source_line(input, expr->line), expr->column);
   const char *node_id = node->id;
   if (expr->kind == EXPR_BORROW) node->is_mutable = expr->mutable_borrow;
   graph_build_expr_edges(graph, input, expr, node_id);
   return node_id;
 }
 
-static const char *graph_stmt_kind_name(const Stmt *stmt) {
-  if (!stmt) return "Statement";
+static ZProgramGraphNodeKind graph_stmt_kind(const Stmt *stmt) {
+  if (!stmt) return Z_PROGRAM_GRAPH_NODE_STATEMENT;
   switch (stmt->kind) {
-    case STMT_LET: return "Let";
-    case STMT_ASSIGN: return "Assignment";
-    case STMT_DEFER: return "Defer";
-    case STMT_CHECK: return "Check";
-    case STMT_RETURN: return "Return";
-    case STMT_EXPR: return "ExpressionStatement";
-    case STMT_IF: return "If";
-    case STMT_WHILE: return "While";
-    case STMT_FOR: return "For";
-    case STMT_BREAK: return "Break";
-    case STMT_CONTINUE: return "Continue";
-    case STMT_MATCH: return "Match";
-    case STMT_RAISE: return "Raise";
+    case STMT_LET: return Z_PROGRAM_GRAPH_NODE_LET;
+    case STMT_ASSIGN: return Z_PROGRAM_GRAPH_NODE_ASSIGNMENT;
+    case STMT_DEFER: return Z_PROGRAM_GRAPH_NODE_DEFER;
+    case STMT_CHECK: return Z_PROGRAM_GRAPH_NODE_CHECK;
+    case STMT_RETURN: return Z_PROGRAM_GRAPH_NODE_RETURN;
+    case STMT_EXPR: return Z_PROGRAM_GRAPH_NODE_EXPRESSION_STATEMENT;
+    case STMT_IF: return Z_PROGRAM_GRAPH_NODE_IF;
+    case STMT_WHILE: return Z_PROGRAM_GRAPH_NODE_WHILE;
+    case STMT_FOR: return Z_PROGRAM_GRAPH_NODE_FOR;
+    case STMT_BREAK: return Z_PROGRAM_GRAPH_NODE_BREAK;
+    case STMT_CONTINUE: return Z_PROGRAM_GRAPH_NODE_CONTINUE;
+    case STMT_MATCH: return Z_PROGRAM_GRAPH_NODE_MATCH;
+    case STMT_RAISE: return Z_PROGRAM_GRAPH_NODE_RAISE;
   }
-  return "Statement";
+  return Z_PROGRAM_GRAPH_NODE_STATEMENT;
 }
 
 static const char *graph_build_block(ZProgramGraph *graph, const SourceInput *input, const StmtVec *body, const char *name, const char *path, int line, int column);
@@ -236,11 +246,11 @@ static void graph_build_match_arms(ZProgramGraph *graph, const SourceInput *inpu
   for (size_t i = 0; i < stmt->match_arms.len; i++) {
     const MatchArm *arm = &stmt->match_arms.items[i];
     const char *path = graph_source_path(input, arm->line);
-    ZProgramGraphNode *arm_node = graph_add_node(graph, "MatchArm", arm->case_name, NULL, arm->payload_name, path, graph_source_line(input, arm->line), arm->column);
+    ZProgramGraphNode *arm_node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_MATCH_ARM, arm->case_name, NULL, arm->payload_name, path, graph_source_line(input, arm->line), arm->column);
     const char *arm_id = arm_node->id;
     graph_add_edge(graph, stmt_id, arm_id, "arm", i);
     if (arm->range_end) {
-      ZProgramGraphNode *range_end = graph_add_node(graph, "Literal", NULL, NULL, arm->range_end, path, graph_source_line(input, arm->line), arm->column);
+      ZProgramGraphNode *range_end = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_LITERAL, NULL, NULL, arm->range_end, path, graph_source_line(input, arm->line), arm->column);
       graph_add_edge(graph, arm_id, range_end->id, "rangeEnd", 0);
     }
     if (arm->guard) graph_add_edge(graph, arm_id, graph_build_expr(graph, input, arm->guard), "guard", 0);
@@ -251,7 +261,7 @@ static void graph_build_match_arms(ZProgramGraph *graph, const SourceInput *inpu
 
 static const char *graph_build_stmt(ZProgramGraph *graph, const SourceInput *input, const Stmt *stmt) {
   const char *path = graph_source_path(input, stmt ? stmt->line : 0);
-  ZProgramGraphNode *node = graph_add_node(graph, graph_stmt_kind_name(stmt), stmt ? stmt->name : NULL, stmt ? (stmt->type ? stmt->type : stmt->resolved_type) : NULL, NULL, path, graph_source_line(input, stmt ? stmt->line : 0), stmt ? stmt->column : 0);
+  ZProgramGraphNode *node = graph_add_node(graph, graph_stmt_kind(stmt), stmt ? stmt->name : NULL, stmt ? (stmt->type ? stmt->type : stmt->resolved_type) : NULL, NULL, path, graph_source_line(input, stmt ? stmt->line : 0), stmt ? stmt->column : 0);
   const char *node_id = node->id;
   if (!stmt) return node_id;
   node->is_mutable = stmt->mutable_binding;
@@ -266,7 +276,7 @@ static const char *graph_build_stmt(ZProgramGraph *graph, const SourceInput *inp
 }
 
 static const char *graph_build_block(ZProgramGraph *graph, const SourceInput *input, const StmtVec *body, const char *name, const char *path, int line, int column) {
-  ZProgramGraphNode *node = graph_add_node(graph, "Block", name, NULL, NULL, path, graph_source_line(input, line), column);
+  ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_BLOCK, name, NULL, NULL, path, graph_source_line(input, line), column);
   const char *node_id = node->id;
   for (size_t i = 0; body && i < body->len; i++) graph_add_edge(graph, node_id, graph_build_stmt(graph, input, body->items[i]), "statement", i);
   return node_id;
@@ -276,7 +286,7 @@ static void graph_build_params(ZProgramGraph *graph, const SourceInput *input, c
   for (size_t i = 0; params && i < params->len; i++) {
     const Param *param = &params->items[i];
     const char *path = graph_source_path(input, param->line);
-    ZProgramGraphNode *node = graph_add_node(graph, "Param", param->name, param->type, NULL, path, graph_source_line(input, param->line), param->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_PARAM, param->name, param->type, NULL, path, graph_source_line(input, param->line), param->column);
     const char *node_id = node->id;
     node->is_static = param->is_static;
     graph_add_edge(graph, owner_id, node_id, edge_kind, i);
@@ -287,7 +297,7 @@ static void graph_build_params(ZProgramGraph *graph, const SourceInput *input, c
 
 static void graph_build_function(ZProgramGraph *graph, const SourceInput *input, const Function *fun, const char *owner_id, const char *edge_kind, size_t order) {
   const char *path = graph_source_path(input, fun->line);
-  ZProgramGraphNode *node = graph_add_node(graph, "Function", fun->name, fun->return_type, fun->test_name, path, graph_source_line(input, fun->line), fun->column);
+  ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_FUNCTION, fun->name, fun->return_type, fun->test_name, path, graph_source_line(input, fun->line), fun->column);
   const char *node_id = node->id;
   node->is_public = fun->is_public;
   node->fallible = fun->raises;
@@ -295,16 +305,16 @@ static void graph_build_function(ZProgramGraph *graph, const SourceInput *input,
   graph_build_params(graph, input, &fun->type_params, node_id, "typeParam");
   graph_build_params(graph, input, &fun->params, node_id, "param");
   graph_add_type_ref(graph, node_id, "returnType", fun->return_type, path, graph_source_line(input, fun->line), fun->column, 0);
-  if (fun->raises) graph_add_edge(graph, node_id, graph_add_node(graph, "EffectRef", "error", NULL, NULL, path, graph_source_line(input, fun->line), fun->column)->id, "effect", 0);
+  if (fun->raises) graph_add_edge(graph, node_id, graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_EFFECT_REF, "error", NULL, NULL, path, graph_source_line(input, fun->line), fun->column)->id, "effect", 0);
   for (size_t i = 0; i < fun->errors.len; i++) {
     const Param *error = &fun->errors.items[i];
-    ZProgramGraphNode *error_node = graph_add_node(graph, "ErrorVariant", error->name, error->type, NULL, graph_source_path(input, error->line), graph_source_line(input, error->line), error->column);
+    ZProgramGraphNode *error_node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_ERROR_VARIANT, error->name, error->type, NULL, graph_source_path(input, error->line), graph_source_line(input, error->line), error->column);
     graph_add_edge(graph, node_id, error_node->id, "error", i);
   }
   graph_add_edge(graph, node_id, graph_build_block(graph, input, &fun->body, "body", path, fun->line, fun->column), "body", 0);
 }
 
-static void graph_build_top_level_params(ZProgramGraph *graph, const SourceInput *input, const ParamVec *items, const char *owner_id, const char *edge_kind, const char *node_kind) {
+static void graph_build_top_level_params(ZProgramGraph *graph, const SourceInput *input, const ParamVec *items, const char *owner_id, const char *edge_kind, ZProgramGraphNodeKind node_kind) {
   for (size_t i = 0; items && i < items->len; i++) {
     const Param *item = &items->items[i];
     ZProgramGraphNode *node = graph_add_node(graph, node_kind, item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
@@ -318,18 +328,18 @@ static void graph_build_top_level_params(ZProgramGraph *graph, const SourceInput
 static void graph_build_modules(ZProgramGraph *graph, const SourceInput *input) {
   if (input && input->module_count > 0) {
     for (size_t i = 0; i < input->module_count; i++) {
-      graph_add_node(graph, "Module", input->module_names[i], NULL, NULL, input->module_paths[i], 1, 1);
+      graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_MODULE, input->module_names[i], NULL, NULL, input->module_paths[i], 1, 1);
     }
     return;
   }
-  graph_add_node(graph, "Module", "main", NULL, NULL, input ? input->source_file : "", 1, 1);
+  graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_MODULE, "main", NULL, NULL, input ? input->source_file : "", 1, 1);
 }
 
 static void graph_build_imports(ZProgramGraph *graph, const SourceInput *input, const Program *program) {
   for (size_t i = 0; program && i < program->use_imports.len; i++) {
     const UseImport *item = &program->use_imports.items[i];
     const char *path = graph_source_path(input, item->line);
-    ZProgramGraphNode *node = graph_add_node(graph, "Import", item->module, NULL, item->alias, path, graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_IMPORT, item->module, NULL, item->alias, path, graph_source_line(input, item->line), item->column);
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node->id, "import", i);
   }
 }
@@ -337,7 +347,7 @@ static void graph_build_imports(ZProgramGraph *graph, const SourceInput *input, 
 static void graph_build_consts_and_aliases(ZProgramGraph *graph, const SourceInput *input, const Program *program) {
   for (size_t i = 0; program && i < program->consts.len; i++) {
     const ConstDecl *item = &program->consts.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "Const", item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_CONST, item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
     node->is_public = item->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "const", i);
@@ -345,7 +355,7 @@ static void graph_build_consts_and_aliases(ZProgramGraph *graph, const SourceInp
   }
   for (size_t i = 0; program && i < program->aliases.len; i++) {
     const TypeAlias *item = &program->aliases.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "TypeAlias", item->name, item->target, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_TYPE_ALIAS, item->name, item->target, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
     node->is_public = item->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "alias", i);
@@ -356,17 +366,17 @@ static void graph_build_consts_and_aliases(ZProgramGraph *graph, const SourceInp
 static void graph_build_aggregate_decls(ZProgramGraph *graph, const SourceInput *input, const Program *program) {
   for (size_t i = 0; program && i < program->shapes.len; i++) {
     const Shape *shape = &program->shapes.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "Shape", shape->name, NULL, shape->layout, graph_source_path(input, shape->line), graph_source_line(input, shape->line), shape->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_SHAPE, shape->name, NULL, shape->layout, graph_source_path(input, shape->line), graph_source_line(input, shape->line), shape->column);
     const char *node_id = node->id;
     node->is_public = shape->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, shape->line), node_id, "shape", i);
     graph_build_params(graph, input, &shape->type_params, node_id, "typeParam");
-    graph_build_top_level_params(graph, input, &shape->fields, node_id, "field", "Field");
+    graph_build_top_level_params(graph, input, &shape->fields, node_id, "field", Z_PROGRAM_GRAPH_NODE_FIELD);
     for (size_t method = 0; method < shape->methods.len; method++) graph_build_function(graph, input, &shape->methods.items[method], node_id, "method", method);
   }
   for (size_t i = 0; program && i < program->interfaces.len; i++) {
     const InterfaceDecl *item = &program->interfaces.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "Interface", item->name, NULL, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_INTERFACE, item->name, NULL, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
     node->is_public = item->is_public;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "interface", i);
@@ -378,17 +388,17 @@ static void graph_build_aggregate_decls(ZProgramGraph *graph, const SourceInput 
 static void graph_build_sum_decls(ZProgramGraph *graph, const SourceInput *input, const Program *program) {
   for (size_t i = 0; program && i < program->enums.len; i++) {
     const EnumDecl *item = &program->enums.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "Enum", item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_ENUM, item->name, item->type, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "enum", i);
-    graph_build_top_level_params(graph, input, &item->cases, node_id, "case", "EnumCase");
+    graph_build_top_level_params(graph, input, &item->cases, node_id, "case", Z_PROGRAM_GRAPH_NODE_ENUM_CASE);
   }
   for (size_t i = 0; program && i < program->choices.len; i++) {
     const Choice *item = &program->choices.items[i];
-    ZProgramGraphNode *node = graph_add_node(graph, "Choice", item->name, NULL, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
+    ZProgramGraphNode *node = graph_add_node(graph, Z_PROGRAM_GRAPH_NODE_CHOICE, item->name, NULL, NULL, graph_source_path(input, item->line), graph_source_line(input, item->line), item->column);
     const char *node_id = node->id;
     graph_add_edge(graph, graph_module_id_for_line(graph, input, item->line), node_id, "choice", i);
-    graph_build_top_level_params(graph, input, &item->cases, node_id, "case", "ChoiceCase");
+    graph_build_top_level_params(graph, input, &item->cases, node_id, "case", Z_PROGRAM_GRAPH_NODE_CHOICE_CASE);
   }
 }
 
@@ -404,46 +414,81 @@ bool z_program_graph_from_program(const SourceInput *input, const Program *progr
     const Function *fun = &program->functions.items[i];
     graph_build_function(graph, input, fun, graph_module_id_for_line(graph, input, fun->line), "function", i);
   }
+  z_program_graph_finalize_identities(graph);
   return true;
 }
 
-static bool graph_has_node_id(const ZProgramGraph *graph, const char *id) {
+typedef const char *(*GraphIdField)(const ZProgramGraphNode *node);
+
+static const char *graph_node_id_field(const ZProgramGraphNode *node) { return node->id; }
+static const char *graph_symbol_id_field(const ZProgramGraphNode *node) { return node->symbol_id; }
+static const char *graph_type_id_field(const ZProgramGraphNode *node) { return node->type_id; }
+static const char *graph_effect_id_field(const ZProgramGraphNode *node) { return node->effect_id; }
+
+static bool graph_has_id(const ZProgramGraph *graph, const char *id, GraphIdField field) {
   for (size_t i = 0; graph && i < graph->node_len; i++) {
-    if (graph->nodes[i].id && id && strcmp(graph->nodes[i].id, id) == 0) return true;
+    const char *candidate = field(&graph->nodes[i]);
+    if (candidate && id && strcmp(candidate, id) == 0) return true;
   }
   return false;
 }
 
-static bool graph_validation_fail(ZProgramGraphValidation *validation, const char *code, const char *message, const char *node_id, const char *edge_from, const char *edge_to) {
+static bool graph_edge_target_exists(const ZProgramGraph *graph, const ZProgramGraphEdge *edge) {
+  switch (edge->target) {
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_NODE: return graph_has_id(graph, edge->to, graph_node_id_field);
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_SYMBOL: return graph_has_id(graph, edge->to, graph_symbol_id_field);
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_TYPE: return graph_has_id(graph, edge->to, graph_type_id_field);
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_EFFECT: return graph_has_id(graph, edge->to, graph_effect_id_field);
+  }
+  return false;
+}
+
+static bool graph_edge_target_valid(ZProgramGraphEdgeTarget target) {
+  switch (target) {
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_NODE:
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_SYMBOL:
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_TYPE:
+    case Z_PROGRAM_GRAPH_EDGE_TARGET_EFFECT:
+      return true;
+  }
+  return false;
+}
+
+static bool graph_validation_fail(ZProgramGraphValidation *validation, const char *code, const char *message, const char *node_id, const char *edge_from, const char *edge_to, const char *edge_target) {
   if (validation) {
     validation->ok = false;
+    validation->state = Z_PROGRAM_GRAPH_VALIDATION_DECODED;
     snprintf(validation->code, sizeof(validation->code), "%s", code ? code : "GRF000");
     snprintf(validation->message, sizeof(validation->message), "%s", message ? message : "program graph validation failed");
     snprintf(validation->node_id, sizeof(validation->node_id), "%s", node_id ? node_id : "");
     snprintf(validation->edge_from, sizeof(validation->edge_from), "%s", edge_from ? edge_from : "");
     snprintf(validation->edge_to, sizeof(validation->edge_to), "%s", edge_to ? edge_to : "");
+    snprintf(validation->edge_target, sizeof(validation->edge_target), "%s", edge_target ? edge_target : "");
   }
   return false;
 }
 
 bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidation *validation) {
-  if (validation) *validation = (ZProgramGraphValidation){.ok = true};
-  if (!graph) return graph_validation_fail(validation, "GRF001", "program graph is missing", NULL, NULL, NULL);
+  if (validation) *validation = (ZProgramGraphValidation){.ok = true, .state = Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID};
+  if (!graph) return graph_validation_fail(validation, "GRF001", "program graph is missing", NULL, NULL, NULL, NULL);
   for (size_t i = 0; i < graph->node_len; i++) {
-    if (!graph->nodes[i].id || !graph->nodes[i].kind) return graph_validation_fail(validation, "GRF002", "node is missing required identity", graph->nodes[i].id, NULL, NULL);
+    if (!graph->nodes[i].id) return graph_validation_fail(validation, "GRF002", "node is missing required identity", graph->nodes[i].id, NULL, NULL, NULL);
+    if (!graph->nodes[i].node_hash) return graph_validation_fail(validation, "GRF007", "node is missing content hash", graph->nodes[i].id, NULL, NULL, NULL);
     for (size_t j = i + 1; j < graph->node_len; j++) {
-      if (graph->nodes[j].id && strcmp(graph->nodes[i].id, graph->nodes[j].id) == 0) return graph_validation_fail(validation, "GRF003", "duplicate node id", graph->nodes[i].id, NULL, NULL);
+      if (graph->nodes[j].id && strcmp(graph->nodes[i].id, graph->nodes[j].id) == 0) return graph_validation_fail(validation, "GRF003", "duplicate node id", graph->nodes[i].id, NULL, NULL, NULL);
     }
   }
   for (size_t i = 0; i < graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &graph->edges[i];
-    if (!graph_has_node_id(graph, edge->from)) return graph_validation_fail(validation, "GRF004", "edge source is missing", NULL, edge->from, edge->to);
-    if (!graph_has_node_id(graph, edge->to)) return graph_validation_fail(validation, "GRF005", "edge target is missing", NULL, edge->from, edge->to);
+    const char *edge_target = z_program_graph_edge_target_name(edge->target);
+    if (!graph_edge_target_valid(edge->target)) return graph_validation_fail(validation, "GRF008", "edge target domain is invalid", NULL, edge->from, edge->to, edge_target);
+    if (!graph_has_id(graph, edge->from, graph_node_id_field)) return graph_validation_fail(validation, "GRF004", "edge source is missing", NULL, edge->from, edge->to, edge_target);
+    if (!graph_edge_target_exists(graph, edge)) return graph_validation_fail(validation, "GRF005", "edge target is missing from declared domain", NULL, edge->from, edge->to, edge_target);
     for (size_t j = i + 1; j < graph->edge_len; j++) {
       const ZProgramGraphEdge *other = &graph->edges[j];
       if (edge->from && other->from && edge->kind && other->kind &&
-          strcmp(edge->from, other->from) == 0 && strcmp(edge->kind, other->kind) == 0 && edge->order == other->order) {
-        return graph_validation_fail(validation, "GRF006", "duplicate ordered child edge", NULL, edge->from, edge->to);
+          edge->target == other->target && strcmp(edge->from, other->from) == 0 && strcmp(edge->kind, other->kind) == 0 && edge->order == other->order) {
+        return graph_validation_fail(validation, "GRF006", "duplicate ordered edge", NULL, edge->from, edge->to, edge_target);
       }
     }
   }
@@ -452,7 +497,9 @@ bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidatio
 
 static void graph_append_validation_json(ZBuf *buf, const ZProgramGraphValidation *validation) {
   bool ok = !validation || validation->ok;
-  zbuf_appendf(buf, "{\"state\":%s,\"ok\":%s,\"diagnostics\":[", "\"shape-valid\"", ok ? "true" : "false");
+  zbuf_append(buf, "{\"state\":");
+  graph_append_json_string(buf, z_program_graph_validation_state_name(validation ? validation->state : Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID));
+  zbuf_appendf(buf, ",\"ok\":%s,\"diagnostics\":[", ok ? "true" : "false");
   if (!ok) {
     zbuf_append(buf, "{\"code\":");
     graph_append_json_string(buf, validation->code);
@@ -464,6 +511,8 @@ static void graph_append_validation_json(ZBuf *buf, const ZProgramGraphValidatio
     graph_append_json_string(buf, validation->edge_from);
     zbuf_append(buf, ",\"to\":");
     graph_append_json_string(buf, validation->edge_to);
+    zbuf_append(buf, ",\"target\":");
+    graph_append_json_string(buf, validation->edge_target);
     zbuf_append(buf, "}}");
   }
   zbuf_append(buf, "]}");
@@ -472,6 +521,8 @@ static void graph_append_validation_json(ZBuf *buf, const ZProgramGraphValidatio
 void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphValidation *validation) {
   zbuf_appendf(buf, "{\"schemaVersion\":%u,\"canonicalSource\":false,\"idStrategy\":", graph ? graph->schema_version : 1);
   graph_append_json_string(buf, graph ? graph->id_strategy : "deterministic-traversal-r0");
+  zbuf_append(buf, ",\"graphHash\":");
+  graph_append_json_string(buf, graph ? graph->graph_hash : NULL);
   zbuf_append(buf, ",\"validation\":");
   graph_append_validation_json(buf, validation);
   zbuf_appendf(buf, ",\"counts\":{\"nodes\":%zu,\"edges\":%zu},\"nodes\":[", graph ? graph->node_len : 0, graph ? graph->edge_len : 0);
@@ -481,13 +532,21 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
     zbuf_append(buf, "{\"id\":");
     graph_append_json_string(buf, node->id);
     zbuf_append(buf, ",\"kind\":");
-    graph_append_json_string(buf, node->kind);
+    graph_append_json_string(buf, z_program_graph_node_kind_name(node->kind));
     zbuf_append(buf, ",\"name\":");
     graph_append_json_string(buf, node->name);
     zbuf_append(buf, ",\"type\":");
     graph_append_json_string(buf, node->type);
     zbuf_append(buf, ",\"value\":");
     graph_append_json_string(buf, node->value);
+    zbuf_append(buf, ",\"symbolId\":");
+    graph_append_json_string(buf, node->symbol_id);
+    zbuf_append(buf, ",\"typeId\":");
+    graph_append_json_string(buf, node->type_id);
+    zbuf_append(buf, ",\"effectId\":");
+    graph_append_json_string(buf, node->effect_id);
+    zbuf_append(buf, ",\"nodeHash\":");
+    graph_append_json_string(buf, node->node_hash);
     zbuf_append(buf, ",\"path\":");
     graph_append_json_string(buf, node->path);
     zbuf_appendf(buf, ",\"line\":%d,\"column\":%d,\"public\":%s,\"mutable\":%s,\"static\":%s,\"fallible\":%s}",
@@ -503,6 +562,8 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
     graph_append_json_string(buf, edge->to);
     zbuf_append(buf, ",\"kind\":");
     graph_append_json_string(buf, edge->kind);
+    zbuf_append(buf, ",\"target\":");
+    graph_append_json_string(buf, z_program_graph_edge_target_name(edge->target));
     zbuf_appendf(buf, ",\"order\":%zu}", edge->order);
   }
   zbuf_append(buf, "]}");
@@ -511,7 +572,7 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
 void z_append_program_graph_json(ZBuf *buf, const SourceInput *input, const Program *program) {
   ZProgramGraph graph;
   if (!z_program_graph_from_program(input, program, &graph)) {
-    zbuf_append(buf, "{\"schemaVersion\":1,\"canonicalSource\":false,\"validation\":{\"state\":\"decoded\",\"ok\":false,\"diagnostics\":[{\"code\":\"GRF001\",\"message\":\"program graph construction failed\"}]},\"counts\":{\"nodes\":0,\"edges\":0},\"nodes\":[],\"edges\":[]}");
+    zbuf_append(buf, "{\"schemaVersion\":1,\"canonicalSource\":false,\"idStrategy\":\"deterministic-traversal-r0\",\"graphHash\":\"\",\"validation\":{\"state\":\"decoded\",\"ok\":false,\"diagnostics\":[{\"code\":\"GRF001\",\"message\":\"program graph construction failed\"}]},\"counts\":{\"nodes\":0,\"edges\":0},\"nodes\":[],\"edges\":[]}");
     return;
   }
   ZProgramGraphValidation validation = {0};
