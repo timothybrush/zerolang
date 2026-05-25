@@ -1038,6 +1038,29 @@ assert(!directMachOX64ExeUuid.subarray(8, 24).every((byte) => byte === 0));
 assert(directMachOX64ExeBytes.includes(Buffer.from("/usr/lib/dyld")));
 assert(directMachOX64ExeBytes.includes(Buffer.from("zero-direct-x64")));
 assert(directMachOX64ExeBytes.includes(Buffer.from("hello from zero")));
+const directMachOX64UnhandledPath = join(outDir, "direct-macho-x64-unhandled-error");
+rmSync(directMachOX64UnhandledPath, { force: true });
+const directMachOX64UnhandledReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-x64", "examples/direct-unhandled-error-exit.0", "--out", directMachOX64UnhandledPath]).body;
+const directMachOX64UnhandledBytes = readFileSync(directMachOX64UnhandledPath);
+assert.equal(directMachOX64UnhandledReport.emit, "exe");
+assert.equal(directMachOX64UnhandledReport.compiler, "zero-macho-x64");
+assert.equal(directMachOX64UnhandledReport.generatedCBytes, 0);
+assert.equal(directMachOX64UnhandledReport.objectBackend.objectEmission.path, "direct-macho-x64-exe");
+assert.equal(directMachOX64UnhandledReport.objectBackend.directFacts.runtimeHelperCount, 0);
+assertReleaseTargetContract(directMachOX64UnhandledReport, {
+  target: "darwin-x64",
+  emit: "exe",
+  objectFormat: "macho",
+  artifactKind: "native-executable",
+  linkerFlavor: "macho64",
+  targetLibcMode: "sysroot",
+});
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(0), 0xfeedfacf);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(4), 0x01000007);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(8), 3);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(12), 2);
+assert(directMachOX64UnhandledBytes.includes(Buffer.from("/usr/lib/dyld")));
+assert(directMachOX64UnhandledBytes.includes(Buffer.from("zero-direct-x64")));
 const directMachOU8ExePath = join(outDir, "direct-macho-u8-return");
 rmSync(directMachOU8ExePath, { force: true });
 const directMachOU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-arm64", "examples/direct-string-literal.0", "--out", directMachOU8ExePath]).body;

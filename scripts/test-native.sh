@@ -849,9 +849,18 @@ test ! -f .zero/native-test/direct-hello-darwin-x64.o.c
 bin/zero build --json --emit exe --target darwin-x64 examples/hello.0 --out .zero/native-test/direct-hello-darwin-x64 > .zero/native-test/direct-hello-darwin-x64-exe.json
 node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/direct-hello-darwin-x64-exe.json","utf8")); const b=fs.readFileSync(".zero/native-test/direct-hello-darwin-x64"); if (report.compiler!=="zero-macho-x64" || report.objectBackend.objectEmission.path!=="direct-macho-x64-exe" || b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x01000007 || b.readUInt32LE(8)!==3 || b.readUInt32LE(12)!==2 || !b.includes(Buffer.from("hello from zero")) || !b.includes(Buffer.from("zero-direct-x64"))) process.exit(1);'
 test ! -f .zero/native-test/direct-hello-darwin-x64.c
+rm -f .zero/native-test/direct-unhandled-error-darwin-x64 .zero/native-test/direct-unhandled-error-darwin-x64.c
+bin/zero build --json --emit exe --target darwin-x64 examples/direct-unhandled-error-exit.0 --out .zero/native-test/direct-unhandled-error-darwin-x64 > .zero/native-test/direct-unhandled-error-darwin-x64.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/direct-unhandled-error-darwin-x64.json","utf8")); const b=fs.readFileSync(".zero/native-test/direct-unhandled-error-darwin-x64"); if (report.compiler!=="zero-macho-x64" || report.generatedCBytes!==0 || report.objectBackend.objectEmission.path!=="direct-macho-x64-exe" || b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x01000007 || b.readUInt32LE(8)!==3 || b.readUInt32LE(12)!==2 || !b.includes(Buffer.from("zero-direct-x64"))) process.exit(1);'
+test ! -f .zero/native-test/direct-unhandled-error-darwin-x64.c
 if [ "$(uname -s)" = "Darwin" ] && command -v arch >/dev/null 2>&1 && arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
   direct_hello_darwin_x64_output="$(arch -x86_64 .zero/native-test/direct-hello-darwin-x64)"
   test "$direct_hello_darwin_x64_output" = "hello from zero"
+  set +e
+  arch -x86_64 .zero/native-test/direct-unhandled-error-darwin-x64
+  direct_unhandled_error_darwin_x64_rc=$?
+  set -e
+  test "$direct_unhandled_error_darwin_x64_rc" -eq 1
 fi
 rm -f .zero/native-test/direct-std-args-darwin.o .zero/native-test/direct-std-args-darwin.o.c .zero/native-test/direct-std-args-darwin-linked .zero/native-test/direct-std-args-darwin-runtime.c .zero/native-test/direct-std-args-darwin-link.0 .zero/native-test/direct-std-args-darwin-link.o .zero/native-test/direct-std-args-darwin-link.json
 bin/zero build --json --emit obj --target darwin-arm64 conformance/native/pass/std-args.0 --out .zero/native-test/direct-std-args-darwin.o > .zero/native-test/direct-std-args-darwin.json

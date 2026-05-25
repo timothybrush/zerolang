@@ -52,8 +52,12 @@ static bool machx64_type_is_unsigned(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE || type == IR_TYPE_U64;
 }
 
+static bool machx64_is_main_function(const IrFunction *fun) {
+  return fun && fun->is_exported && fun->name && fun->name[0] == 'm' && fun->name[1] == 'a' && fun->name[2] == 'i' && fun->name[3] == 'n' && fun->name[4] == '\0';
+}
+
 static bool machx64_function_propagates_to_process_exit(const IrFunction *fun) {
-  return fun && fun->raises;
+  return fun && (fun->raises || (machx64_is_main_function(fun) && fun->return_type == IR_TYPE_I32 && fun->value_return_type == IR_TYPE_VOID));
 }
 
 static size_t machx64_align(size_t value, size_t alignment) {
@@ -907,7 +911,16 @@ typedef struct {
 } MachX64ExeBuild;
 
 static size_t machx64_emit_exe_start_stub(ZBuf *text) {
-  return z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_emit_sub_rsp(text, 8);
+  size_t patch = z_x64_emit_call32_placeholder(text);
+  z_x64_emit_add_rsp(text, 8);
+  machx64_emit_error_condition_from_rax(text);
+  size_t success_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
+  z_x64_emit_mov_eax_u32(text, 1);
+  z_x64_append_u8(text, 0xc3);
+  z_x64_patch_rel32(text, success_patch, text->len);
+  z_x64_append_u8(text, 0xc3);
+  return patch;
 }
 
 static size_t machx64_emit_exe_world_write(ZBuf *text) {
