@@ -1,0 +1,261 @@
+#include "buildability_internal.h"
+
+#include <stdint.h>
+#include <stdio.h>
+
+enum {
+  BUILD_AARCH64_IMM12_MAX = 4095u
+};
+
+bool z_build_backend_is_aarch64_direct(ZDirectBackend backend) {
+  return backend == Z_DIRECT_BACKEND_ELF_AARCH64 || backend == Z_DIRECT_BACKEND_COFF_AARCH64;
+}
+
+static bool build_const_u32_value(const IrValue *value, unsigned *out) {
+  if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
+  if (out) *out = (unsigned)value->int_value;
+  return true;
+}
+
+static size_t build_value_abi_slots(const IrValue *value) {
+  size_t slots = 0;
+  for (size_t i = 0; value && i < value->arg_len; i++) {
+    slots += value->args[i] && value->args[i]->type == IR_TYPE_BYTE_VIEW ? 2u : 1u;
+  }
+  return slots;
+}
+
+static bool build_aarch64_byte_view_ptr(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  if (!view) return z_build_diag(ctx, diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
+  if (view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
+  if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
+    const IrLocal *local = &fun->locals[view->array_index];
+    if (!local->is_array || local->element_type != IR_TYPE_U8) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    }
+    return true;
+  }
+  if (view->kind == IR_VALUE_STRING_LITERAL) return true;
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned start = 0;
+    if (!build_aarch64_byte_view_ptr(ctx, fun, view->left, diag)) return false;
+    if (build_const_u32_value(view->index, &start) && start > BUILD_AARCH64_IMM12_MAX) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte slice constant start is too large", view->line, view->column, "unsupported byte slice");
+    }
+    return true;
+  }
+  return z_build_diag(ctx, diag, "direct AArch64 value is not a supported byte view", view->line, view->column, "unsupported byte view");
+}
+
+bool z_build_check_aarch64_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  if (!view) return z_build_diag(ctx, diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (view->data_len > 65535u) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
+    }
+    return true;
+  }
+  if (view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned start = 0;
+    unsigned end = 0;
+    bool const_start = !view->index || build_const_u32_value(view->index, &start);
+    bool const_end = build_const_u32_value(view->right, &end);
+    if (const_start && const_end && end >= start && end - start <= 65535u) return true;
+    if (const_start && view->right) {
+      if (start > BUILD_AARCH64_IMM12_MAX) {
+        return z_build_diag(ctx, diag, "direct AArch64 byte slice constant start is too large", view->line, view->column, "unsupported byte view length");
+      }
+      return true;
+    }
+    if (view->index && view->right) return true;
+  }
+  return z_build_diag(ctx, diag, "direct AArch64 byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
+}
+
+bool z_build_check_aarch64_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  return build_aarch64_byte_view_ptr(ctx, fun, view, diag) && z_build_check_aarch64_byte_view_len(ctx, fun, view, diag);
+}
+
+static bool build_aarch64_byte_operation(const ZBuildability *ctx, const IrFunction *fun, const IrValue *value, unsigned scratch_slot, bool *skip_left, ZDiag *diag) {
+  if (value->kind == IR_VALUE_BYTE_COPY) {
+    if (scratch_slot + 3 >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte copy exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+    }
+    if (!z_build_check_aarch64_byte_view(ctx, fun, value->left, diag)) return false;
+    if (!z_build_check_aarch64_byte_view(ctx, fun, value->right, diag)) return false;
+  }
+  if (value->kind == IR_VALUE_BYTE_FILL) {
+    if (scratch_slot + 2 >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte fill exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+    }
+    if (!z_build_check_aarch64_byte_view(ctx, fun, value->right, diag)) return false;
+  }
+  if (value->kind == IR_VALUE_BYTE_VIEW_EQ) {
+    if (scratch_slot + 3 >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+      return z_build_diag(ctx, diag, "direct AArch64 byte-view equality exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+    }
+    if (!z_build_check_aarch64_byte_view(ctx, fun, value->left, diag)) return false;
+    if (!z_build_check_aarch64_byte_view(ctx, fun, value->right, diag)) return false;
+  }
+  if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_aarch64_byte_view_len(ctx, fun, value->left, diag)) return false;
+  if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_aarch64_byte_view(ctx, fun, value->left, diag)) return false;
+  if (value->kind == IR_VALUE_BYTE_VIEW_LEN || value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD) *skip_left = true;
+  return true;
+}
+
+static bool build_check_binary_operator(const ZBuildability *ctx, const IrValue *value, unsigned scratch_slot, unsigned *right_slot, ZDiag *diag) {
+  if (value->kind != IR_VALUE_BINARY) return true;
+  bool supported = true;
+  if (ctx->backend == Z_DIRECT_BACKEND_COFF_X64) {
+    supported = value->binary_op == IR_BIN_ADD || value->binary_op == IR_BIN_SUB || value->binary_op == IR_BIN_MUL;
+  }
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 || z_build_backend_is_aarch64_direct(ctx->backend)) {
+    supported = value->binary_op == IR_BIN_ADD || value->binary_op == IR_BIN_SUB || value->binary_op == IR_BIN_MUL ||
+                value->binary_op == IR_BIN_DIV || value->binary_op == IR_BIN_MOD ||
+                value->binary_op == IR_BIN_AND || value->binary_op == IR_BIN_OR;
+  }
+  if (!supported) return z_build_diag(ctx, diag, "direct backend buildability does not support this binary operator", value->line, value->column, "unsupported operator");
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && value->binary_op != IR_BIN_AND && value->binary_op != IR_BIN_OR && scratch_slot >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 Mach-O expression nesting exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  }
+  if (z_build_backend_is_aarch64_direct(ctx->backend) && value->binary_op != IR_BIN_AND && value->binary_op != IR_BIN_OR && scratch_slot >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 expression nesting exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  }
+  if ((ctx->backend == Z_DIRECT_BACKEND_MACHO64 || z_build_backend_is_aarch64_direct(ctx->backend)) &&
+      value->binary_op != IR_BIN_AND && value->binary_op != IR_BIN_OR) {
+    *right_slot = scratch_slot + 1;
+  }
+  return true;
+}
+
+static bool build_check_compare(const ZBuildability *ctx, const IrValue *value, unsigned scratch_slot, unsigned *right_slot, ZDiag *diag) {
+  if (value->kind != IR_VALUE_COMPARE) return true;
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && scratch_slot >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 Mach-O expression nesting exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  }
+  if (z_build_backend_is_aarch64_direct(ctx->backend) && scratch_slot >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 expression nesting exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  }
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 || z_build_backend_is_aarch64_direct(ctx->backend)) *right_slot = scratch_slot + 1;
+  return true;
+}
+
+static bool build_check_call_shape(const ZBuildability *ctx, const IrValue *value, unsigned scratch_slot, ZDiag *diag) {
+  if (value->kind != IR_VALUE_CALL) return true;
+  size_t max_args = ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ? 4 : (ctx->backend == Z_DIRECT_BACKEND_MACHO64 ? 8 : 6);
+  size_t abi_slots = build_value_abi_slots(value);
+  if (!z_build_backend_is_aarch64_direct(ctx->backend) && abi_slots > max_args) {
+    char actual[80];
+    snprintf(actual, sizeof(actual), "%zu ABI argument slot(s)", abi_slots);
+    return z_build_diag(ctx, diag, "direct backend buildability found a call with too many arguments", value->line, value->column, actual);
+  }
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64 && scratch_slot + abi_slots >= BUILD_MACHO_SCRATCH_SLOT_COUNT) {
+    return z_build_diag(ctx, diag, "direct AArch64 Mach-O call argument nesting exceeds scratch spill capacity", value->line, value->column, "too many nested call arguments");
+  }
+  return true;
+}
+
+bool z_build_check_target_value(const ZBuildability *ctx, const IrFunction *fun, const IrValue *value, unsigned scratch_slot, bool *skip_left, unsigned *right_slot, ZDiag *diag) {
+  if (skip_left) *skip_left = false;
+  if (right_slot) *right_slot = scratch_slot;
+  if (!ctx || !value) return true;
+  if (ctx->backend == Z_DIRECT_BACKEND_COFF_X64) {
+    if (value->kind == IR_VALUE_BYTE_COPY) {
+      if (!z_build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_coff_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_FILL && !z_build_check_coff_byte_view(ctx, fun, value->right, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_EQ) {
+      if (!z_build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_coff_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_coff_byte_view_len(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+    if ((value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) && !z_build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN || value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD ||
+        value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) *skip_left = true;
+  }
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64) {
+    if (value->kind == IR_VALUE_BYTE_COPY) {
+      if (!z_build_check_macho_x64_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_x64_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_FILL && !z_build_check_macho_x64_byte_view(ctx, fun, value->right, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_EQ) {
+      if (!z_build_check_macho_x64_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_x64_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_macho_x64_byte_view_len(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_macho_x64_byte_view(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN || value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD) *skip_left = true;
+  }
+  if (ctx->backend == Z_DIRECT_BACKEND_MACHO64) {
+    if (value->kind == IR_VALUE_BYTE_COPY) {
+      if (scratch_slot + 3 >= BUILD_MACHO_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte copy exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+      if (!z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_FILL) {
+      if (scratch_slot + 2 >= BUILD_MACHO_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte fill exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+      if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_VIEW_EQ) {
+      if (scratch_slot + 3 >= BUILD_MACHO_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view equality exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+      if (!z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_macho_byte_view_len(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+    if ((value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+    if ((value->kind == IR_VALUE_JSON_PARSE_BYTES || value->kind == IR_VALUE_JSON_VALIDATE_BYTES || value->kind == IR_VALUE_JSON_STREAM_TOKENS_BYTES) && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_HTTP_FETCH) {
+      if (!z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+    if ((value->kind == IR_VALUE_HTTP_RESPONSE_LEN || value->kind == IR_VALUE_HTTP_RESPONSE_HEADERS_LEN || value->kind == IR_VALUE_HTTP_RESPONSE_BODY_OFFSET) && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_HTTP_HEADER_VALUE) {
+      if (!z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
+      if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
+    }
+  }
+  if (z_build_backend_is_aarch64_direct(ctx->backend) && !build_aarch64_byte_operation(ctx, fun, value, scratch_slot, skip_left, diag)) return false;
+  return build_check_binary_operator(ctx, value, scratch_slot, right_slot, diag) &&
+         build_check_compare(ctx, value, scratch_slot, right_slot, diag) &&
+         build_check_call_shape(ctx, value, scratch_slot, diag);
+}
+
+unsigned z_build_target_call_arg_slot(const ZBuildability *ctx, const IrValue *value, unsigned scratch_slot) {
+  if (ctx && value && ctx->backend == Z_DIRECT_BACKEND_MACHO64 && value->kind == IR_VALUE_CALL) {
+    return scratch_slot + (unsigned)build_value_abi_slots(value);
+  }
+  return scratch_slot;
+}
+
+bool z_build_check_aarch64_function_shape(const ZBuildability *ctx, const IrFunction *fun, ZDiag *diag) {
+  if (fun->param_count != 0) {
+    return z_build_diag(ctx, diag, "direct AArch64 buildability currently supports functions without parameters", fun->line, fun->column, fun->name);
+  }
+  if (fun->return_type != IR_TYPE_VOID && !z_build_is_scalar32(fun->return_type)) {
+    return z_build_diag(ctx, diag, "direct AArch64 buildability currently supports Void or 32-bit-or-smaller integer returns", fun->line, fun->column, z_build_type_name(fun->return_type));
+  }
+  size_t frame_bytes = (fun->frame_bytes ? fun->frame_bytes : fun->local_len * 8u) + BUILD_AARCH64_SCRATCH_SLOT_COUNT * 8u;
+  if (frame_bytes > 4095u) {
+    return z_build_diag(ctx, diag, "direct AArch64 stack frame exceeds current immediate-offset support", fun->line, fun->column, fun->name);
+  }
+  for (size_t i = 0; i < fun->local_len; i++) {
+    const IrLocal *local = &fun->locals[i];
+    if (local->type == IR_TYPE_BYTE_VIEW) continue;
+    if (local->is_array) {
+      bool array_ok = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL ||
+                      local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 ||
+                      local->element_type == IR_TYPE_USIZE;
+      if (!array_ok) return z_build_diag(ctx, diag, "direct AArch64 object buildability does not support this fixed-array local", local->line, local->column, z_build_type_name(local->element_type));
+      continue;
+    }
+    if (!z_build_is_elf_scalar(local->type)) {
+      return z_build_diag(ctx, diag, "direct AArch64 object buildability does not support this local type", local->line, local->column, z_build_type_name(local->type));
+    }
+  }
+  return true;
+}

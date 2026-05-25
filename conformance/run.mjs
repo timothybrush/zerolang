@@ -1010,11 +1010,27 @@ const memoryPackageMachOReadiness = await execFileAsync(zero, [
 const memoryPackageMachOReadinessBody = JSON.parse(memoryPackageMachOReadiness.stdout);
 assert.equal(memoryPackageMachOReadinessBody.ok, true);
 assert.equal(memoryPackageMachOReadinessBody.diagnostics.length, 0);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, true);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, true);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.backend, "zero-macho64");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics.length, 0);
+const memoryPackageMachOObj = `${outDir}/memory-package-macho.o`;
+const memoryPackageMachOBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  "examples/memory-package",
+  "--out",
+  memoryPackageMachOObj,
+]);
+const memoryPackageMachOBuildBody = JSON.parse(memoryPackageMachOBuild.stdout);
+assert.equal(memoryPackageMachOBuildBody.compiler, "zero-macho64");
+assert.equal(memoryPackageMachOBuildBody.generatedCBytes, 0);
+assert.equal(memoryPackageMachOBuildBody.objectBackend.objectEmission.path, "direct-macho64-object");
+await assertMachOArm64Object(memoryPackageMachOObj, "main");
 
 async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, expectedPattern, expectedObjectFormat, expectedBackend, options = {}) {
   const extraArgs = options.extraArgs ?? [];

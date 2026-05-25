@@ -6,12 +6,14 @@
 #include <stdint.h>
 
 typedef enum {
+  Z_COFF_MACHINE_ARM64 = 0xaa64,
   Z_COFF_MACHINE_AMD64 = 0x8664
 } ZCoffMachine;
 
 enum {
   Z_COFF_RELOC_AMD64_ADDR64 = 0x0001,
-  Z_COFF_RELOC_AMD64_REL32 = 0x0004
+  Z_COFF_RELOC_AMD64_REL32 = 0x0004,
+  Z_COFF_RELOC_ARM64_ADDR64 = 0x000e
 };
 
 enum {
@@ -78,6 +80,7 @@ void z_coff_append_zeros(ZBuf *buf, size_t len);
 void z_coff_pad_to(ZBuf *buf, size_t offset);
 void z_coff_patch_u32(ZBuf *buf, size_t offset, uint32_t value);
 void z_coff_patch_u64(ZBuf *buf, size_t offset, uint64_t value);
+void z_coff_append_reloc(ZBuf *buf, uint32_t offset, uint32_t symbol_index, uint16_t type);
 void z_coff_append_reloc_amd64(ZBuf *buf, uint32_t offset, uint32_t symbol_index, uint16_t type);
 void z_coff_write_object(ZBuf *out, const ZCoffObjectImage *image);
 void z_coff_write_pe64_executable(ZBuf *out, const ZCoffExecutableImage *image);

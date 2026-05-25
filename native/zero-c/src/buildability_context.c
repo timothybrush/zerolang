@@ -138,10 +138,11 @@ bool z_build_diag(const ZBuildability *ctx, ZDiag *diag, const char *message, in
 static const char *build_expected_for_backend(ZDirectBackend backend, bool executable) {
   switch (backend) {
     case Z_DIRECT_BACKEND_ELF64: return executable ? "direct ELF64 executable buildability subset" : "direct ELF64 object buildability subset";
-    case Z_DIRECT_BACKEND_ELF_AARCH64: return executable ? "direct AArch64 ELF executable MVP subset" : "direct AArch64 ELF object MVP subset";
+    case Z_DIRECT_BACKEND_ELF_AARCH64: return executable ? "direct AArch64 ELF executable subset" : "direct AArch64 ELF object subset";
     case Z_DIRECT_BACKEND_MACHO64: return executable ? "direct AArch64 Mach-O executable buildability subset" : "direct AArch64 Mach-O object buildability subset";
     case Z_DIRECT_BACKEND_MACHO_X64: return executable ? "direct x86_64 Mach-O executable buildability subset" : "direct x86_64 Mach-O object buildability subset";
     case Z_DIRECT_BACKEND_COFF_X64: return executable ? "direct COFF x64 executable buildability subset" : "direct COFF x64 object buildability subset";
+    case Z_DIRECT_BACKEND_COFF_AARCH64: return executable ? "direct COFF AArch64 executable subset" : "direct COFF AArch64 object subset";
     default: return "direct backend buildability subset";
   }
 }
@@ -149,9 +150,11 @@ static const char *build_expected_for_backend(ZDirectBackend backend, bool execu
 static const char *build_help_for_backend(ZDirectBackend backend) {
   switch (backend) {
     case Z_DIRECT_BACKEND_ELF_AARCH64:
-      return "choose a supported direct target or restrict this program to exported functions returning small integer literals";
+      return "choose a supported direct target or reduce the program to AArch64 ELF supported direct-backend constructs";
     case Z_DIRECT_BACKEND_COFF_X64:
       return "reduce the program to primitive direct-backend constructs or choose a supported direct target";
+    case Z_DIRECT_BACKEND_COFF_AARCH64:
+      return "choose a supported direct target or reduce the program to AArch64 COFF supported direct-backend constructs";
     case Z_DIRECT_BACKEND_MACHO_X64:
       return "choose a supported direct target or reduce the program to x86_64 Mach-O supported direct-backend constructs";
     case Z_DIRECT_BACKEND_MACHO64:
@@ -166,6 +169,7 @@ bool z_build_select(const IrProgram *ir, const ZTargetInfo *target, const char *
   bool executable = emit_kind && strcmp(emit_kind, "exe") == 0;
   ctx->target = target;
   ctx->emit_kind = executable ? "exe" : "obj";
+  ctx->executable = executable;
   ctx->backend = executable ? z_direct_exe_backend(target) : z_direct_object_backend(target);
   ctx->backend_name = executable ? z_direct_backend_exe_emitter(ctx->backend) : z_direct_backend_object_emitter(ctx->backend);
   ctx->expected = build_expected_for_backend(ctx->backend, executable);

@@ -777,6 +777,7 @@ Executable targets are named after the supported artifact family:
 - `linux-arm64`
 - `linux-musl-arm64`
 - `linux-musl-x64`
+- `linux-x64`
 - `win32-arm64.exe`
 - `win32-x64.exe`
 

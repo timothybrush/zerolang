@@ -1092,6 +1092,38 @@ repeatBuildHash(["build", "--json", "--emit", "exe", "--backend", "zero-coff-x64
 assert.equal(directCoffExeBytes.toString("ascii", directCoffPeOffset, directCoffPeOffset + 4), "PE\u0000\u0000");
 assert.equal(directCoffExeBytes.readUInt16LE(directCoffPeOffset + 4), 0x8664);
 assert(directCoffExeBytes.includes(Buffer.from("KERNEL32.dll")));
+const directCoffArm64ExePath = join(outDir, "direct-coff-arm64-exe-return");
+rmSync(`${directCoffArm64ExePath}.exe`, { force: true });
+const directCoffArm64ExeReport = json(["build", "--json", "--emit", "exe", "--backend", "zero-coff-aarch64", "--target", "win32-arm64.exe", "examples/direct-exe-return.0", "--out", directCoffArm64ExePath]).body;
+const directCoffArm64ExeBytes = readFileSync(`${directCoffArm64ExePath}.exe`);
+const directCoffArm64PeOffset = directCoffArm64ExeBytes.readUInt32LE(0x3c);
+assert.equal(directCoffArm64ExeReport.emit, "exe");
+assert.equal(directCoffArm64ExeReport.compiler, "zero-coff-aarch64");
+assert.equal(directCoffArm64ExeReport.generatedCBytes, 0);
+assert.equal(directCoffArm64ExeReport.objectBackend.objectEmission.path, "direct-coff-aarch64-exe");
+assert.equal(directCoffArm64ExeReport.objectBackend.targetFacts.status, "native-exe");
+assertReleaseTargetContract(directCoffArm64ExeReport, {
+  target: "win32-arm64.exe",
+  emit: "exe",
+  objectFormat: "coff",
+  artifactKind: "native-executable",
+  linkerFlavor: "coff",
+  targetLibcMode: "sysroot",
+});
+assert.equal(directCoffArm64ExeReport.releaseTargetContract.sysroot.requiredByTarget, true);
+assert.equal(directCoffArm64ExeReport.releaseTargetContract.sysroot.status, "not-used-by-direct-artifact");
+assert.equal(directCoffArm64ExeBytes.toString("ascii", directCoffArm64PeOffset, directCoffArm64PeOffset + 4), "PE\u0000\u0000");
+assert.equal(directCoffArm64ExeBytes.readUInt16LE(directCoffArm64PeOffset + 4), 0xaa64);
+assert(directCoffArm64ExeBytes.includes(Buffer.from("KERNEL32.dll")));
+const directCoffArm64HelloPath = join(outDir, "direct-coff-arm64-hello");
+rmSync(`${directCoffArm64HelloPath}.exe`, { force: true });
+const directCoffArm64HelloReport = json(["build", "--json", "--emit", "exe", "--target", "win32-arm64.exe", "examples/hello.0", "--out", directCoffArm64HelloPath]).body;
+const directCoffArm64HelloBytes = readFileSync(`${directCoffArm64HelloPath}.exe`);
+assert.equal(directCoffArm64HelloReport.compiler, "zero-coff-aarch64");
+assert.equal(directCoffArm64HelloReport.generatedCBytes, 0);
+assert.equal(directCoffArm64HelloReport.objectBackend.objectEmission.path, "direct-coff-aarch64-exe");
+assert.equal(directCoffArm64HelloReport.objectBackend.directFacts.runtimeHelperCount, 1);
+assert(directCoffArm64HelloBytes.includes(Buffer.from("hello from zero")));
 const directCoffU8ExePath = join(outDir, "direct-coff-u8-return");
 rmSync(`${directCoffU8ExePath}.exe`, { force: true });
 const directCoffU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "win32-x64.exe", "examples/direct-string-literal.0", "--out", directCoffU8ExePath]).body;
@@ -1108,6 +1140,15 @@ assert.equal(directAarch64ExeReport.compiler, "zero-elf-aarch64");
 assert.equal(directAarch64ExeReport.generatedCBytes, 0);
 assert(directAarch64ExeReport.artifactBytes < 512);
 assert.equal(directAarch64ExeReport.objectBackend.objectEmission.path, "direct-elf-aarch64-exe");
+const directAarch64HelloPath = join(outDir, "direct-aarch64-hello");
+rmSync(directAarch64HelloPath, { force: true });
+const directAarch64HelloReport = json(["build", "--json", "--emit", "exe", "--target", "linux-musl-arm64", "examples/hello.0", "--out", directAarch64HelloPath]).body;
+const directAarch64HelloBytes = readFileSync(directAarch64HelloPath);
+assert.equal(directAarch64HelloReport.compiler, "zero-elf-aarch64");
+assert.equal(directAarch64HelloReport.generatedCBytes, 0);
+assert.equal(directAarch64HelloReport.objectBackend.objectEmission.path, "direct-elf-aarch64-exe");
+assert.equal(directAarch64HelloReport.objectBackend.directFacts.runtimeHelperCount, 1);
+assert(directAarch64HelloBytes.includes(Buffer.from("hello from zero")));
 assert.equal(directAarch64ExeReport.objectBackend.targetFacts.status, "native-exe");
 assert.equal(directAarch64ExeBytes.readUInt16LE(16), 2);
 assert.equal(directAarch64ExeBytes.readUInt16LE(18), 183);
@@ -1187,6 +1228,48 @@ assert.equal(directLinuxGnuObjBytes[0], 0x7f);
 assert.equal(directLinuxGnuObjBytes[1], 0x45);
 assert.equal(directLinuxGnuObjBytes.readUInt16LE(16), 1);
 assert.equal(directLinuxGnuObjBytes.readUInt16LE(18), 62);
+const directStringEqlTargets: Array<{ target: string; outName: string; compiler: string; emissionPath: string; magic: Buffer }> = [
+  { target: "linux-musl-x64", outName: "direct-string-eql-linux-musl.o", compiler: "zero-elf64", emissionPath: "direct-elf64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-x64", outName: "direct-string-eql-linux-gnu.o", compiler: "zero-elf64", emissionPath: "direct-elf64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-arm64", outName: "direct-string-eql-linux-arm64.o", compiler: "zero-elf-aarch64", emissionPath: "direct-elf-aarch64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-musl-arm64", outName: "direct-string-eql-linux-musl-arm64.o", compiler: "zero-elf-aarch64", emissionPath: "direct-elf-aarch64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "darwin-arm64", outName: "direct-string-eql-darwin-arm64.o", compiler: "zero-macho64", emissionPath: "direct-macho64-object", magic: Buffer.from([0xcf, 0xfa, 0xed, 0xfe]) },
+  { target: "darwin-x64", outName: "direct-string-eql-darwin-x64.o", compiler: "zero-macho-x64", emissionPath: "direct-macho-x64-object", magic: Buffer.from([0xcf, 0xfa, 0xed, 0xfe]) },
+  { target: "win32-x64.exe", outName: "direct-string-eql-win-x64.obj", compiler: "zero-coff-x64", emissionPath: "direct-coff-x64-object", magic: Buffer.from([0x64, 0x86]) },
+  { target: "win32-arm64.exe", outName: "direct-string-eql-win-arm64.obj", compiler: "zero-coff-aarch64", emissionPath: "direct-coff-aarch64-object", magic: Buffer.from([0x64, 0xaa]) },
+];
+for (const { target, outName, compiler, emissionPath, magic } of directStringEqlTargets) {
+  const directStringEqlPath = join(outDir, outName);
+  rmSync(directStringEqlPath, { force: true });
+  const directStringEqlReport = json(["build", "--json", "--emit", "obj", "--target", target, "examples/direct-string-eql.0", "--out", directStringEqlPath]).body;
+  const directStringEqlBytes = readFileSync(directStringEqlPath);
+  assert.equal(directStringEqlReport.compiler, compiler);
+  assert.equal(directStringEqlReport.generatedCBytes, 0);
+  assert.equal(directStringEqlReport.objectBackend.objectEmission.path, emissionPath);
+  assert(directStringEqlBytes.subarray(0, magic.length).equals(magic));
+  assert(directStringEqlBytes.includes(Buffer.from("token")));
+}
+const directByteCopyFillTargets: Array<{ target: string; outName: string; compiler: string; emissionPath: string; magic: Buffer }> = [
+  { target: "linux-musl-x64", outName: "direct-byte-copy-fill-linux-musl.o", compiler: "zero-elf64", emissionPath: "direct-elf64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-x64", outName: "direct-byte-copy-fill-linux-gnu.o", compiler: "zero-elf64", emissionPath: "direct-elf64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-arm64", outName: "direct-byte-copy-fill-linux-arm64.o", compiler: "zero-elf-aarch64", emissionPath: "direct-elf-aarch64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "linux-musl-arm64", outName: "direct-byte-copy-fill-linux-musl-arm64.o", compiler: "zero-elf-aarch64", emissionPath: "direct-elf-aarch64-object", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
+  { target: "darwin-arm64", outName: "direct-byte-copy-fill-darwin-arm64.o", compiler: "zero-macho64", emissionPath: "direct-macho64-object", magic: Buffer.from([0xcf, 0xfa, 0xed, 0xfe]) },
+  { target: "darwin-x64", outName: "direct-byte-copy-fill-darwin-x64.o", compiler: "zero-macho-x64", emissionPath: "direct-macho-x64-object", magic: Buffer.from([0xcf, 0xfa, 0xed, 0xfe]) },
+  { target: "win32-x64.exe", outName: "direct-byte-copy-fill-win-x64.obj", compiler: "zero-coff-x64", emissionPath: "direct-coff-x64-object", magic: Buffer.from([0x64, 0x86]) },
+  { target: "win32-arm64.exe", outName: "direct-byte-copy-fill-win-arm64.obj", compiler: "zero-coff-aarch64", emissionPath: "direct-coff-aarch64-object", magic: Buffer.from([0x64, 0xaa]) },
+];
+for (const { target, outName, compiler, emissionPath, magic } of directByteCopyFillTargets) {
+  const directByteCopyFillPath = join(outDir, outName);
+  rmSync(directByteCopyFillPath, { force: true });
+  const directByteCopyFillReport = json(["build", "--json", "--emit", "obj", "--target", target, "examples/direct-byte-copy-fill.0", "--out", directByteCopyFillPath]).body;
+  const directByteCopyFillBytes = readFileSync(directByteCopyFillPath);
+  assert.equal(directByteCopyFillReport.compiler, compiler);
+  assert.equal(directByteCopyFillReport.generatedCBytes, 0);
+  assert.equal(directByteCopyFillReport.objectBackend.objectEmission.path, emissionPath);
+  assert(directByteCopyFillBytes.subarray(0, magic.length).equals(magic));
+  assert(directByteCopyFillBytes.includes(Buffer.from("token")));
+}
 const directMachOPath = join(outDir, "direct-darwin-arm64.o");
 rmSync(directMachOPath, { force: true });
 const directMachOReport = json(["build", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/direct-call-add.0", "--out", directMachOPath]).body;
@@ -1324,6 +1407,27 @@ for (let i = 0; i < directCoffDataRelocCount; i++) {
   sawCoffAddr64Reloc ||= directCoffDataBytes.readUInt16LE(directCoffDataRelocOffset + i * 10 + 8) === 1;
 }
 assert.equal(sawCoffAddr64Reloc, true);
+const directCoffArm64DataPath = join(outDir, "direct-win-arm64-data.obj");
+rmSync(directCoffArm64DataPath, { force: true });
+const directCoffArm64DataReport = json(["build", "--json", "--emit", "obj", "--target", "win32-arm64.exe", "examples/direct-byte-view-reloc.0", "--out", directCoffArm64DataPath]).body;
+const directCoffArm64DataBytes = readFileSync(directCoffArm64DataPath);
+assert.equal(directCoffArm64DataReport.compiler, "zero-coff-aarch64");
+assert.equal(directCoffArm64DataReport.objectBackend.objectEmission.path, "direct-coff-aarch64-object");
+assert.equal(directCoffArm64DataReport.objectBackend.objectEmission.dataSections, true);
+assert.equal(directCoffArm64DataReport.objectBackend.directFacts.readonlyDataBytes, 6);
+assert.equal(directCoffArm64DataBytes.readUInt16LE(0), 0xaa64);
+assert.equal(directCoffArm64DataBytes.readUInt16LE(2), 2);
+assert(directCoffArm64DataBytes.includes(Buffer.from(".rdata\0")));
+assert(directCoffArm64DataBytes.includes(Buffer.from("token")));
+const directCoffArm64DataRelocOffset = directCoffArm64DataBytes.readUInt32LE(20 + 24);
+const directCoffArm64DataRelocCount = directCoffArm64DataBytes.readUInt16LE(20 + 32);
+assert(directCoffArm64DataRelocOffset > 0);
+assert(directCoffArm64DataRelocCount > 0);
+let sawCoffArm64Addr64Reloc = false;
+for (let i = 0; i < directCoffArm64DataRelocCount; i++) {
+  sawCoffArm64Addr64Reloc ||= directCoffArm64DataBytes.readUInt16LE(directCoffArm64DataRelocOffset + i * 10 + 8) === 0x000e;
+}
+assert.equal(sawCoffArm64Addr64Reloc, true);
 const directCoffWorldPath = join(outDir, "direct-win-x64-world.obj");
 rmSync(directCoffWorldPath, { force: true });
 const directCoffWorldReport = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", "examples/hello.0", "--out", directCoffWorldPath]).body;
@@ -1541,17 +1645,26 @@ assertMachOObjectBuildabilityBlocked(
   "macho-open-byte-slice.o",
   /byte-view length/,
 );
-const machOObjectBlockedReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package"]).body;
-assert.equal(machOObjectBlockedReadiness.ok, true);
-assert.equal(machOObjectBlockedReadiness.diagnostics.length, 0);
-assert.equal(machOObjectBlockedReadiness.targetReadiness.ok, false);
-assert.equal(machOObjectBlockedReadiness.targetReadiness.buildable, false);
-assert.equal(machOObjectBlockedReadiness.targetReadiness.languageOk, true);
-assert.equal(machOObjectBlockedReadiness.targetReadiness.emit, "obj");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.target, "darwin-arm64");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
-assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+const machOMemoryPackageReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package"]).body;
+assert.equal(machOMemoryPackageReadiness.ok, true);
+assert.equal(machOMemoryPackageReadiness.diagnostics.length, 0);
+assert.equal(machOMemoryPackageReadiness.targetReadiness.ok, true);
+assert.equal(machOMemoryPackageReadiness.targetReadiness.buildable, true);
+assert.equal(machOMemoryPackageReadiness.targetReadiness.languageOk, true);
+assert.equal(machOMemoryPackageReadiness.targetReadiness.emit, "obj");
+assert.equal(machOMemoryPackageReadiness.targetReadiness.target, "darwin-arm64");
+assert.equal(machOMemoryPackageReadiness.targetReadiness.backend, "zero-macho64");
+const machOMemoryPackagePath = join(outDir, "direct-darwin-arm64-memory-package.o");
+rmSync(machOMemoryPackagePath, { force: true });
+const machOMemoryPackageReport = json(["build", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package", "--out", machOMemoryPackagePath]).body;
+const machOMemoryPackageBytes = readFileSync(machOMemoryPackagePath);
+assert.equal(machOMemoryPackageReport.compiler, "zero-macho64");
+assert.equal(machOMemoryPackageReport.generatedCBytes, 0);
+assert.equal(machOMemoryPackageReport.objectBackend.objectEmission.path, "direct-macho64-object");
+assert.equal(machOMemoryPackageReport.objectBackend.directFacts.moduleCount, 3);
+assert.equal(machOMemoryPackageReport.objectBackend.directFacts.runtimeHelperCount, 1);
+assert.equal(machOMemoryPackageBytes.readUInt32LE(0), 0xfeedfacf);
+assert(machOMemoryPackageBytes.includes(Buffer.from("memory package ok")));
 
 const diagnostics = [
   ["PAR100", ["check", "--json", "conformance/check/fail/parse-missing-brace.0"]],
@@ -1702,7 +1815,9 @@ assert.equal(generatedCBytesAfterReadOnlyCommands, generatedCBytesBeforeReadOnly
 const targets = json(["targets"]).body;
 assert.equal(targets.schemaVersion, 1);
 assert.equal(typeof targets.host, "string");
-for (const targetName of ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "linux-musl-arm64", "linux-musl-x64", "win32-arm64.exe", "win32-x64.exe"]) {
+const publicTargetNames = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-musl-arm64", "linux-musl-x64", "linux-x64", "win32-arm64.exe", "win32-x64.exe"];
+assert.deepEqual([...targets.targets.map((target) => target.name)].sort(), [...publicTargetNames].sort());
+for (const targetName of publicTargetNames) {
   assert(targets.targets.some((target) => target.name === targetName), `${targetName} should be listed`);
 }
 assert(targets.targets.some((target) => target.hosted === true && target.capabilities.includes("fs")));
@@ -1712,6 +1827,7 @@ const linuxMuslTarget = targets.targets.find((target) => target.name === "linux-
 const darwinArm64Target = targets.targets.find((target) => target.name === "darwin-arm64");
 const darwinX64Target = targets.targets.find((target) => target.name === "darwin-x64");
 const winX64Target = targets.targets.find((target) => target.name === "win32-x64.exe");
+const winArm64Target = targets.targets.find((target) => target.name === "win32-arm64.exe");
 const linuxArm64Target = targets.targets.find((target) => target.name === "linux-arm64");
 assert.equal(linuxMuslTarget.directBackend.exeSupported, true);
 assert.equal(linuxMuslTarget.directBackend.exeEmitter, "zero-elf64-exe");
@@ -1728,6 +1844,10 @@ assert.equal(winX64Target.directBackend.objectEmitter, "zero-coff-x64");
 assert.equal(winX64Target.directBackend.objectSupported, true);
 assert.equal(winX64Target.directBackend.exeSupported, true);
 assert.equal(winX64Target.directBackend.exeEmitter, "zero-coff-x64-exe");
+assert.equal(winArm64Target.directBackend.status, "native-exe");
+assert.equal(winArm64Target.directBackend.objectEmitter, "zero-coff-aarch64");
+assert.equal(winArm64Target.directBackend.exeEmitter, "zero-coff-aarch64-exe");
+assert.match(winArm64Target.directBackend.reason, /direct object and executable backend available/);
 assert.equal(linuxArm64Target.directBackend.status, "native-exe");
 assert.equal(linuxArm64Target.directBackend.objectEmitter, "zero-elf-aarch64");
 assert.equal(linuxArm64Target.directBackend.exeEmitter, "zero-elf-aarch64-exe");

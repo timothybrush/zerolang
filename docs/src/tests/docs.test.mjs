@@ -27,6 +27,16 @@ function loadDocsRegistry() {
 }
 
 const docs = loadDocsRegistry();
+const publicTargets = [
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm64",
+  "linux-musl-arm64",
+  "linux-musl-x64",
+  "linux-x64",
+  "win32-arm64.exe",
+  "win32-x64.exe",
+];
 
 describe("docs registry", () => {
   it("declares module pages with source files", async () => {
@@ -137,6 +147,12 @@ describe("docs registry", () => {
     for (const compileTimeTerm of ["compileTime", "target.pointerWidth", "fieldType", "hasEnumCase", "MET001", "integer, `Bool`, and enum static values", "runtime registries", "raw token-string builders"]) {
       assert.match(languageReference, new RegExp(compileTimeTerm));
     }
+    const buildingFromSource = await readDoc("building-from-source");
+    for (const target of publicTargets) {
+      const targetPattern = new RegExp(target.replace(".", "\\."));
+      assert.match(languageReference, targetPattern);
+      assert.match(buildingFromSource, targetPattern);
+    }
     const memModule = await readDoc("module-mem");
     for (const memTerm of ["NullAlloc", "FixedBufAlloc", "PageAlloc", "GeneralAlloc", "memoryBudgets", "allocatorFacts", "allocationInstrumentation", "collectionFacts", "heapBytes: 0", "hiddenHeapAllocation: false"]) {
       assert.match(memModule, new RegExp(memTerm));
@@ -175,7 +191,7 @@ describe("docs registry", () => {
     const learnZeroCleanup = await readDoc("learn-zero");
     assert.match(learnZeroCleanup, /canonical non-raising `fn drop Void self mutref<Self>`/);
     assert.doesNotMatch(learnZeroCleanup, /More advanced ownership and `?\.drop\(\)`? behavior is still implementation work/);
-    assert.match(await readDoc("building-from-source"), /Building From Source/);
+    assert.match(buildingFromSource, /Building From Source/);
     for (const demoTerm of ["--release tiny", "fixed-capacity", "vtables", "generic registries", "hello-linux-musl", "hello-win32", "target report", "artifact size"]) {
       assert.match(examples, new RegExp(demoTerm, "i"));
     }

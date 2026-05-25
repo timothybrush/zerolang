@@ -135,7 +135,7 @@ bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunctio
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535u) {
-      return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
+      return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length is too large for the this backend", view->line, view->column, "large byte view");
     }
     return true;
   }
@@ -160,27 +160,4 @@ bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunctio
 
 bool z_build_check_macho_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   return build_check_macho_byte_view_ptr(ctx, fun, view, diag) && z_build_check_macho_byte_view_len(ctx, fun, view, diag);
-}
-
-static bool build_aarch64_return_type_ok(IrTypeKind type) {
-  return type == IR_TYPE_VOID || type == IR_TYPE_U8 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
-}
-
-bool z_build_check_aarch64_literal_shape(const ZBuildability *ctx, const IrFunction *fun, ZDiag *diag) {
-  if (fun->param_count != 0) {
-    return z_build_diag(ctx, diag, "direct AArch64 ELF buildability currently supports functions without parameters", fun->line, fun->column, fun->name);
-  }
-  if (!build_aarch64_return_type_ok(fun->return_type)) {
-    return z_build_diag(ctx, diag, "direct AArch64 ELF buildability currently supports primitive 32-bit-or-smaller integer returns", fun->line, fun->column, z_build_type_name(fun->return_type));
-  }
-  if (fun->return_type == IR_TYPE_VOID) {
-    if (fun->instr_len == 0) return true;
-    if (fun->instr_len == 1 && fun->instrs[0].kind == IR_INSTR_RETURN && !fun->instrs[0].value) return true;
-    return z_build_diag(ctx, diag, "direct AArch64 ELF buildability currently supports only empty Void functions or small integer literal returns", fun->line, fun->column, fun->name);
-  }
-  if (fun->instr_len != 1 || fun->instrs[0].kind != IR_INSTR_RETURN || !fun->instrs[0].value ||
-      fun->instrs[0].value->kind != IR_VALUE_INT || fun->instrs[0].value->int_value > 65535) {
-    return z_build_diag(ctx, diag, "direct AArch64 ELF buildability currently requires a small integer literal return", fun->line, fun->column, fun->name);
-  }
-  return true;
 }

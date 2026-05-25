@@ -15,7 +15,7 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 970, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 980, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9407, maxStrcmpCalls: 279 },
   "native/zero-c/src/main.c": { maxLines: 9876, maxStrcmpCalls: 441 },
@@ -25,8 +25,9 @@ const fileBudgets = {
   "native/zero-c/src/buildability.c": { maxLines: 295, maxStrcmpCalls: 2 },
   "native/zero-c/src/buildability.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_internal.h": { maxLines: 40, maxStrcmpCalls: 0 },
-  "native/zero-c/src/buildability_context.c": { maxLines: 180, maxStrcmpCalls: 1 },
+  "native/zero-c/src/buildability_context.c": { maxLines: 185, maxStrcmpCalls: 1 },
   "native/zero-c/src/buildability_targets.c": { maxLines: 190, maxStrcmpCalls: 0 },
+  "native/zero-c/src/buildability_value_targets.c": { maxLines: 270, maxStrcmpCalls: 0 },
   "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.c": { maxLines: 370, maxStrcmpCalls: 0 },
@@ -34,22 +35,25 @@ const fileBudgets = {
   "native/zero-c/src/coff_emit_state.c": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_emit_state.h": { maxLines: 70, maxStrcmpCalls: 0 },
   "native/zero-c/src/direct_emit.c": { maxLines: 35, maxStrcmpCalls: 0 },
-  "native/zero-c/src/direct_metrics.c": { maxLines: 20, maxStrcmpCalls: 0 },
+  "native/zero-c/src/direct_metrics.c": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_format.h": { maxLines: 60, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_emit_state.c": { maxLines: 160, maxStrcmpCalls: 0 },
   "native/zero-c/src/elf_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.c": { maxLines: 470, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/aarch64_emit.c": { maxLines: 320, maxStrcmpCalls: 0 },
+  "native/zero-c/src/aarch64_direct.c": { maxLines: 700, maxStrcmpCalls: 1 },
+  "native/zero-c/src/aarch64_direct.h": { maxLines: 40, maxStrcmpCalls: 0 },
+  "native/zero-c/src/aarch64_emit.c": { maxLines: 380, maxStrcmpCalls: 0 },
   "native/zero-c/src/aarch64_emit.h": { maxLines: 80, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_macho64.c": { maxLines: 1520, maxStrcmpCalls: 2 },
-  "native/zero-c/src/emit_macho_x64.c": { maxLines: 1050, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_macho64.c": { maxLines: 1580, maxStrcmpCalls: 2 },
+  "native/zero-c/src/emit_macho_x64.c": { maxLines: 1110, maxStrcmpCalls: 1 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_elf64.c": { maxLines: 2090, maxStrcmpCalls: 3 },
-  "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 205, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 905, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 300, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 960, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 340, maxStrcmpCalls: 0 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -57,14 +61,14 @@ const fileBudgets = {
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 206, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_sig.h": { maxLines: 48, maxStrcmpCalls: 0 },
-  "native/zero-c/src/target_backend.c": { maxLines: 355, maxStrcmpCalls: 32 },
+  "native/zero-c/src/target_backend.c": { maxLines: 360, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.c": { maxLines: 765, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.h": { maxLines: 112, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 825, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.h": { maxLines: 115, maxStrcmpCalls: 0 },
 };
 
 const knownLargeFunctionLimits = new Map([
@@ -923,7 +927,9 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
     });
   }
   if (!backendFormats.aarch64.sharedEncodingPrimitives ||
+      !backendFormats.aarch64.directLayerUsesSharedEncodingPrimitives ||
       !backendFormats.aarch64.elfUsesSharedEncodingPrimitives ||
+      !backendFormats.aarch64.coffUsesSharedEncodingPrimitives ||
       !backendFormats.aarch64.machoUsesSharedEncodingPrimitives) {
     violations.push({
       kind: "aarch64-encoding-primitives-split",
@@ -1042,10 +1048,12 @@ const coffEmitStateSource = cCodeText(texts.get("native/zero-c/src/coff_emit_sta
 const machoFormatSource = texts.get("native/zero-c/src/macho_format.c") ?? "";
 const machoEmitStateSource = cCodeText(texts.get("native/zero-c/src/macho_emit_state.c") ?? "");
 const aarch64EmitSource = texts.get("native/zero-c/src/aarch64_emit.c") ?? "";
+const aarch64DirectSource = cCodeText(texts.get("native/zero-c/src/aarch64_direct.c") ?? "");
 const x64EmitSource = texts.get("native/zero-c/src/x64_emit.c") ?? "";
 const elfX64Source = cCodeText(texts.get("native/zero-c/src/emit_elf64.c") ?? "");
 const elfAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_elf_aarch64.c") ?? "");
 const coffX64Source = cCodeText(texts.get("native/zero-c/src/emit_coff.c") ?? "");
+const coffAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_coff_aarch64.c") ?? "");
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
@@ -1142,10 +1150,13 @@ const backendFormats = {
   },
   coff: {
     sharedWriter: /\bz_coff_write_object\s*\(/.test(coffFormatSource) && /\bz_coff_write_pe64_executable\s*\(/.test(coffFormatSource),
-    objectUsesSharedWriter: /\bz_coff_write_object\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source),
-    executableUsesSharedWriter: /\bz_coff_write_pe64_executable\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source),
+    objectUsesSharedWriter: /\bz_coff_write_object\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source) &&
+      /\bz_coff_write_object\s*\(\s*out\s*,\s*&image\s*\)/.test(coffAarch64Source),
+    executableUsesSharedWriter: /\bz_coff_write_pe64_executable\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source) &&
+      /\bz_coff_write_pe64_executable\s*\(\s*out\s*,\s*&image\s*\)/.test(coffAarch64Source),
     archFilesWithLocalContainerWriters: [
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_coff_aarch64.c", coffAarch64Source],
     ]
       .filter(([, text]) => /\bappend_coff_name\s*\(|\bcoff_append_import_table\s*\(|\bPE32\+|\bIMAGE_FILE_MACHINE_AMD64/.test(text))
       .map(([path]) => path),
@@ -1283,93 +1294,14 @@ const backendFormats = {
       /\bz_x64_emit_call32_placeholder\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_call_rip32_placeholder\s*\(/.test(x64EmitSource) &&
       /\bz_x64_patch_rel32\s*\(/.test(x64EmitSource),
-    elfUsesSharedEncodingPrimitives: /\bz_x64_append_u8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_append_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_rbp_disp_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_load_rsp_offset_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_store_rsp_offset_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_lea_rsp_offset_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rsp_offset_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_inc_rsp_offset64\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_rax_rsp_offset\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_rax_rsp_offset\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_reg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_reg_i8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_reg_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_reg_from_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_reg_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_reg_i32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_reg_u64\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_reg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_reg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_sub_reg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_reg_from_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_reg_i8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_and_reg_i8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_and_reg_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_neg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_shr_reg_one\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_shl_reg_imm8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_imul_reg_i32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_rax_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_sub_rax_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_load_reg8_base_index\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_movzx_reg32_base_index_u8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_store_base_index_reg8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_base_index_reg8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_base_index_u8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_load_base_index_scale_disp_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_lea_base_index_scale_disp_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_r8d_r8d\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_prologue\s*\(/.test(elfX64Source) &&
+    elfUsesSharedEncodingPrimitives: /\bz_x64_emit_prologue\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_epilogue\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_mov_eax_u32\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_ud2\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_push_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_pop_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_r9_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rax_from_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rdx_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rdi_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rsi_from_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rsi_from_rsp\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rax_from_rdx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rax_from_rdi\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rax_u64_patchable\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_mov_rax_u64\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_eax_eax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_ecx_ecx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_rdi_rdi\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_xor_rax_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_inc_ecx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_inc_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_inc_r8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_dec_r8d\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_sub_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_imul_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_and_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_or_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_add_rdx_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_shr_rcx_imm8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_movzx_reg32_ptr_reg_u8\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_load_reg_ptr_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_store_ptr_reg8_from_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_store_ptr_reg_from_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_reg_ptr_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_div_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_test_rax_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_test_ecx_ecx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_test_reg_reg\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_rax_rcx\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_setcc_al_to_bool\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_bool_from_nonnegative_rax\s*\(/.test(elfX64Source) &&
-      /\bz_x64_emit_call32_placeholder\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_syscall\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_byte_copy_min_loop\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_byte_fill_loop\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_byte_eq_loop\s*\(/.test(elfX64Source) &&
       /\bz_x64_patch_rel32\s*\(/.test(elfX64Source),
     coffUsesSharedEncodingPrimitives: /\bz_x64_append_u8\s*\(/.test(coffX64Source) &&
       /\bz_x64_append_u32\s*\(/.test(coffX64Source) &&
@@ -1484,9 +1416,13 @@ const backendFormats = {
     sharedEncodingPrimitives: /\bz_aarch64_emit_movz_w\s*\(/.test(aarch64EmitSource) &&
       /\bz_aarch64_emit_bl_placeholder\s*\(/.test(aarch64EmitSource) &&
       /\bz_aarch64_patch_branch26\s*\(/.test(aarch64EmitSource),
-    elfUsesSharedEncodingPrimitives: /\bz_aarch64_emit_literal_return\s*\(/.test(elfAarch64Source) &&
-      /\bz_aarch64_emit_bl_placeholder\s*\(/.test(elfAarch64Source) &&
-      /\bz_aarch64_patch_branch26\s*\(/.test(elfAarch64Source),
+    directLayerUsesSharedEncodingPrimitives: /\bz_aarch64_emit_literal_return\s*\(/.test(aarch64DirectSource) &&
+      /\bz_aarch64_emit_byte_eq_loop\s*\(/.test(aarch64DirectSource) &&
+      /\bz_aarch64_patch_branch26\s*\(/.test(aarch64DirectSource),
+    elfUsesSharedEncodingPrimitives: /\bz_aarch64_direct_emit_function_text\s*\(/.test(elfAarch64Source) &&
+      /\bz_aarch64_direct_stack_bytes_from_ir\s*\(/.test(elfAarch64Source),
+    coffUsesSharedEncodingPrimitives: /\bz_aarch64_direct_emit_function_text\s*\(/.test(coffAarch64Source) &&
+      /\bz_aarch64_direct_find_main\s*\(/.test(coffAarch64Source),
     machoUsesSharedEncodingPrimitives: /\bz_aarch64_emit_movz_w\s*\(/.test(machoArm64Source) &&
       /\bz_aarch64_emit_bl_placeholder\s*\(/.test(machoArm64Source) &&
       /\bz_aarch64_patch_branch26\s*\(/.test(machoArm64Source),

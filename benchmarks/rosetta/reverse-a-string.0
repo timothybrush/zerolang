@@ -6,5 +6,6 @@ pub fn main Void world World !
     let from - (std.mem.len source) (+ i 1)
     set out[i] source[from]
     set i + i 1
-  if && (&& (== out[0] 114) (== out[1] 101)) (&& (&& (== out[2] 119) (== out[3] 97)) (&& (== out[4] 114) (== out[5] 100)))
+  let actual Span<u8> out
+  if std.mem.eqlBytes actual "reward"[0..6]
     check world.out.write "reverse string ok\n"

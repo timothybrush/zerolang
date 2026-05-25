@@ -50,6 +50,9 @@ void z_x64_emit_movzx_reg32_base_index_u8(ZBuf *buf, unsigned dst_reg, unsigned 
 void z_x64_emit_store_base_index_reg8(ZBuf *buf, unsigned base_reg, unsigned index_reg, unsigned src_reg);
 void z_x64_emit_cmp_base_index_reg8(ZBuf *buf, unsigned base_reg, unsigned index_reg, unsigned reg);
 void z_x64_emit_cmp_base_index_u8(ZBuf *buf, unsigned base_reg, unsigned index_reg, unsigned value);
+void z_x64_emit_byte_copy_min_loop(ZBuf *buf);
+void z_x64_emit_byte_fill_loop(ZBuf *buf);
+void z_x64_emit_byte_eq_loop(ZBuf *buf);
 void z_x64_emit_load_base_index_scale_disp_reg(ZBuf *buf, unsigned dst_reg, unsigned base_reg, unsigned index_reg, unsigned scale, unsigned disp, bool wide);
 void z_x64_emit_lea_base_index_scale_disp_reg(ZBuf *buf, unsigned dst_reg, unsigned base_reg, unsigned index_reg, unsigned scale, unsigned disp);
 void z_x64_emit_xor_r8d_r8d(ZBuf *buf);

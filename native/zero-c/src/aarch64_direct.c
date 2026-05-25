@@ -1,0 +1,674 @@
+#include "zero.h"
+#include "aarch64_direct.h"
+#include "aarch64_emit.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+enum {
+  A64_DIRECT_SCRATCH_SLOT_COUNT = 32u,
+  A64_DIRECT_SCRATCH_SLOT_BYTES = 8u
+};
+
+static bool a64_diag(ZDiag *diag, const char *message, int line, int column, const char *actual) {
+  if (diag) {
+    diag->code = 4004;
+    diag->line = line > 0 ? line : 1;
+    diag->column = column > 0 ? column : 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "%s", message);
+    snprintf(diag->expected, sizeof(diag->expected), "direct AArch64 backend subset");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", actual ? actual : "unsupported construct");
+    snprintf(diag->help, sizeof(diag->help), "choose a supported direct target or restrict this program to AArch64 supported direct-backend constructs");
+  }
+  return false;
+}
+
+static bool a64_return_literal(const IrFunction *fun, uint32_t *out, ZDiag *diag) {
+  if (!fun) return a64_diag(diag, "direct AArch64 backend requires a function", 1, 1, "missing function");
+  if (fun->param_count != 0) {
+    return a64_diag(diag, "direct AArch64 backend supports exported functions without parameters", fun->line, fun->column, fun->name);
+  }
+  if (fun->return_type != IR_TYPE_VOID && fun->return_type != IR_TYPE_U8 && fun->return_type != IR_TYPE_I32 && fun->return_type != IR_TYPE_U32 && fun->return_type != IR_TYPE_USIZE) {
+    return a64_diag(diag, "direct AArch64 backend supports primitive 32-bit-or-smaller integer returns", fun->line, fun->column, fun->name);
+  }
+  *out = 0;
+  if (fun->return_type == IR_TYPE_VOID) {
+    if (fun->instr_len == 0) return true;
+    if (fun->instr_len == 1 && fun->instrs[0].kind == IR_INSTR_RETURN && !fun->instrs[0].value) return true;
+    return false;
+  }
+  if (fun->instr_len == 1 && fun->instrs[0].kind == IR_INSTR_RETURN && fun->instrs[0].value &&
+      fun->instrs[0].value->kind == IR_VALUE_INT && fun->instrs[0].value->int_value <= 65535) {
+    *out = (uint32_t)fun->instrs[0].value->int_value;
+    return true;
+  }
+  return false;
+}
+
+static bool a64_type_is_scalar32(IrTypeKind type) {
+  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
+}
+
+static bool a64_type_is_scalar64(IrTypeKind type) {
+  return type == IR_TYPE_I64 || type == IR_TYPE_U64;
+}
+
+static bool a64_type_is_scalar(IrTypeKind type) {
+  return a64_type_is_scalar32(type) || a64_type_is_scalar64(type);
+}
+
+static bool a64_type_is_unsigned(IrTypeKind type) {
+  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_U32 || type == IR_TYPE_U64;
+}
+
+static bool a64_const_u32_value(const IrValue *value, unsigned *out) {
+  if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
+  if (out) *out = (unsigned)value->int_value;
+  return true;
+}
+
+static unsigned a64_cond_for_compare(IrCompareOp op) {
+  switch (op) {
+    case IR_CMP_EQ: return 0;
+    case IR_CMP_NE: return 1;
+    case IR_CMP_LT: return 11;
+    case IR_CMP_LE: return 13;
+    case IR_CMP_GT: return 12;
+    case IR_CMP_GE: return 10;
+  }
+  return 0;
+}
+
+static unsigned a64_invert_cond(unsigned cond) {
+  return cond ^ 1u;
+}
+
+static unsigned a64_slot_offset(unsigned local_index) {
+  return local_index * 8u;
+}
+
+static unsigned a64_local_slot_offset(const IrFunction *fun, unsigned local_index, unsigned slot_offset, unsigned frame_size) {
+  if (fun && local_index < fun->local_len && fun->locals[local_index].frame_offset > 0 && frame_size >= fun->locals[local_index].frame_offset) {
+    return frame_size - fun->locals[local_index].frame_offset + slot_offset;
+  }
+  return A64_DIRECT_SCRATCH_SLOT_COUNT * A64_DIRECT_SCRATCH_SLOT_BYTES + a64_slot_offset(local_index) + slot_offset;
+}
+
+static void a64_emit_load_local_w(ZBuf *text, const IrFunction *fun, unsigned reg, unsigned local_index, unsigned slot_offset, unsigned frame_size) {
+  z_aarch64_emit_load_w_sp(text, reg, a64_local_slot_offset(fun, local_index, slot_offset, frame_size));
+}
+
+static void a64_emit_load_local_x(ZBuf *text, const IrFunction *fun, unsigned reg, unsigned local_index, unsigned slot_offset, unsigned frame_size) {
+  z_aarch64_emit_load_x_sp(text, reg, a64_local_slot_offset(fun, local_index, slot_offset, frame_size));
+}
+
+static void a64_emit_store_local_w(ZBuf *text, const IrFunction *fun, unsigned reg, unsigned local_index, unsigned slot_offset, unsigned frame_size) {
+  z_aarch64_emit_store_w_sp(text, reg, a64_local_slot_offset(fun, local_index, slot_offset, frame_size));
+}
+
+static void a64_emit_store_local_x(ZBuf *text, const IrFunction *fun, unsigned reg, unsigned local_index, unsigned slot_offset, unsigned frame_size) {
+  z_aarch64_emit_store_x_sp(text, reg, a64_local_slot_offset(fun, local_index, slot_offset, frame_size));
+}
+
+static bool a64_scratch_slot(unsigned slot, unsigned *offset, const IrValue *value, ZDiag *diag) {
+  if (slot >= A64_DIRECT_SCRATCH_SLOT_COUNT) {
+    return a64_diag(diag, "direct AArch64 expression nesting exceeds scratch register spill capacity", value ? value->line : 1, value ? value->column : 1, "expression too deep");
+  }
+  *offset = slot * A64_DIRECT_SCRATCH_SLOT_BYTES;
+  return true;
+}
+
+static bool a64_emit_store_scratch(ZBuf *text, unsigned reg, IrTypeKind type, unsigned slot, const IrValue *value, ZDiag *diag) {
+  unsigned offset = 0;
+  if (!a64_scratch_slot(slot, &offset, value, diag)) return false;
+  if (a64_type_is_scalar64(type)) z_aarch64_emit_store_x_sp(text, reg, offset);
+  else z_aarch64_emit_store_w_sp(text, reg, offset);
+  return true;
+}
+
+static bool a64_emit_load_scratch(ZBuf *text, unsigned reg, IrTypeKind type, unsigned slot, const IrValue *value, ZDiag *diag) {
+  unsigned offset = 0;
+  if (!a64_scratch_slot(slot, &offset, value, diag)) return false;
+  if (a64_type_is_scalar64(type)) z_aarch64_emit_load_x_sp(text, reg, offset);
+  else z_aarch64_emit_load_w_sp(text, reg, offset);
+  return true;
+}
+
+static void a64_emit_u32_bounds_check(ZBuf *text, unsigned index_reg, unsigned len_reg) {
+  z_aarch64_emit_cmp_w(text, index_reg, len_reg);
+  size_t ok_patch = z_aarch64_emit_b_cond_placeholder(text, 3);
+  z_aarch64_emit_brk(text);
+  z_aarch64_patch_cond19(text, ok_patch, text->len);
+}
+
+static void a64_emit_cast_normalize_reg(ZBuf *text, unsigned reg, IrTypeKind source, IrTypeKind target) {
+  switch (target) {
+    case IR_TYPE_BOOL:
+    case IR_TYPE_U8:
+      z_aarch64_emit_uxtb_w(text, reg, reg);
+      return;
+    case IR_TYPE_U16:
+      z_aarch64_emit_uxth_w(text, reg, reg);
+      return;
+    case IR_TYPE_I32:
+    case IR_TYPE_U32:
+    case IR_TYPE_USIZE:
+      z_aarch64_emit_mov_w(text, reg, reg);
+      return;
+    case IR_TYPE_I64:
+    case IR_TYPE_U64:
+      if (source == IR_TYPE_I32) z_aarch64_emit_sxtw_x(text, reg, reg);
+      else if (!a64_type_is_scalar64(source)) z_aarch64_emit_mov_w(text, reg, reg);
+      return;
+    default:
+      return;
+  }
+}
+
+static void a64_emit_binary_reg(ZBuf *text, IrBinaryOp op, unsigned dst, unsigned lhs, unsigned rhs, bool wide) {
+  if (op == IR_BIN_ADD) {
+    if (wide) z_aarch64_emit_add_x_reg(text, dst, lhs, rhs);
+    else z_aarch64_emit_add_w_reg(text, dst, lhs, rhs);
+  } else if (op == IR_BIN_SUB) {
+    if (wide) z_aarch64_emit_sub_x_reg(text, dst, lhs, rhs);
+    else z_aarch64_emit_sub_w_reg(text, dst, lhs, rhs);
+  } else if (op == IR_BIN_MUL) {
+    if (wide) z_aarch64_emit_mul_x_reg(text, dst, lhs, rhs);
+    else z_aarch64_emit_mul_w_reg(text, dst, lhs, rhs);
+  }
+}
+
+static bool a64_record_data_patch(ZAArch64DirectContext *ctx, size_t patch_offset, unsigned data_offset, ZDiag *diag, const IrValue *value) {
+  if (!ctx || !ctx->record_data_patch) return a64_diag(diag, "direct AArch64 readonly data patch requires an emit context", value ? value->line : 1, value ? value->column : 1, "missing context");
+  return ctx->record_data_patch(ctx->patch_user, patch_offset, data_offset, value, diag);
+}
+
+static bool a64_emit_rodata_ptr_literal(ZBuf *text, unsigned reg, unsigned data_offset, ZAArch64DirectContext *ctx, const IrValue *value, ZDiag *diag) {
+  while (((text->len + 8) % 8) != 0) z_aarch64_emit_nop(text);
+  z_aarch64_emit_ldr_x_literal8(text, reg);
+  z_aarch64_emit_b_offset_words(text, 3);
+  size_t patch_offset = text->len;
+  z_aarch64_append_u64(text, 0);
+  return a64_record_data_patch(ctx, patch_offset, data_offset, diag, value);
+}
+
+static bool a64_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
+static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
+static bool a64_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag);
+
+static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!view) return a64_diag(diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (view->data_len > 65535) return a64_diag(diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
+    z_aarch64_emit_movz_w(text, reg, view->data_len);
+    return true;
+  }
+  if (view->kind == IR_VALUE_LOCAL && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) {
+    a64_emit_load_local_w(text, fun, reg, view->local_index, 8, frame_size);
+    return true;
+  }
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned start = 0;
+    unsigned end = 0;
+    if ((!view->index || a64_const_u32_value(view->index, &start)) &&
+        a64_const_u32_value(view->right, &end) && end >= start && end - start <= 65535) {
+      z_aarch64_emit_movz_w(text, reg, end - start);
+      return true;
+    }
+    if ((!view->index || a64_const_u32_value(view->index, &start)) && view->right) {
+      if (!a64_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
+      if (start > 0) z_aarch64_emit_sub_w_imm(text, reg, reg, start);
+      return true;
+    }
+    if (view->index && view->right) {
+      unsigned tmp = reg == 8 ? 9 : 8;
+      if (!a64_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
+      if (!a64_emit_store_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
+      if (!a64_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
+      if (!a64_emit_load_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
+      a64_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
+      return true;
+    }
+  }
+  return a64_diag(diag, "direct AArch64 byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
+}
+
+static bool a64_emit_byte_view_ptr_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!view) return a64_diag(diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
+  if (view->kind == IR_VALUE_LOCAL && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) {
+    a64_emit_load_local_x(text, fun, reg, view->local_index, 0, frame_size);
+    return true;
+  }
+  if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
+    const IrLocal *local = &fun->locals[view->array_index];
+    if (!local->is_array || local->element_type != IR_TYPE_U8) return a64_diag(diag, "direct AArch64 byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    z_aarch64_emit_add_x_sp_imm(text, reg, a64_local_slot_offset(fun, view->array_index, 0, frame_size));
+    return true;
+  }
+  if (view->kind == IR_VALUE_STRING_LITERAL) return a64_emit_rodata_ptr_literal(text, reg, view->data_offset, ctx, view, diag);
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned start = 0;
+    if (!a64_emit_byte_view_ptr_at(text, fun, view->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
+    if (!view->index) return true;
+    if (a64_const_u32_value(view->index, &start)) {
+      if (start > 4095) return a64_diag(diag, "direct AArch64 byte slice constant start is too large", view->line, view->column, "unsupported byte slice");
+      if (start > 0) z_aarch64_emit_add_x_imm(text, reg, reg, start);
+      return true;
+    }
+    unsigned tmp = reg == 8 ? 9 : 8;
+    if (!a64_emit_store_scratch(text, reg, IR_TYPE_U64, scratch_slot, view, diag)) return false;
+    if (!a64_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
+    if (!a64_emit_load_scratch(text, reg, IR_TYPE_U64, scratch_slot, view, diag)) return false;
+    z_aarch64_emit_add_x_reg(text, reg, reg, tmp);
+    return true;
+  }
+  return a64_diag(diag, "direct AArch64 value is not a supported byte view", view->line, view->column, "unsupported byte view");
+}
+
+static bool a64_emit_cast_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!a64_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
+  a64_emit_cast_normalize_reg(text, reg, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
+  return true;
+}
+
+static bool a64_emit_binary_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (value->binary_op == IR_BIN_AND) {
+    if (!a64_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
+    size_t left_false = z_aarch64_emit_cbz_w_placeholder(text, reg);
+    if (!a64_emit_value_to_reg_at(text, fun, value->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
+    size_t right_false = z_aarch64_emit_cbz_w_placeholder(text, reg);
+    z_aarch64_emit_movz_w(text, reg, 1);
+    size_t end_patch = z_aarch64_emit_b_placeholder(text);
+    z_aarch64_patch_cond19(text, left_false, text->len);
+    z_aarch64_patch_cond19(text, right_false, text->len);
+    z_aarch64_emit_movz_w(text, reg, 0);
+    z_aarch64_patch_branch26(text, end_patch, text->len);
+    return true;
+  }
+  if (value->binary_op == IR_BIN_OR) {
+    if (!a64_emit_value_to_reg_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
+    size_t eval_right = z_aarch64_emit_cbz_w_placeholder(text, reg);
+    z_aarch64_emit_movz_w(text, reg, 1);
+    size_t left_true_end = z_aarch64_emit_b_placeholder(text);
+    z_aarch64_patch_cond19(text, eval_right, text->len);
+    if (!a64_emit_value_to_reg_at(text, fun, value->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
+    size_t right_false = z_aarch64_emit_cbz_w_placeholder(text, reg);
+    z_aarch64_emit_movz_w(text, reg, 1);
+    size_t right_true_end = z_aarch64_emit_b_placeholder(text);
+    z_aarch64_patch_cond19(text, right_false, text->len);
+    z_aarch64_emit_movz_w(text, reg, 0);
+    z_aarch64_patch_branch26(text, left_true_end, text->len);
+    z_aarch64_patch_branch26(text, right_true_end, text->len);
+    return true;
+  }
+  if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL &&
+      value->binary_op != IR_BIN_DIV && value->binary_op != IR_BIN_MOD) {
+    return a64_diag(diag, "direct AArch64 binary operator is unsupported", value->line, value->column, "unsupported operator");
+  }
+  if (!a64_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, value->left ? value->left->type : IR_TYPE_I32, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_value_to_reg_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, value->left ? value->left->type : IR_TYPE_I32, scratch_slot, value->left, diag)) return false;
+  bool wide = a64_type_is_scalar64(value->type);
+  if (value->binary_op == IR_BIN_DIV) {
+    z_aarch64_emit_div_reg(text, reg, 8, 9, a64_type_is_unsigned(value->type), wide);
+  } else if (value->binary_op == IR_BIN_MOD) {
+    z_aarch64_emit_div_reg(text, 10, 8, 9, a64_type_is_unsigned(value->type), wide);
+    z_aarch64_emit_msub_reg(text, reg, 10, 9, 8, wide);
+  } else {
+    a64_emit_binary_reg(text, value->binary_op, reg, 8, 9, wide);
+  }
+  return true;
+}
+
+static bool a64_emit_compare_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 comparison requires two operands", value->line, value->column, "invalid comparison");
+  if (!a64_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, value->left->type, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_value_to_reg_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, value->left->type, scratch_slot, value->left, diag)) return false;
+  z_aarch64_emit_cmp_w(text, 8, 9);
+  z_aarch64_emit_movz_w(text, reg, 0);
+  size_t false_patch = z_aarch64_emit_b_cond_placeholder(text, a64_invert_cond(a64_cond_for_compare(value->compare_op)));
+  z_aarch64_emit_movz_w(text, reg, 1);
+  z_aarch64_patch_cond19(text, false_patch, text->len);
+  return true;
+}
+
+static bool a64_emit_byte_copy_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte copy requires source and destination byte views", value->line, value->column, "missing byte view");
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 11, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, value->left, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 12, IR_TYPE_U64, scratch_slot + 2, value->right, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, value->right, 13, frame_size, scratch_slot + 3, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 12, IR_TYPE_U64, scratch_slot + 2, value->right, diag)) return false;
+  z_aarch64_emit_byte_copy_min_loop(text, reg);
+  return true;
+}
+
+static bool a64_emit_byte_fill_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
+  if (!a64_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, IR_TYPE_U8, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 11, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->right, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, value->right, 10, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, IR_TYPE_U8, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->right, diag)) return false;
+  z_aarch64_emit_byte_fill_loop(text, reg);
+  return true;
+}
+
+static bool a64_emit_byte_view_eq_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 byte-view equality requires two byte views", value->line, value->column, "missing byte view");
+  if (!a64_emit_byte_view_len_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, IR_TYPE_U32, scratch_slot, value->left, diag)) return false;
+  z_aarch64_emit_cmp_w(text, 8, 9);
+  size_t same_len = z_aarch64_emit_b_cond_placeholder(text, 0);
+  z_aarch64_emit_movz_w(text, reg, 0);
+  size_t end_patch = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_cond19(text, same_len, text->len);
+  z_aarch64_emit_mov_w(text, 10, 8);
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 11, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->left, diag)) return false;
+  z_aarch64_emit_byte_eq_loop(text, reg);
+  z_aarch64_patch_branch26(text, end_patch, text->len);
+  return true;
+}
+
+static bool a64_emit_byte_view_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->index || !a64_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, value->left, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+  a64_emit_u32_bounds_check(text, 8, 9);
+  if (!a64_emit_byte_view_ptr_at(text, fun, value->left, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+  z_aarch64_emit_add_x_reg(text, 9, 9, 8);
+  z_aarch64_emit_load_b_imm(text, reg, 9, 0);
+  return true;
+}
+
+static bool a64_emit_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (value->array_index >= fun->local_len) return a64_diag(diag, "direct AArch64 indexed load array is out of range", value->line, value->column, "invalid array local");
+  const IrLocal *local = &fun->locals[value->array_index];
+  unsigned const_index = 0;
+  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE) &&
+      a64_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
+    a64_emit_load_local_w(text, fun, reg, value->array_index, const_index * 4u, frame_size);
+    return true;
+  }
+  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+    if (!value->index || !a64_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
+    if (!a64_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+    z_aarch64_emit_movz_w(text, 9, local->array_len);
+    a64_emit_u32_bounds_check(text, 8, 9);
+    if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+    z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, value->array_index, 0, frame_size));
+    z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
+    z_aarch64_emit_load_w_imm(text, reg, 9, 0);
+    return true;
+  }
+  if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return a64_diag(diag, "direct AArch64 indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
+  if (!value->index || !a64_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+  z_aarch64_emit_movz_w(text, 9, local->array_len);
+  a64_emit_u32_bounds_check(text, 8, 9);
+  if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
+  z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, value->array_index, 0, frame_size));
+  z_aarch64_emit_add_x_reg(text, 9, 9, 8);
+  z_aarch64_emit_load_b_imm(text, reg, 9, 0);
+  return true;
+}
+
+static bool a64_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value) return a64_diag(diag, "direct AArch64 expression is missing", 1, 1, "missing expression");
+  switch (value->kind) {
+    case IR_VALUE_BOOL:
+    case IR_VALUE_INT:
+      if (a64_type_is_scalar64(value->type)) z_aarch64_emit_movz_x(text, reg, (uint64_t)value->int_value);
+      else z_aarch64_emit_movz_w(text, reg, (uint32_t)value->int_value);
+      return true;
+    case IR_VALUE_LOCAL:
+      if (value->local_index >= fun->local_len) return a64_diag(diag, "direct AArch64 local index is out of range", value->line, value->column, "invalid local");
+      if (fun->locals[value->local_index].is_array) return a64_diag(diag, "direct AArch64 fixed array local cannot be used as a scalar", value->line, value->column, "array local");
+      if (fun->locals[value->local_index].type == IR_TYPE_BYTE_VIEW) return a64_diag(diag, "direct AArch64 byte-view local cannot be used as a scalar", value->line, value->column, "byte-view local");
+      if (a64_type_is_scalar64(fun->locals[value->local_index].type)) a64_emit_load_local_x(text, fun, reg, value->local_index, 0, frame_size);
+      else a64_emit_load_local_w(text, fun, reg, value->local_index, 0, frame_size);
+      return true;
+    case IR_VALUE_CAST: return a64_emit_cast_value_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BINARY: return a64_emit_binary_value_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_COMPARE: return a64_emit_compare_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BYTE_VIEW_LEN: return a64_emit_byte_view_len_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BYTE_COPY: return a64_emit_byte_copy_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BYTE_FILL: return a64_emit_byte_fill_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BYTE_VIEW_EQ: return a64_emit_byte_view_eq_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_BYTE_VIEW_INDEX_LOAD: return a64_emit_byte_view_index_load_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_INDEX_LOAD: return a64_emit_index_load_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    default:
+      return a64_diag(diag, "direct AArch64 value kind is unsupported", value->line, value->column, "unsupported value");
+  }
+}
+
+static size_t a64_function_frame_bytes(const IrFunction *fun) {
+  uint32_t ignored = 0;
+  if (a64_return_literal(fun, &ignored, NULL)) return 0;
+  unsigned base = (unsigned)(fun ? (fun->frame_bytes ? fun->frame_bytes : fun->local_len * 8) : 0);
+  return z_aarch64_align(base + A64_DIRECT_SCRATCH_SLOT_COUNT * A64_DIRECT_SCRATCH_SLOT_BYTES, 16);
+}
+
+size_t z_aarch64_direct_stack_bytes_from_ir(const IrProgram *program) {
+  size_t total = 0;
+  for (size_t i = 0; program && i < program->function_len; i++) total += a64_function_frame_bytes(&program->functions[i]);
+  return total;
+}
+
+size_t z_aarch64_direct_max_frame_bytes_from_ir(const IrProgram *program) {
+  size_t max_frame = 0;
+  for (size_t i = 0; program && i < program->function_len; i++) {
+    size_t frame = a64_function_frame_bytes(&program->functions[i]);
+    if (frame > max_frame) max_frame = frame;
+  }
+  return max_frame;
+}
+
+static void a64_emit_epilogue(ZBuf *text, unsigned frame_size) {
+  if (frame_size > 0) z_aarch64_emit_add_sp_imm(text, frame_size);
+  z_aarch64_emit_ldp_x29_x30_sp_post16(text);
+  z_aarch64_emit_ret(text);
+}
+
+static bool a64_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *instrs, size_t len, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag);
+
+static bool a64_emit_local_set(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (instr->local_index >= fun->local_len) return a64_diag(diag, "direct AArch64 local store is out of range", instr->line, instr->column, "invalid local");
+  const IrLocal *local = &fun->locals[instr->local_index];
+  if (local->type == IR_TYPE_BYTE_VIEW) {
+    if (!a64_emit_byte_view_ptr_at(text, fun, instr->value, 8, frame_size, 0, ctx, diag)) return false;
+    a64_emit_store_local_x(text, fun, 8, instr->local_index, 0, frame_size);
+    if (!a64_emit_byte_view_len_at(text, fun, instr->value, 8, frame_size, 0, ctx, diag)) return false;
+    a64_emit_store_local_w(text, fun, 8, instr->local_index, 8, frame_size);
+    return true;
+  }
+  if (!a64_emit_value_to_reg_at(text, fun, instr->value, 8, frame_size, 0, ctx, diag)) return false;
+  if (a64_type_is_scalar64(local->type)) a64_emit_store_local_x(text, fun, 8, instr->local_index, 0, frame_size);
+  else a64_emit_store_local_w(text, fun, 8, instr->local_index, 0, frame_size);
+  return true;
+}
+
+static bool a64_emit_index_store(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (instr->array_index >= fun->local_len) return a64_diag(diag, "direct AArch64 indexed store array is out of range", instr->line, instr->column, "invalid array local");
+  const IrLocal *local = &fun->locals[instr->array_index];
+  unsigned const_index = 0;
+  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE) &&
+      a64_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
+    if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
+    a64_emit_store_local_w(text, fun, 10, instr->array_index, const_index * 4u, frame_size);
+    return true;
+  }
+  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+    if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
+    if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 0, ctx, diag)) return false;
+    z_aarch64_emit_movz_w(text, 9, local->array_len);
+    a64_emit_u32_bounds_check(text, 8, 9);
+    z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, instr->array_index, 0, frame_size));
+    z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
+    z_aarch64_emit_store_w_imm(text, 10, 9, 0);
+    return true;
+  }
+  if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return a64_diag(diag, "direct AArch64 indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
+  if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
+  if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 0, ctx, diag)) return false;
+  z_aarch64_emit_movz_w(text, 9, local->array_len);
+  a64_emit_u32_bounds_check(text, 8, 9);
+  z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, instr->array_index, 0, frame_size));
+  z_aarch64_emit_add_x_reg(text, 9, 9, 8);
+  z_aarch64_emit_store_b_imm(text, 10, 9, 0);
+  return true;
+}
+
+static bool a64_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!instr || !instr->value) return a64_diag(diag, "direct AArch64 World write requires bytes", instr ? instr->line : 1, instr ? instr->column : 1, "missing byte view");
+  if (!ctx || !ctx->emit_world_write) return a64_diag(diag, "direct AArch64 World write requires an executable target runtime", instr->line, instr->column, "unsupported instruction");
+  if (!a64_emit_byte_view_ptr_at(text, fun, instr->value, 1, frame_size, 0, ctx, diag)) return false;
+  if (!a64_emit_byte_view_len_at(text, fun, instr->value, 2, frame_size, 0, ctx, diag)) return false;
+  z_aarch64_emit_movz_w(text, 0, instr->field_offset == 2 ? 2u : 1u);
+  return ctx->emit_world_write(text, instr, ctx, diag);
+}
+
+static bool a64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (instr->kind == IR_INSTR_LOCAL_SET) return a64_emit_local_set(text, fun, instr, frame_size, ctx, diag);
+  if (instr->kind == IR_INSTR_INDEX_STORE) return a64_emit_index_store(text, fun, instr, frame_size, ctx, diag);
+  if (instr->kind == IR_INSTR_WORLD_WRITE) return a64_emit_world_write(text, fun, instr, frame_size, ctx, diag);
+  if (instr->kind == IR_INSTR_EXPR) return !instr->value || a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag);
+  if (instr->kind == IR_INSTR_RETURN) {
+    if (instr->value && !a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
+    a64_emit_epilogue(text, frame_size);
+    return true;
+  }
+  if (instr->kind == IR_INSTR_IF) {
+    if (!a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
+    size_t false_patch = z_aarch64_emit_cbz_w_placeholder(text, 0);
+    if (!a64_emit_instrs(text, fun, instr->then_instrs, instr->then_len, frame_size, ctx, diag)) return false;
+    if (instr->else_len > 0) {
+      size_t end_patch = z_aarch64_emit_b_placeholder(text);
+      z_aarch64_patch_cond19(text, false_patch, text->len);
+      if (!a64_emit_instrs(text, fun, instr->else_instrs, instr->else_len, frame_size, ctx, diag)) return false;
+      z_aarch64_patch_branch26(text, end_patch, text->len);
+    } else {
+      z_aarch64_patch_cond19(text, false_patch, text->len);
+    }
+    return true;
+  }
+  return a64_diag(diag, "direct AArch64 instruction kind is unsupported", instr->line, instr->column, "unsupported instruction");
+}
+
+static bool a64_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *instrs, size_t len, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  for (size_t i = 0; i < len; i++) {
+    if (!a64_emit_instr(text, fun, &instrs[i], frame_size, ctx, diag)) return false;
+  }
+  return true;
+}
+
+static bool a64_validate_function(const IrFunction *fun, ZDiag *diag) {
+  if (!fun) return a64_diag(diag, "direct AArch64 backend requires a function", 1, 1, "missing function");
+  if (fun->param_count != 0) return a64_diag(diag, "direct AArch64 backend supports functions without parameters", fun->line, fun->column, fun->name);
+  if (fun->return_type != IR_TYPE_VOID && !a64_type_is_scalar32(fun->return_type)) {
+    return a64_diag(diag, "direct AArch64 backend supports only Void and 32-bit-or-smaller integer returns", fun->line, fun->column, fun->name);
+  }
+  for (size_t i = 0; i < fun->local_len; i++) {
+    const IrLocal *local = &fun->locals[i];
+    if (local->type == IR_TYPE_BYTE_VIEW) continue;
+    if (local->is_array && (local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL ||
+                            local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) continue;
+    if (local->is_array || !a64_type_is_scalar(local->type)) {
+      return a64_diag(diag, "direct AArch64 backend supports only primitive scalar locals and fixed byte/integer arrays", local->line, local->column, local->name);
+    }
+  }
+  return true;
+}
+
+static bool a64_emit_function_text(ZBuf *text, const IrFunction *fun, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  uint32_t literal = 0;
+  if (a64_return_literal(fun, &literal, NULL)) {
+    z_aarch64_emit_literal_return(text, literal);
+    return true;
+  }
+  if (!a64_validate_function(fun, diag)) return false;
+  unsigned frame_size = (unsigned)a64_function_frame_bytes(fun);
+  z_aarch64_emit_stp_x29_x30_sp_pre16(text);
+  z_aarch64_emit_mov_x29_sp(text);
+  if (frame_size > 0) z_aarch64_emit_sub_sp_imm(text, frame_size);
+  if (!a64_emit_instrs(text, fun, fun->instrs, fun->instr_len, frame_size, ctx, diag)) return false;
+  if (fun->instr_len == 0 || fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN) a64_emit_epilogue(text, frame_size);
+  return true;
+}
+
+static const IrFunction *a64_find_main(const IrProgram *ir, unsigned *out_index, ZDiag *diag) {
+  const IrFunction *fun = NULL;
+  unsigned index = 0;
+  for (size_t i = 0; ir && i < ir->function_len; i++) {
+    if (ir->functions[i].is_exported && strcmp(ir->functions[i].name, "main") == 0) {
+      if (fun) {
+        a64_diag(diag, "direct AArch64 executable backend requires exactly one exported main function", ir->functions[i].line, ir->functions[i].column, ir->functions[i].name);
+        return NULL;
+      }
+      fun = &ir->functions[i];
+      index = (unsigned)i;
+    }
+  }
+  if (!fun) {
+    a64_diag(diag, "direct AArch64 executable backend requires an exported main function", 1, 1, "missing main");
+    return NULL;
+  }
+  if (out_index) *out_index = index;
+  return fun;
+}
+
+static unsigned a64_rodata_base_offset(const IrProgram *ir) {
+  if (!ir || ir->data_segment_len == 0) return 0;
+  unsigned base = ir->data_segments[0].offset;
+  for (size_t i = 1; i < ir->data_segment_len; i++) {
+    if (ir->data_segments[i].offset < base) base = ir->data_segments[i].offset;
+  }
+  return base;
+}
+
+static void a64_append_rodata(ZBuf *rodata, const IrProgram *ir, unsigned base_offset) {
+  for (size_t i = 0; ir && i < ir->data_segment_len; i++) {
+    const IrDataSegment *segment = &ir->data_segments[i];
+    while (rodata->len < segment->offset - base_offset) zbuf_append_char(rodata, 0);
+    for (size_t j = 0; j < segment->len; j++) zbuf_append_char(rodata, (char)segment->bytes[j]);
+  }
+}
+
+bool z_aarch64_direct_emit_function_text(ZBuf *text, const IrFunction *fun, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  return a64_emit_function_text(text, fun, ctx, diag);
+}
+
+bool z_aarch64_direct_validate_function(const IrFunction *fun, ZDiag *diag) {
+  return a64_validate_function(fun, diag);
+}
+
+const IrFunction *z_aarch64_direct_find_main(const IrProgram *program, unsigned *out_index, ZDiag *diag) {
+  return a64_find_main(program, out_index, diag);
+}
+
+unsigned z_aarch64_direct_rodata_base_offset(const IrProgram *program) {
+  return a64_rodata_base_offset(program);
+}
+
+void z_aarch64_direct_append_rodata(ZBuf *rodata, const IrProgram *program, unsigned base_offset) {
+  a64_append_rodata(rodata, program, base_offset);
+}

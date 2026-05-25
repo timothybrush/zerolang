@@ -59,10 +59,14 @@ void z_coff_patch_u64(ZBuf *buf, size_t offset, uint64_t value) {
   for (unsigned i = 0; i < 8; i++) buf->data[offset + i] = (char)((value >> (i * 8)) & 0xffu);
 }
 
-void z_coff_append_reloc_amd64(ZBuf *buf, uint32_t offset, uint32_t symbol_index, uint16_t type) {
+void z_coff_append_reloc(ZBuf *buf, uint32_t offset, uint32_t symbol_index, uint16_t type) {
   z_coff_append_u32(buf, offset);
   z_coff_append_u32(buf, symbol_index);
   z_coff_append_u16(buf, type);
+}
+
+void z_coff_append_reloc_amd64(ZBuf *buf, uint32_t offset, uint32_t symbol_index, uint16_t type) {
+  z_coff_append_reloc(buf, offset, symbol_index, type);
 }
 
 static void coff_append_name(ZBuf *buf, const char *name) {
@@ -309,7 +313,8 @@ void z_coff_write_pe64_executable(ZBuf *out, const ZCoffExecutableImage *image) 
     const ZCoffImportPatch *patch = &image->import_patches[i];
     if (patch->import_index >= Z_COFF_IMPORT_COUNT) continue;
     uint64_t target = image_base + rdata_rva + imports.iat_offsets[patch->import_index];
-    coff_patch_rel32_to_va(text, patch->patch_offset, image_base + text_rva, target);
+    if (image && image->machine == Z_COFF_MACHINE_ARM64) z_coff_patch_u64(text, patch->patch_offset, target);
+    else coff_patch_rel32_to_va(text, patch->patch_offset, image_base + text_rva, target);
   }
 
   zbuf_init(out);

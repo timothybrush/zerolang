@@ -1152,22 +1152,20 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
       z_x64_emit_pop_reg64(code, 7);
       z_x64_emit_pop_reg64(code, 1);
       z_x64_emit_pop_reg64(code, 6);
-      z_x64_emit_cmp_rax_rcx(code, true);
-      size_t keep_dst_len = z_x64_emit_jcc32_placeholder(code, 0x86);
-      z_x64_emit_mov_rax_from_rcx(code);
-      z_x64_patch_rel32(code, keep_dst_len, code->len);
+      z_x64_emit_byte_copy_min_loop(code);
+      return true;
+    }
+    case IR_VALUE_BYTE_FILL: {
+      if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
+      if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+      z_x64_emit_push_rax(code);
+      if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
+      z_x64_emit_push_rax(code);
+      if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
       z_x64_emit_mov_rdx_from_rax(code);
-      z_x64_emit_xor_r8d_r8d(code);
-      size_t loop = code->len;
-      z_x64_emit_cmp_reg_reg(code, 2, 8, true);
-      size_t done = z_x64_emit_jcc32_placeholder(code, 0x86);
-      z_x64_emit_load_reg8_base_index(code, 3, 6, 8);
-      z_x64_emit_store_base_index_reg8(code, 7, 8, 3);
-      z_x64_emit_inc_r8(code);
-      size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
-      z_x64_patch_rel32(code, back, loop);
-      z_x64_patch_rel32(code, done, code->len);
-      z_x64_emit_mov_rax_from_rdx(code);
+      z_x64_emit_pop_reg64(code, 7);
+      z_x64_emit_pop_reg64(code, 9);
+      z_x64_emit_byte_fill_loop(code);
       return true;
     }
     case IR_VALUE_BYTE_VIEW_EQ: {
@@ -1186,22 +1184,7 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
       z_x64_emit_mov_reg_from_rax(code, 8, true);
       if (!elf_emit_byte_view_ptr(code, fun, value->right, ctx, diag)) return false;
       z_x64_emit_mov_r9_from_rax(code);
-      z_x64_emit_xor_ecx_ecx(code);
-      size_t loop = code->len;
-      z_x64_emit_cmp_reg_reg(code, 1, 10, true);
-      size_t equal = z_x64_emit_jcc32_placeholder(code, 0x83);
-      z_x64_emit_load_reg8_base_index(code, 0, 8, 1);
-      z_x64_emit_cmp_base_index_reg8(code, 9, 1, 0);
-      size_t mismatch = z_x64_emit_jcc32_placeholder(code, 0x85);
-      z_x64_emit_inc_rcx(code);
-      size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
-      z_x64_patch_rel32(code, back, loop);
-      z_x64_patch_rel32(code, mismatch, code->len);
-      z_x64_emit_mov_eax_u32(code, 0);
-      size_t after_false = z_x64_emit_jmp32_placeholder(code, 0xe9);
-      z_x64_patch_rel32(code, equal, code->len);
-      z_x64_emit_mov_eax_u32(code, 1);
-      z_x64_patch_rel32(code, after_false, code->len);
+      z_x64_emit_byte_eq_loop(code);
       z_x64_patch_rel32(code, end, code->len);
       return true;
     }
@@ -1275,7 +1258,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       return elf_emit_stateful_value(code, fun, value, ctx, diag);
     case IR_VALUE_INDEX_LOAD: case IR_VALUE_FIELD_LOAD: case IR_VALUE_BYTE_VIEW_LEN:
       return elf_emit_memory_access_value(code, fun, value, ctx, diag);
-    case IR_VALUE_CRC32_BYTES: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_VIEW_EQ:
+    case IR_VALUE_CRC32_BYTES: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL: case IR_VALUE_BYTE_VIEW_EQ:
       return elf_emit_byte_bulk_value(code, fun, value, ctx, diag);
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD:
       return elf_emit_byte_index_value(code, fun, value, ctx, diag);

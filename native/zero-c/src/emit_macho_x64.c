@@ -408,6 +408,57 @@ static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction
   return true;
 }
 
+static bool machx64_emit_byte_copy_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte copy requires source and destination byte views", value->line, value->column, "missing byte view");
+  if (!machx64_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(text, 7);
+  z_x64_emit_pop_reg64(text, 1);
+  z_x64_emit_pop_reg64(text, 6);
+  z_x64_emit_byte_copy_min_loop(text);
+  return true;
+}
+
+static bool machx64_emit_byte_fill_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte fill requires a fill byte and destination byte view", value->line, value->column, "missing byte fill input");
+  if (!machx64_emit_value(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_mov_rdx_from_rax(text);
+  z_x64_emit_pop_reg64(text, 7);
+  z_x64_emit_pop_reg64(text, 9);
+  z_x64_emit_byte_fill_loop(text);
+  return true;
+}
+
+static bool machx64_emit_byte_view_eq_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return machx64_diag_at(diag, "direct x86_64 Mach-O byte-view equality requires two byte views", value->line, value->column, "missing byte view");
+  if (!machx64_emit_byte_view_len(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_push_rax(text);
+  if (!machx64_emit_byte_view_len(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(text, 1);
+  z_x64_emit_cmp_reg_reg(text, 1, 0, false);
+  size_t same_len = z_x64_emit_jcc32_placeholder(text, 0x84);
+  z_x64_emit_mov_eax_u32(text, 0);
+  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, same_len, text->len);
+  z_x64_emit_mov_reg_from_rax(text, 10, true);
+  if (!machx64_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_mov_reg_from_rax(text, 8, true);
+  if (!machx64_emit_byte_view_ptr(text, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_mov_r9_from_rax(text);
+  z_x64_emit_byte_eq_loop(text);
+  z_x64_patch_rel32(text, end, text->len);
+  return true;
+}
+
 static bool machx64_emit_index_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
   if (value->array_index >= fun->local_len) return machx64_diag_at(diag, "direct x86_64 Mach-O indexed load array is out of range", value->line, value->column, "invalid array local");
   const IrLocal *local = &fun->locals[value->array_index];
@@ -464,6 +515,9 @@ static bool machx64_emit_value(ZBuf *text, const IrFunction *fun, const IrValue 
     case IR_VALUE_CHECK: return machx64_emit_check_value(text, fun, value, ctx, diag);
     case IR_VALUE_CALL: return machx64_emit_call_value(text, fun, value, ctx, diag);
     case IR_VALUE_BYTE_VIEW_LEN: return machx64_emit_byte_view_len(text, fun, value->left, ctx, diag);
+    case IR_VALUE_BYTE_COPY: return machx64_emit_byte_copy_value(text, fun, value, ctx, diag);
+    case IR_VALUE_BYTE_FILL: return machx64_emit_byte_fill_value(text, fun, value, ctx, diag);
+    case IR_VALUE_BYTE_VIEW_EQ: return machx64_emit_byte_view_eq_value(text, fun, value, ctx, diag);
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD: return machx64_emit_byte_view_index_load_value(text, fun, value, ctx, diag);
     case IR_VALUE_INDEX_LOAD: return machx64_emit_index_load_value(text, fun, value, ctx, diag);
     case IR_VALUE_FIELD_LOAD: return machx64_emit_field_load_value(text, fun, value, diag);
