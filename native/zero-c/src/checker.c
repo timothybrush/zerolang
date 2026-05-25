@@ -1449,6 +1449,9 @@ static void set_expr_checked_type_args(const Expr *expr, GenericBinding *binding
 static const Function *find_namespace_shape_method(const Program *program, const Expr *callee, const Shape **out_shape);
 static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface);
 static void strip_ref_like_type(const char *type, char *out, size_t out_len);
+static bool shape_method_bindings_from_recorded_type_args(CheckContext *ctx, const Program *program, const Shape *shape, const Function *method, const Expr *call, GenericBinding **out_bindings, size_t *out_len, bool *out_recorded);
+static bool interface_method_bindings_from_recorded_type_args(CheckContext *ctx, const Program *program, const InterfaceDecl *interface, const Function *method, const Expr *call, GenericBinding *context_bindings, size_t context_binding_len, GenericBinding **out_bindings, size_t *out_len, bool *out_recorded);
+static bool generic_call_bindings_from_checked_call(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, GenericBinding **out_bindings, size_t *out_len);
 static void call_resolution_record_bindings(ZCallResolution *resolution, GenericBinding *bindings, size_t binding_len);
 static void call_resolution_record_param_facts(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, const Expr *receiver, size_t param_offset, Scope *scope, GenericBinding *bindings, size_t binding_len, ZCallResolution *resolution);
 static char *call_resolution_param_type_text(const ZCallResolution *resolution, size_t param_index);
@@ -4751,6 +4754,12 @@ static bool resolve_expr_call_for_type(CheckContext *ctx, const Program *program
     resolve_stdlib_call(call, resolution);
 }
 
+static void expr_call_return_set_substituted(const Program *program, const char *type, GenericBinding *bindings, size_t binding_len, char *out, size_t out_len) {
+  char *substituted = type_substitute_generic_signature(program, type, bindings, binding_len);
+  snprintf(out, out_len, "%s", substituted);
+  free(substituted);
+}
+
 static const char *expr_call_return_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return "Unknown";
   if (expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) return "Void";
@@ -4762,25 +4771,23 @@ static const char *expr_call_return_type(CheckContext *ctx, const Program *progr
   snprintf(return_type, sizeof(return_type), "%s", resolution.return_type ? resolution.return_type : "Unknown");
 
   if (resolution.kind == Z_CALL_FUNCTION && function_is_generic(resolution.callee)) {
-    GenericBinding *bindings = z_checked_calloc(resolution.callee->type_params.len, sizeof(GenericBinding));
-    generic_bindings_init_from_params(bindings, &resolution.callee->type_params, 0);
-    ZDiag ignored = {0};
-    if (build_generic_bindings(ctx, program, resolution.callee, expr, scope, &ignored, bindings, resolution.callee->type_params.len, NULL)) {
-      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, resolution.callee->type_params.len);
-      snprintf(return_type, sizeof(return_type), "%s", substituted);
-      free(substituted);
+    GenericBinding *bindings = NULL;
+    size_t binding_len = 0;
+    if (generic_call_bindings_from_checked_call(ctx, program, resolution.callee, expr, scope, NULL, &bindings, &binding_len)) {
+      provenance_context_substitute_bindings(ctx, program, bindings, binding_len, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0);
+      expr_call_return_set_substituted(program, resolution.return_type, bindings, binding_len, return_type, sizeof(return_type));
     }
-    generic_bindings_free(bindings, resolution.callee->type_params.len);
+    generic_bindings_free(bindings, binding_len);
     free(bindings);
   } else if (resolution.kind == Z_CALL_SHAPE_NAMESPACE || resolution.kind == Z_CALL_CONCRETE_CONSTRAINED_SHAPE) {
     GenericBinding *bindings = NULL;
     size_t binding_len = 0;
     ZDiag ignored = {0};
-    if (build_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, scope, NULL, &ignored, &bindings, &binding_len)) {
+    bool recorded_type_args = false;
+    if (shape_method_bindings_from_recorded_type_args(ctx, program, resolution.shape, resolution.callee, expr, &bindings, &binding_len, &recorded_type_args) ||
+        (!recorded_type_args && build_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, scope, NULL, &ignored, &bindings, &binding_len))) {
       provenance_context_substitute_bindings(ctx, program, bindings, binding_len, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0);
-      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
-      snprintf(return_type, sizeof(return_type), "%s", substituted);
-      free(substituted);
+      expr_call_return_set_substituted(program, resolution.return_type, bindings, binding_len, return_type, sizeof(return_type));
     }
     generic_bindings_free(bindings, binding_len);
     free(bindings);
@@ -4788,10 +4795,10 @@ static const char *expr_call_return_type(CheckContext *ctx, const Program *progr
     GenericBinding *bindings = NULL;
     size_t binding_len = 0;
     ZDiag ignored = {0};
-    if (build_constrained_interface_method_bindings(ctx, program, ctx ? ctx->function : NULL, expr, scope, resolution.interface, resolution.callee, NULL, NULL, 0, &ignored, &bindings, &binding_len)) {
-      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
-      snprintf(return_type, sizeof(return_type), "%s", substituted);
-      free(substituted);
+    bool recorded_type_args = false;
+    if (interface_method_bindings_from_recorded_type_args(ctx, program, resolution.interface, resolution.callee, expr, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &bindings, &binding_len, &recorded_type_args) ||
+        (!recorded_type_args && build_constrained_interface_method_bindings(ctx, program, ctx ? ctx->function : NULL, expr, scope, resolution.interface, resolution.callee, NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &ignored, &bindings, &binding_len))) {
+      expr_call_return_set_substituted(program, resolution.return_type, bindings, binding_len, return_type, sizeof(return_type));
     }
     generic_bindings_free(bindings, binding_len);
     free(bindings);
@@ -4802,10 +4809,10 @@ static const char *expr_call_return_type(CheckContext *ctx, const Program *progr
     ZDiag ignored = {0};
     if (shape_method_receiver_info(resolution.callee, &receiver_requires_mut)) {
       char *self_arg_type = receiver_self_arg_type(expr_type(ctx, program, resolution.receiver_expr, scope), receiver_requires_mut);
-      if (build_receiver_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, self_arg_type, scope, &ignored, &bindings, &binding_len)) {
-        char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
-        snprintf(return_type, sizeof(return_type), "%s", substituted);
-        free(substituted);
+      bool recorded_type_args = false;
+      if (shape_method_bindings_from_recorded_type_args(ctx, program, resolution.shape, resolution.callee, expr, &bindings, &binding_len, &recorded_type_args) ||
+          (!recorded_type_args && build_receiver_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, self_arg_type, scope, &ignored, &bindings, &binding_len))) {
+        expr_call_return_set_substituted(program, resolution.return_type, bindings, binding_len, return_type, sizeof(return_type));
       }
       free(self_arg_type);
     }
@@ -6867,7 +6874,20 @@ static bool generic_call_bindings_from_checked_call(CheckContext *ctx, const Pro
   if (recorded_type_args) return false;
 
   const TypeArgVec *type_args = call_type_args(call);
-  if (type_args && type_args->len > 0) return generic_bindings_from_type_args(ctx, program, callee, type_args, out_bindings, out_len);
+  if (type_args && type_args->len > 0) {
+    size_t binding_len = callee->type_params.len;
+    GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
+    generic_bindings_init_from_params(bindings, &callee->type_params, 0);
+    ZDiag ignored = {0};
+    if (!build_generic_bindings(ctx, program, callee, call, scope, &ignored, bindings, binding_len, NULL)) {
+      generic_bindings_free(bindings, binding_len);
+      free(bindings);
+      return false;
+    }
+    *out_bindings = bindings;
+    *out_len = binding_len;
+    return true;
+  }
 
   size_t binding_len = callee->type_params.len;
   GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));

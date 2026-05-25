@@ -376,11 +376,19 @@ assertIncludes("named provenance resolver", namedProvenanceBody, "call_resolutio
 const checkedCallTypeArgsBody = sliceBetween(checker, "static const TypeArgVec *checked_call_type_args", "static bool generic_bindings_from_type_args");
 assertIncludes("checked call type args", checkedCallTypeArgsBody, "checked_type_args");
 
-const checkedCallBindingsBody = sliceBetween(checker, "static bool checked_call_bindings_from_recorded_type_args", "static bool generic_call_bindings_from_checked_call");
+const checkedCallBindingsBody = sliceBetween(
+  checker,
+  "static bool checked_call_bindings_from_recorded_type_args(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, GenericBinding **out_bindings, size_t *out_len, bool *out_recorded) {",
+  "static bool generic_call_bindings_from_checked_call"
+);
 assertIncludes("checked call bindings", checkedCallBindingsBody, "checked_call_type_args");
 assertIncludes("checked call bindings", checkedCallBindingsBody, "generic_bindings_from_type_args");
 
-const genericCallBindingsBody = sliceBetween(checker, "static bool generic_call_bindings_from_checked_call", "static char *call_param_type_text");
+const genericCallBindingsBody = sliceBetween(
+  checker,
+  "static bool generic_call_bindings_from_checked_call(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, GenericBinding **out_bindings, size_t *out_len) {",
+  "static char *call_param_type_text"
+);
 assertIncludes("generic call bindings", genericCallBindingsBody, "checked_call_bindings_from_recorded_type_args");
 assertIncludes("generic call bindings", genericCallBindingsBody, "call_type_args(call)");
 assertBefore("generic call binding source order", genericCallBindingsBody, "checked_call_bindings_from_recorded_type_args", "call_type_args(call)");
@@ -425,6 +433,13 @@ assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_FUNCTION");
 assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_SHAPE_NAMESPACE");
 assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_CONSTRAINED_INTERFACE");
 assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_RECEIVER");
+assertIncludes("expr call return facts", exprCallReturnBody, "generic_call_bindings_from_checked_call");
+assertIncludes("expr call return facts", exprCallReturnBody, "shape_method_bindings_from_recorded_type_args");
+assertIncludes("expr call return facts", exprCallReturnBody, "interface_method_bindings_from_recorded_type_args");
+assertNotIncludes("expr call return facts", exprCallReturnBody, "build_generic_bindings");
+assertBefore("expr call return shape binding source order", exprCallReturnBody, "shape_method_bindings_from_recorded_type_args", "build_shape_method_bindings");
+assertBefore("expr call return interface binding source order", exprCallReturnBody, "interface_method_bindings_from_recorded_type_args", "build_constrained_interface_method_bindings");
+assertBefore("expr call return receiver binding source order", exprCallReturnBody, "shape_method_bindings_from_recorded_type_args", "build_receiver_shape_method_bindings");
 
 const exprTypeCallBody = sliceBetween(
   checker,
