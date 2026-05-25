@@ -16,12 +16,12 @@ static const ZStdSourceModule std_source_modules[] = {
 };
 
 static const ZStdSourceCall std_source_calls[] = {
-  {"std.path.basename", "zeroStdPathBasename", "std.path"},
-  {"std.path.dirname", "zeroStdPathDirname", "std.path"},
-  {"std.path.extension", "zeroStdPathExtension", "std.path"},
-  {"std.path.join", "zeroStdPathJoin", "std.path"},
-  {"std.path.normalize", "zeroStdPathNormalize", "std.path"},
-  {"std.path.relative", "zeroStdPathRelative", "std.path"},
+  {"std.path.basename", "__zero_std_path_basename", "std.path"},
+  {"std.path.dirname", "__zero_std_path_dirname", "std.path"},
+  {"std.path.extension", "__zero_std_path_extension", "std.path"},
+  {"std.path.join", "__zero_std_path_join", "std.path"},
+  {"std.path.normalize", "__zero_std_path_normalize", "std.path"},
+  {"std.path.relative", "__zero_std_path_relative", "std.path"},
 };
 
 const ZStdSourceModule *z_std_source_module_for_name(const char *module) {

@@ -1,35 +1,35 @@
-fn zeroStdPathIsSep Bool byte u8
+fn __zero_std_path_is_sep Bool byte u8
   ret || (== byte 47_u8) (== byte 92_u8)
 
-fn zeroStdPathSegmentEnd Bool path String index usize
-  ret || (>= index (std.mem.len path)) (zeroStdPathIsSep path[index])
+fn __zero_std_path_segment_end Bool path String index usize
+  ret || (>= index (std.mem.len path)) (__zero_std_path_is_sep path[index])
 
-fn zeroStdPathTrimEnd usize path String
+fn __zero_std_path_trim_end usize path String
   mut end usize std.mem.len path
-  while && (> end 0) (zeroStdPathIsSep path[(- end 1)])
+  while && (> end 0) (__zero_std_path_is_sep path[(- end 1)])
     set end - end 1
   ret end
 
-fn zeroStdPathBasename String path String
-  let end usize zeroStdPathTrimEnd path
+fn __zero_std_path_basename String path String
+  let end usize __zero_std_path_trim_end path
   mut start usize end
-  while && (> start 0) (== (zeroStdPathIsSep path[(- start 1)]) false)
+  while && (> start 0) (== (__zero_std_path_is_sep path[(- start 1)]) false)
     set start - start 1
   ret path[start..end]
 
-fn zeroStdPathDirname String path String
-  let end usize zeroStdPathTrimEnd path
+fn __zero_std_path_dirname String path String
+  let end usize __zero_std_path_trim_end path
   mut split usize end
-  while && (> split 0) (== (zeroStdPathIsSep path[(- split 1)]) false)
+  while && (> split 0) (== (__zero_std_path_is_sep path[(- split 1)]) false)
     set split - split 1
-  while && (> split 0) (zeroStdPathIsSep path[(- split 1)])
+  while && (> split 0) (__zero_std_path_is_sep path[(- split 1)])
     set split - split 1
   ret path[..split]
 
-fn zeroStdPathExtension String path String
-  let end usize zeroStdPathTrimEnd path
+fn __zero_std_path_extension String path String
+  let end usize __zero_std_path_trim_end path
   mut start usize end
-  while && (> start 0) (== (zeroStdPathIsSep path[(- start 1)]) false)
+  while && (> start 0) (== (__zero_std_path_is_sep path[(- start 1)]) false)
     set start - start 1
   mut dot usize end
   mut scan usize end
@@ -44,7 +44,7 @@ fn zeroStdPathExtension String path String
     ret path[end..end]
   ret path[(+ dot 1)..end]
 
-fn zeroStdPathCopy Maybe<String> buffer MutSpan<u8> source String
+fn __zero_std_path_copy Maybe<String> buffer MutSpan<u8> source String
   let len usize std.mem.len source
   if > len (std.mem.len buffer)
     ret null
@@ -54,10 +54,10 @@ fn zeroStdPathCopy Maybe<String> buffer MutSpan<u8> source String
     set index + index 1
   ret buffer[..len]
 
-fn zeroStdPathJoin Maybe<String> buffer MutSpan<u8> left String right String
-  let left_end usize zeroStdPathTrimEnd left
+fn __zero_std_path_join Maybe<String> buffer MutSpan<u8> left String right String
+  let left_end usize __zero_std_path_trim_end left
   mut right_start usize 0
-  while && (< right_start (std.mem.len right)) (zeroStdPathIsSep right[right_start])
+  while && (< right_start (std.mem.len right)) (__zero_std_path_is_sep right[right_start])
     set right_start + right_start 1
   let right_len usize - (std.mem.len right) right_start
   mut total usize + left_end right_len
@@ -79,13 +79,13 @@ fn zeroStdPathJoin Maybe<String> buffer MutSpan<u8> left String right String
     set read + read 1
   ret buffer[..out]
 
-fn zeroStdPathNormalize Maybe<String> buffer MutSpan<u8> path String
+fn __zero_std_path_normalize Maybe<String> buffer MutSpan<u8> path String
   mut read usize 0
   mut out usize 0
   mut wrote_sep Bool false
   while < read (std.mem.len path)
     let byte u8 path[read]
-    if zeroStdPathIsSep byte
+    if __zero_std_path_is_sep byte
       if && (> out 0) (== wrote_sep false)
         if >= out (std.mem.len buffer)
           ret null
@@ -94,13 +94,13 @@ fn zeroStdPathNormalize Maybe<String> buffer MutSpan<u8> path String
         set wrote_sep true
       set read + read 1
     else
-      if && (== byte 46_u8) (zeroStdPathSegmentEnd path (+ read 1))
+      if && (== byte 46_u8) (__zero_std_path_segment_end path (+ read 1))
         set read + read 1
       else
-        if && (&& (== byte 46_u8) (< (+ read 1) (std.mem.len path))) (&& (== path[(+ read 1)] 46_u8) (zeroStdPathSegmentEnd path (+ read 2)))
+        if && (&& (== byte 46_u8) (< (+ read 1) (std.mem.len path))) (&& (== path[(+ read 1)] 46_u8) (__zero_std_path_segment_end path (+ read 2)))
           while && (> out 0) (== buffer[(- out 1)] 47_u8)
             set out - out 1
-          while && (> out 0) (== (zeroStdPathIsSep buffer[(- out 1)]) false)
+          while && (> out 0) (== (__zero_std_path_is_sep buffer[(- out 1)]) false)
             set out - out 1
           set read + read 2
           set wrote_sep > out 0
@@ -115,8 +115,8 @@ fn zeroStdPathNormalize Maybe<String> buffer MutSpan<u8> path String
     set out - out 1
   ret buffer[..out]
 
-fn zeroStdPathRelative Maybe<String> buffer MutSpan<u8> base String target String
-  let base_end usize zeroStdPathTrimEnd base
+fn __zero_std_path_relative Maybe<String> buffer MutSpan<u8> base String target String
+  let base_end usize __zero_std_path_trim_end base
   let target_len usize std.mem.len target
   mut index usize 0
   mut same Bool true
@@ -130,7 +130,7 @@ fn zeroStdPathRelative Maybe<String> buffer MutSpan<u8> base String target Strin
   if && same (== base_end target_len)
     ret buffer[..0]
   if && same (< base_end target_len)
-    if zeroStdPathIsSep target[base_end]
+    if __zero_std_path_is_sep target[base_end]
       mut out usize 0
       mut read usize + base_end 1
       let rel_len usize - target_len read
@@ -141,4 +141,4 @@ fn zeroStdPathRelative Maybe<String> buffer MutSpan<u8> base String target Strin
         set out + out 1
         set read + read 1
       ret buffer[..out]
-  ret zeroStdPathCopy buffer target
+  ret __zero_std_path_copy buffer target

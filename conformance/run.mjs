@@ -312,6 +312,7 @@ for (const fixture of [
   "conformance/native/pass/std-fs-polish.0",
   "conformance/native/pass/std-fs-breadth.0",
   "conformance/native/pass/std-path-io-breadth.0",
+  "conformance/native/pass/std-path-helper-name-collision.0",
   "conformance/native/pass/std-net-http-breadth.0",
   "conformance/native/pass/std-http-metadata-neutral.0",
   "conformance/native/pass/std-http-fetch.0",
@@ -2972,6 +2973,7 @@ for (const runtimeFixture of [
   ["conformance/native/pass/indexing-primitives.0", "indexing-primitives", { stdout: "indexing primitives ok\n" }],
   ["conformance/native/pass/range-slices.0", "range-slices", { stdout: "range slices ok\n" }],
   ["conformance/native/pass/byte-view-call-single-eval.0", "byte-view-call-single-eval", { stdout: "byte view call single eval ok\n" }],
+  ["conformance/native/pass/std-path-helper-name-collision.0", "std-path-helper-name-collision", { stdout: "std path helper collision ok\n" }],
   ["conformance/native/pass/byte-view-params.0", "byte-view-params", { stdout: "byte view params ok\n" }],
   ["conformance/native/pass/bool-arrays.0", "bool-arrays", { stdout: "bool arrays ok\n" }],
   ["conformance/native/pass/generic-spans.0", "generic-spans", { stdout: "generic spans ok\n" }],
@@ -3019,6 +3021,10 @@ assert.match(unknownField.stderr, /FLD001/);
 const wrongReturnType = await execFileAsync(zero, ["check", "conformance/native/fail/bad-return.0"]).catch((error) => error);
 assert.notEqual(wrongReturnType.code, 0);
 assert.match(wrongReturnType.stderr, /TYP003/);
+
+const maybeRawScalarReturn = await execFileAsync(zero, ["check", "conformance/native/fail/maybe-raw-scalar-return.0"]).catch((error) => error);
+assert.notEqual(maybeRawScalarReturn.code, 0);
+assert.match(maybeRawScalarReturn.stderr, /TYP003/);
 
 const immutableAssignment = await execFileAsync(zero, ["check", "conformance/native/fail/immutable-assignment.0"]).catch((error) => error);
 assert.notEqual(immutableAssignment.code, 0);

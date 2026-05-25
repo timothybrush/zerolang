@@ -5111,6 +5111,16 @@ static bool type_core_readable_byte_span_like(const ZTypeArena *arena, ZTypeId t
          type_core_is_byte_apply(arena, type, "MutSpan");
 }
 
+static bool type_core_byte_view_abi_like(const ZTypeArena *arena, ZTypeId type) {
+  if (type_core_readable_byte_span_like(arena, type)) return true;
+  if (z_type_kind(arena, type) == Z_TYPE_NODE_NAME) return strcmp(z_type_name(arena, type) ? z_type_name(arena, type) : "", "ByteBuf") == 0;
+  if (!type_core_apply_is(arena, type, "owned")) return false;
+  ZTypeId inner = type_core_single_type_arg(arena, type);
+  return inner != Z_TYPE_ID_INVALID &&
+         z_type_kind(arena, inner) == Z_TYPE_NODE_NAME &&
+         strcmp(z_type_name(arena, inner) ? z_type_name(arena, inner) : "", "ByteBuf") == 0;
+}
+
 static bool type_core_types_compatible_inner(const Program *program, Scope *scope, ZTypeArena *arena, ZTypeId expected, ZTypeId actual, size_t depth) {
   if (depth > 64) return false;
   if (z_type_equal(arena, expected, actual)) return true;
@@ -5133,6 +5143,8 @@ static bool type_core_types_compatible_inner(const Program *program, Scope *scop
       !type_core_apply_is(arena, actual, "Maybe")) {
     ZTypeId expected_inner = type_core_single_type_arg(arena, expected);
     return expected_inner != Z_TYPE_ID_INVALID &&
+           type_core_byte_view_abi_like(arena, expected_inner) &&
+           type_core_byte_view_abi_like(arena, actual) &&
            type_core_types_compatible_inner(program, scope, arena, expected_inner, actual, depth + 1);
   }
 
