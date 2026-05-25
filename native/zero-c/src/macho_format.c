@@ -4,6 +4,8 @@
 
 static const uint32_t MACHO_CPU_TYPE_ARM64 = 0x0100000c;
 static const uint32_t MACHO_CPU_SUBTYPE_ARM64_ALL = 0;
+static const uint32_t MACHO_CPU_TYPE_X86_64 = 0x01000007;
+static const uint32_t MACHO_CPU_SUBTYPE_X86_64_ALL = 3;
 static const uint32_t MACHO_MAGIC_64 = 0xfeedfacf;
 static const uint32_t MACHO_LC_SEGMENT_64 = 0x19;
 static const uint32_t MACHO_LC_SYMTAB = 0x2;
@@ -105,10 +107,18 @@ static void macho_append_segment64(ZBuf *out, const char *segname, uint64_t vmad
   z_macho_append_u32(out, flags);
 }
 
-static void macho_append_header64(ZBuf *out, uint32_t filetype, uint32_t ncmds, uint32_t sizeofcmds, uint32_t flags) {
+static uint32_t macho_cpu_type(ZMachOCpu cpu) {
+  return cpu == Z_MACHO_CPU_X86_64 ? MACHO_CPU_TYPE_X86_64 : MACHO_CPU_TYPE_ARM64;
+}
+
+static uint32_t macho_cpu_subtype(ZMachOCpu cpu) {
+  return cpu == Z_MACHO_CPU_X86_64 ? MACHO_CPU_SUBTYPE_X86_64_ALL : MACHO_CPU_SUBTYPE_ARM64_ALL;
+}
+
+static void macho_append_header64(ZBuf *out, ZMachOCpu cpu, uint32_t filetype, uint32_t ncmds, uint32_t sizeofcmds, uint32_t flags) {
   z_macho_append_u32(out, MACHO_MAGIC_64);
-  z_macho_append_u32(out, MACHO_CPU_TYPE_ARM64);
-  z_macho_append_u32(out, MACHO_CPU_SUBTYPE_ARM64_ALL);
+  z_macho_append_u32(out, macho_cpu_type(cpu));
+  z_macho_append_u32(out, macho_cpu_subtype(cpu));
   z_macho_append_u32(out, filetype);
   z_macho_append_u32(out, ncmds);
   z_macho_append_u32(out, sizeofcmds);
@@ -145,7 +155,8 @@ void z_macho_write_object64(ZBuf *out, const ZMachOObjectImage *image) {
   uint32_t stroff = symoff + nsyms * 16;
 
   zbuf_init(out);
-  macho_append_header64(out, 1, 2, sizeofcmds, 0);
+  ZMachOCpu cpu = image ? image->cpu : Z_MACHO_CPU_ARM64;
+  macho_append_header64(out, cpu, 1, 2, sizeofcmds, 0);
   macho_append_segment64(out, "", 0, segment_file_size, text_offset, segment_file_size, 7, 5, section_count, 0);
   macho_append_section64(out, "__text", "__TEXT", 0, text->len, text_offset, 2, reloff, image ? image->text_reloc_count : 0, 0x80000400u);
   if (has_rodata) macho_append_section64(out, "__const", "__DATA", const_addr, rodata->len, text_offset + const_addr, 3, 0, 0, 0);
@@ -427,7 +438,7 @@ void z_macho_write_executable64(ZBuf *out, const ZMachOExecutableImage *image) {
   local.code_signature_id = identifier;
 
   zbuf_init(out);
-  macho_append_header64(out, 2, 10, local.layout.sizeofcmds, 0x200085);
+  macho_append_header64(out, local.cpu, 2, 10, local.layout.sizeofcmds, 0x200085);
   size_t uuid_offset = 0;
   macho_append_executable_load_commands(out, &local, &uuid_offset);
   z_macho_pad_to(out, local.layout.text_offset);

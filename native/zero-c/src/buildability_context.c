@@ -140,6 +140,7 @@ static const char *build_expected_for_backend(ZDirectBackend backend, bool execu
     case Z_DIRECT_BACKEND_ELF64: return executable ? "direct ELF64 executable buildability subset" : "direct ELF64 object buildability subset";
     case Z_DIRECT_BACKEND_ELF_AARCH64: return executable ? "direct AArch64 ELF executable MVP subset" : "direct AArch64 ELF object MVP subset";
     case Z_DIRECT_BACKEND_MACHO64: return executable ? "direct AArch64 Mach-O executable buildability subset" : "direct AArch64 Mach-O object buildability subset";
+    case Z_DIRECT_BACKEND_MACHO_X64: return executable ? "direct x86_64 Mach-O executable buildability subset" : "direct x86_64 Mach-O object buildability subset";
     case Z_DIRECT_BACKEND_COFF_X64: return executable ? "direct COFF x64 executable buildability subset" : "direct COFF x64 object buildability subset";
     default: return "direct backend buildability subset";
   }
@@ -151,6 +152,8 @@ static const char *build_help_for_backend(ZDirectBackend backend) {
       return "choose a supported direct target or restrict this program to exported functions returning small integer literals";
     case Z_DIRECT_BACKEND_COFF_X64:
       return "reduce the program to primitive direct-backend constructs or choose a supported direct target";
+    case Z_DIRECT_BACKEND_MACHO_X64:
+      return "choose a supported direct target or reduce the program to x86_64 Mach-O supported direct-backend constructs";
     case Z_DIRECT_BACKEND_MACHO64:
       return "choose a supported direct target or reduce the program to Mach-O supported direct-backend constructs";
     default:

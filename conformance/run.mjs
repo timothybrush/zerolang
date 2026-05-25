@@ -2374,6 +2374,7 @@ const linuxMuslTarget = targetsBody.targets.find((item) => item.name === "linux-
 const windowsMsvcTarget = targetsBody.targets.find((item) => item.aliases.includes("x86_64-windows-msvc"));
 const linuxGnuTarget = targetsBody.targets.find((item) => item.name === "linux-x64");
 const darwinArm64Target = targetsBody.targets.find((item) => item.name === "darwin-arm64");
+const darwinX64Target = targetsBody.targets.find((item) => item.name === "darwin-x64");
 const linuxArm64Target = targetsBody.targets.find((item) => item.name === "linux-arm64");
 assert(linuxMuslTarget.capabilityFacts.some((item) => item.name === "fs" && item.available === true));
 assert.equal(linuxMuslTarget.abi, "musl");
@@ -2400,6 +2401,9 @@ assert.equal(linuxGnuTarget.directBackend.objectEmitter, "zero-elf64");
 assert.equal(darwinArm64Target.directBackend.objectEmitter, "zero-macho64");
 assert.equal(darwinArm64Target.directBackend.exeSupported, true);
 assert.equal(darwinArm64Target.directBackend.exeEmitter, "zero-macho64-exe");
+assert.equal(darwinX64Target.directBackend.objectEmitter, "zero-macho-x64");
+assert.equal(darwinX64Target.directBackend.exeSupported, true);
+assert.equal(darwinX64Target.directBackend.exeEmitter, "zero-macho-x64-exe");
 assert.equal(darwinArm64Target.httpRuntime.provider, targetsBody.host === "darwin-arm64" ? "curl" : null);
 assert.equal(darwinArm64Target.httpRuntime.tlsVerification, targetsBody.host === "darwin-arm64");
 if (targetsBody.host === "darwin-arm64") {

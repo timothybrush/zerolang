@@ -842,6 +842,26 @@ node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/
 test ! -f .zero/native-test/direct-hello-darwin.o.c
 grep -q '"path":"direct-macho64-object"' .zero/native-test/direct-hello-darwin.json
 grep -q '"generatedCBytes": 0' .zero/native-test/direct-hello-darwin.json
+rm -f .zero/native-test/direct-hello-darwin-x64.o .zero/native-test/direct-hello-darwin-x64.o.c .zero/native-test/direct-hello-darwin-x64 .zero/native-test/direct-hello-darwin-x64.c
+bin/zero build --json --emit obj --target darwin-x64 examples/hello.0 --out .zero/native-test/direct-hello-darwin-x64.o > .zero/native-test/direct-hello-darwin-x64-obj.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/direct-hello-darwin-x64-obj.json","utf8")); const b=fs.readFileSync(".zero/native-test/direct-hello-darwin-x64.o"); const section=32+72; const reloff=b.readUInt32LE(section+56); const nreloc=b.readUInt32LE(section+60); const types=[]; for (let i=0;i<nreloc;i++) types.push((b.readUInt32LE(reloff+i*8+4)>>>28)&15); if (report.compiler!=="zero-macho-x64" || report.objectBackend.objectEmission.path!=="direct-macho-x64-object" || report.objectBackend.objectEmission.symbolCount!==3 || report.objectBackend.directFacts.runtimeHelperCount!==1 || b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x01000007 || b.readUInt32LE(8)!==3 || b.readUInt32LE(12)!==1 || reloff===0 || !types.includes(1) || !types.includes(2) || !b.includes(Buffer.from("hello from zero")) || !b.includes(Buffer.from("_zero_world_write"))) process.exit(1);'
+test ! -f .zero/native-test/direct-hello-darwin-x64.o.c
+bin/zero build --json --emit exe --target darwin-x64 examples/hello.0 --out .zero/native-test/direct-hello-darwin-x64 > .zero/native-test/direct-hello-darwin-x64-exe.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/direct-hello-darwin-x64-exe.json","utf8")); const b=fs.readFileSync(".zero/native-test/direct-hello-darwin-x64"); if (report.compiler!=="zero-macho-x64" || report.objectBackend.objectEmission.path!=="direct-macho-x64-exe" || b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x01000007 || b.readUInt32LE(8)!==3 || b.readUInt32LE(12)!==2 || !b.includes(Buffer.from("hello from zero")) || !b.includes(Buffer.from("zero-direct-x64"))) process.exit(1);'
+test ! -f .zero/native-test/direct-hello-darwin-x64.c
+rm -f .zero/native-test/direct-unhandled-error-darwin-x64 .zero/native-test/direct-unhandled-error-darwin-x64.c
+bin/zero build --json --emit exe --target darwin-x64 examples/direct-unhandled-error-exit.0 --out .zero/native-test/direct-unhandled-error-darwin-x64 > .zero/native-test/direct-unhandled-error-darwin-x64.json
+node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(".zero/native-test/direct-unhandled-error-darwin-x64.json","utf8")); const b=fs.readFileSync(".zero/native-test/direct-unhandled-error-darwin-x64"); if (report.compiler!=="zero-macho-x64" || report.generatedCBytes!==0 || report.objectBackend.objectEmission.path!=="direct-macho-x64-exe" || b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x01000007 || b.readUInt32LE(8)!==3 || b.readUInt32LE(12)!==2 || !b.includes(Buffer.from("zero-direct-x64"))) process.exit(1);'
+test ! -f .zero/native-test/direct-unhandled-error-darwin-x64.c
+if [ "$(uname -s)" = "Darwin" ] && command -v arch >/dev/null 2>&1 && arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+  direct_hello_darwin_x64_output="$(arch -x86_64 .zero/native-test/direct-hello-darwin-x64)"
+  test "$direct_hello_darwin_x64_output" = "hello from zero"
+  set +e
+  arch -x86_64 .zero/native-test/direct-unhandled-error-darwin-x64
+  direct_unhandled_error_darwin_x64_rc=$?
+  set -e
+  test "$direct_unhandled_error_darwin_x64_rc" -eq 1
+fi
 rm -f .zero/native-test/direct-std-args-darwin.o .zero/native-test/direct-std-args-darwin.o.c .zero/native-test/direct-std-args-darwin-linked .zero/native-test/direct-std-args-darwin-runtime.c .zero/native-test/direct-std-args-darwin-link.0 .zero/native-test/direct-std-args-darwin-link.o .zero/native-test/direct-std-args-darwin-link.json
 bin/zero build --json --emit obj --target darwin-arm64 conformance/native/pass/std-args.0 --out .zero/native-test/direct-std-args-darwin.o > .zero/native-test/direct-std-args-darwin.json
 node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-std-args-darwin.o"); const save=Buffer.from([0xf4,0x57,0xbf,0xa9]); const seed=Buffer.from([0xf4,0x03,0x00,0xaa,0xf5,0x03,0x01,0xaa]); const restore=Buffer.from([0xf4,0x57,0xc1,0xa8]); if (b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(4)!==0x0100000c || !b.includes(save) || !b.includes(seed) || !b.includes(restore)) process.exit(1);'

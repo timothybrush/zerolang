@@ -35,12 +35,14 @@ function readFlag(name: string) {
 
 function canRunTarget(targetName: string) {
   return (targetName === "linux-musl-x64" && process.platform === "linux" && process.arch === "x64") ||
-    (targetName === "darwin-arm64" && process.platform === "darwin" && process.arch === "arm64");
+    (targetName === "darwin-arm64" && process.platform === "darwin" && process.arch === "arm64") ||
+    (targetName === "darwin-x64" && process.platform === "darwin" && (process.arch === "x64" || spawnSync("arch", ["-x86_64", "/usr/bin/true"]).status === 0));
 }
 
 function expectedObjectEmissionPath(targetName: string) {
   if (targetName === "linux-musl-x64") return "direct-elf64-exe";
   if (targetName === "darwin-arm64") return "direct-macho64-exe";
+  if (targetName === "darwin-x64") return "direct-macho-x64-exe";
   fail(`unsupported Rosetta target: ${targetName}`);
 }
 

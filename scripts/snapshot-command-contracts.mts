@@ -1011,6 +1011,56 @@ const directMachOExeUuid = assertMachOLoadCommand(directMachOExeBytes, 0x1b, 24)
 assert(!directMachOExeUuid.subarray(8, 24).every((byte) => byte === 0));
 assert(directMachOExeBytes.includes(Buffer.from("/usr/lib/dyld")));
 assert(directMachOExeBytes.includes(Buffer.from("zero-direct")));
+const directMachOX64ExePath = join(outDir, "direct-macho-x64-hello");
+rmSync(directMachOX64ExePath, { force: true });
+const directMachOX64ExeReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-x64", "examples/hello.0", "--out", directMachOX64ExePath]).body;
+const directMachOX64ExeBytes = readFileSync(directMachOX64ExePath);
+assert.equal(directMachOX64ExeReport.emit, "exe");
+assert.equal(directMachOX64ExeReport.compiler, "zero-macho-x64");
+assert.equal(directMachOX64ExeReport.generatedCBytes, 0);
+assert.equal(directMachOX64ExeReport.objectBackend.objectEmission.path, "direct-macho-x64-exe");
+assert.equal(directMachOX64ExeReport.objectBackend.targetFacts.status, "native-exe");
+assertReleaseTargetContract(directMachOX64ExeReport, {
+  target: "darwin-x64",
+  emit: "exe",
+  objectFormat: "macho",
+  artifactKind: "native-executable",
+  linkerFlavor: "macho64",
+  targetLibcMode: "sysroot",
+});
+repeatBuildHash(["build", "--json", "--emit", "exe", "--target", "darwin-x64", "examples/hello.0", "--out", directMachOX64ExePath], directMachOX64ExePath, `${directMachOX64ExePath}.repeat`);
+assert.equal(directMachOX64ExeBytes.readUInt32LE(0), 0xfeedfacf);
+assert.equal(directMachOX64ExeBytes.readUInt32LE(4), 0x01000007);
+assert.equal(directMachOX64ExeBytes.readUInt32LE(8), 3);
+assert.equal(directMachOX64ExeBytes.readUInt32LE(12), 2);
+const directMachOX64ExeUuid = assertMachOLoadCommand(directMachOX64ExeBytes, 0x1b, 24);
+assert(!directMachOX64ExeUuid.subarray(8, 24).every((byte) => byte === 0));
+assert(directMachOX64ExeBytes.includes(Buffer.from("/usr/lib/dyld")));
+assert(directMachOX64ExeBytes.includes(Buffer.from("zero-direct-x64")));
+assert(directMachOX64ExeBytes.includes(Buffer.from("hello from zero")));
+const directMachOX64UnhandledPath = join(outDir, "direct-macho-x64-unhandled-error");
+rmSync(directMachOX64UnhandledPath, { force: true });
+const directMachOX64UnhandledReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-x64", "examples/direct-unhandled-error-exit.0", "--out", directMachOX64UnhandledPath]).body;
+const directMachOX64UnhandledBytes = readFileSync(directMachOX64UnhandledPath);
+assert.equal(directMachOX64UnhandledReport.emit, "exe");
+assert.equal(directMachOX64UnhandledReport.compiler, "zero-macho-x64");
+assert.equal(directMachOX64UnhandledReport.generatedCBytes, 0);
+assert.equal(directMachOX64UnhandledReport.objectBackend.objectEmission.path, "direct-macho-x64-exe");
+assert.equal(directMachOX64UnhandledReport.objectBackend.directFacts.runtimeHelperCount, 0);
+assertReleaseTargetContract(directMachOX64UnhandledReport, {
+  target: "darwin-x64",
+  emit: "exe",
+  objectFormat: "macho",
+  artifactKind: "native-executable",
+  linkerFlavor: "macho64",
+  targetLibcMode: "sysroot",
+});
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(0), 0xfeedfacf);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(4), 0x01000007);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(8), 3);
+assert.equal(directMachOX64UnhandledBytes.readUInt32LE(12), 2);
+assert(directMachOX64UnhandledBytes.includes(Buffer.from("/usr/lib/dyld")));
+assert(directMachOX64UnhandledBytes.includes(Buffer.from("zero-direct-x64")));
 const directMachOU8ExePath = join(outDir, "direct-macho-u8-return");
 rmSync(directMachOU8ExePath, { force: true });
 const directMachOU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "darwin-arm64", "examples/direct-string-literal.0", "--out", directMachOU8ExePath]).body;
@@ -1207,6 +1257,35 @@ for (let i = 0; i < directMachOWorldRelocCount; i++) {
   sawMachOWorldBranchReloc ||= ((info >>> 28) & 15) === 2;
 }
 assert.equal(sawMachOWorldBranchReloc, true);
+const directMachOX64WorldPath = join(outDir, "direct-darwin-x64-world.o");
+rmSync(directMachOX64WorldPath, { force: true });
+const directMachOX64WorldReport = json(["build", "--json", "--emit", "obj", "--target", "darwin-x64", "examples/hello.0", "--out", directMachOX64WorldPath]).body;
+const directMachOX64WorldBytes = readFileSync(directMachOX64WorldPath);
+assert.equal(directMachOX64WorldReport.compiler, "zero-macho-x64");
+assert.equal(directMachOX64WorldReport.generatedCBytes, 0);
+assert.equal(directMachOX64WorldReport.objectBackend.objectEmission.path, "direct-macho-x64-object");
+assert.equal(directMachOX64WorldReport.objectBackend.objectEmission.symbolCount, 3);
+assert.equal(directMachOX64WorldReport.objectBackend.directFacts.runtimeHelperCount, 1);
+assert.equal(directMachOX64WorldBytes.readUInt32LE(0), 0xfeedfacf);
+assert.equal(directMachOX64WorldBytes.readUInt32LE(4), 0x01000007);
+assert.equal(directMachOX64WorldBytes.readUInt32LE(8), 3);
+assert.equal(directMachOX64WorldBytes.readUInt32LE(12), 1);
+assert(directMachOX64WorldBytes.includes(Buffer.from("hello from zero")));
+assert(directMachOX64WorldBytes.includes(Buffer.from("_zero_world_write")));
+const directMachOX64WorldSection = 32 + 72;
+const directMachOX64WorldRelocOffset = directMachOX64WorldBytes.readUInt32LE(directMachOX64WorldSection + 56);
+const directMachOX64WorldRelocCount = directMachOX64WorldBytes.readUInt32LE(directMachOX64WorldSection + 60);
+assert(directMachOX64WorldRelocOffset > 0);
+assert(directMachOX64WorldRelocCount >= 2);
+let sawMachOX64SignedReloc = false;
+let sawMachOX64BranchReloc = false;
+for (let i = 0; i < directMachOX64WorldRelocCount; i++) {
+  const info = directMachOX64WorldBytes.readUInt32LE(directMachOX64WorldRelocOffset + i * 8 + 4);
+  sawMachOX64SignedReloc ||= ((info >>> 28) & 15) === 1;
+  sawMachOX64BranchReloc ||= ((info >>> 28) & 15) === 2;
+}
+assert.equal(sawMachOX64SignedReloc, true);
+assert.equal(sawMachOX64BranchReloc, true);
 const directCoffPath = join(outDir, "direct-win-x64.obj");
 rmSync(directCoffPath, { force: true });
 const directCoffReport = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", "examples/direct-call-add.0", "--out", directCoffPath]).body;
@@ -1631,6 +1710,7 @@ assert(targets.targets.some((target) => target.hosted === false && !target.capab
 const linuxGnuTarget = targets.targets.find((target) => target.name === "linux-x64");
 const linuxMuslTarget = targets.targets.find((target) => target.name === "linux-musl-x64");
 const darwinArm64Target = targets.targets.find((target) => target.name === "darwin-arm64");
+const darwinX64Target = targets.targets.find((target) => target.name === "darwin-x64");
 const winX64Target = targets.targets.find((target) => target.name === "win32-x64.exe");
 const linuxArm64Target = targets.targets.find((target) => target.name === "linux-arm64");
 assert.equal(linuxMuslTarget.directBackend.exeSupported, true);
@@ -1641,6 +1721,9 @@ assert.equal(linuxGnuTarget.directBackend.exeEmitter, "zero-elf64-exe");
 assert.equal(darwinArm64Target.directBackend.objectEmitter, "zero-macho64");
 assert.equal(darwinArm64Target.directBackend.exeSupported, true);
 assert.equal(darwinArm64Target.directBackend.exeEmitter, "zero-macho64-exe");
+assert.equal(darwinX64Target.directBackend.objectEmitter, "zero-macho-x64");
+assert.equal(darwinX64Target.directBackend.exeSupported, true);
+assert.equal(darwinX64Target.directBackend.exeEmitter, "zero-macho-x64-exe");
 assert.equal(winX64Target.directBackend.objectEmitter, "zero-coff-x64");
 assert.equal(winX64Target.directBackend.objectSupported, true);
 assert.equal(winX64Target.directBackend.exeSupported, true);

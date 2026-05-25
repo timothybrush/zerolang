@@ -15,18 +15,18 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 966, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 970, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9407, maxStrcmpCalls: 279 },
   "native/zero-c/src/main.c": { maxLines: 9876, maxStrcmpCalls: 441 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
-  "native/zero-c/src/buildability.c": { maxLines: 270, maxStrcmpCalls: 2 },
+  "native/zero-c/src/buildability.c": { maxLines: 295, maxStrcmpCalls: 2 },
   "native/zero-c/src/buildability.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_internal.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_context.c": { maxLines: 180, maxStrcmpCalls: 1 },
-  "native/zero-c/src/buildability_targets.c": { maxLines: 155, maxStrcmpCalls: 0 },
+  "native/zero-c/src/buildability_targets.c": { maxLines: 190, maxStrcmpCalls: 0 },
   "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.c": { maxLines: 370, maxStrcmpCalls: 0 },
@@ -44,6 +44,7 @@ const fileBudgets = {
   "native/zero-c/src/aarch64_emit.c": { maxLines: 320, maxStrcmpCalls: 0 },
   "native/zero-c/src/aarch64_emit.h": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_macho64.c": { maxLines: 1520, maxStrcmpCalls: 2 },
+  "native/zero-c/src/emit_macho_x64.c": { maxLines: 1050, maxStrcmpCalls: 1 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_elf64.c": { maxLines: 2090, maxStrcmpCalls: 3 },
@@ -56,7 +57,7 @@ const fileBudgets = {
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 206, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_sig.h": { maxLines: 48, maxStrcmpCalls: 0 },
-  "native/zero-c/src/target_backend.c": { maxLines: 348, maxStrcmpCalls: 32 },
+  "native/zero-c/src/target_backend.c": { maxLines: 355, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
@@ -872,7 +873,8 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
   }
   if (!backendFormats.x64.sharedEncodingPrimitives ||
       !backendFormats.x64.elfUsesSharedEncodingPrimitives ||
-      !backendFormats.x64.coffUsesSharedEncodingPrimitives) {
+      !backendFormats.x64.coffUsesSharedEncodingPrimitives ||
+      !backendFormats.x64.machoUsesSharedEncodingPrimitives) {
     violations.push({
       kind: "x64-encoding-primitives-split",
       x64: backendFormats.x64,
@@ -1045,6 +1047,7 @@ const elfX64Source = cCodeText(texts.get("native/zero-c/src/emit_elf64.c") ?? ""
 const elfAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_elf_aarch64.c") ?? "");
 const coffX64Source = cCodeText(texts.get("native/zero-c/src/emit_coff.c") ?? "");
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
+const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
 const rawX64RegisterImmediateC7 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc7\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc[0-7]\s*\)\s*;\s*\bz_x64_append_u32\s*\(/is;
 const rawX64RegisterImmediateHelperPrefix = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*\bz_x64_emit_mov_eax_u32\s*\(/is;
@@ -1160,10 +1163,13 @@ const backendFormats = {
   },
   macho: {
     sharedWriter: /\bz_macho_write_object64\s*\(/.test(machoFormatSource) && /\bz_macho_write_executable64\s*\(/.test(machoFormatSource),
-    objectUsesSharedWriter: /\bz_macho_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoArm64Source),
-    executableUsesSharedWriter: /\bz_macho_write_executable64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoArm64Source),
+    objectUsesSharedWriter: /\bz_macho_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoArm64Source) &&
+      /\bz_macho_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoX64Source),
+    executableUsesSharedWriter: /\bz_macho_write_executable64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoArm64Source) &&
+      /\bz_macho_write_executable64\s*\(\s*out\s*,\s*&image\s*\)/.test(machoX64Source),
     archFilesWithLocalContainerWriters: [
       ["native/zero-c/src/emit_macho64.c", machoArm64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => /\bappend_fixed\s*\(|\bmacho_append_code_signature\s*\(|\bmacho_sha256_hash\s*\(|\bpatch_bytes\s*\(|0xfeedfacf|0x80000022/.test(text))
       .map(([path]) => path),
@@ -1172,9 +1178,15 @@ const backendFormats = {
       /\bz_macho_append_runtime_relocations\s*\(/.test(machoEmitStateSource),
     archFileUsesPatchStateModule: /\bz_macho_record_value_runtime_patch\s*\(/.test(machoArm64Source) &&
       /\bz_macho_append_runtime_relocations\s*\(/.test(machoArm64Source) &&
-      /\bz_macho_has_unsupported_exe_runtime_patches\s*\(/.test(machoArm64Source),
+      /\bz_macho_has_unsupported_exe_runtime_patches\s*\(/.test(machoArm64Source) &&
+      /\bz_macho_record_call_patch\s*\(/.test(machoX64Source) &&
+      /\bz_macho_record_data_patch\s*\(/.test(machoX64Source) &&
+      /\bz_macho_record_instr_runtime_patch\s*\(/.test(machoX64Source) &&
+      /\bz_macho_append_runtime_relocations\s*\(/.test(machoX64Source) &&
+      /\bz_macho_has_unsupported_exe_runtime_patches\s*\(/.test(machoX64Source),
     archFilesWithLocalPatchState: [
       ["native/zero-c/src/emit_macho64.c", machoArm64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => /\bMachO(?:WorldWrite|Runtime)[A-Za-z]*Patch\b|(?:\.|->)(?:world_write_patch_len|runtime_[A-Za-z0-9_]+_patch_len|world_write_patches|runtime_[A-Za-z0-9_]+_patches)\b|\bstatic\s+bool\s+macho_record_(?:call_patch|data_patch|world_write|runtime_)\b|\bstatic\s+void\s+macho_append_(?:call_relocations|data_relocations|world_write|runtime_)\b/.test(text))
       .map(([path]) => path),
@@ -1399,45 +1411,71 @@ const backendFormats = {
       /\bz_x64_emit_call32_placeholder\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_call_rip32_placeholder\s*\(/.test(coffX64Source) &&
       /\bz_x64_patch_rel32\s*\(/.test(coffX64Source),
+    machoUsesSharedEncodingPrimitives: /\bz_x64_append_u8\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_rbp_disp_reg\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_jmp32_placeholder\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_prologue\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_epilogue\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_mov_eax_u32\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_mov_reg_u32\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_add_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_sub_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_imul_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_and_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_or_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_div_rax_rcx\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_call32_placeholder\s*\(/.test(machoX64Source) &&
+      /\bz_x64_emit_syscall\s*\(/.test(machoX64Source) &&
+      /\bz_x64_patch_rel32\s*\(/.test(machoX64Source),
     formatFilesWithLocalEncodingPrimitives: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => /\bstatic\s+(?:void|size_t)\s+(?:z_x64_|elf_append_u(?:8|32|64)|elf_append_bytes|elf_append_zeros|elf_align|elf_pad_to|append_u8|append_u32le|append_bytes)\b/.test(text))
       .map(([path]) => path),
     formatFilesWithRawStackRegisterBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x5[0-9a-f]\s*\)/i.test(text))
       .map(([path]) => path),
     formatFilesWithRawRegisterImmediateBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => hasRawX64RegisterImmediateBytes(text))
       .map(([path]) => path),
     formatFilesWithRawArithmeticBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => hasRawX64ArithmeticBytes(text))
       .map(([path]) => path),
     formatFilesWithRawCompareTestBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => hasRawX64CompareTestBytes(text))
       .map(([path]) => path),
     formatFilesWithRawIndexedMemoryBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => hasRawX64IndexedMemoryBytes(text))
       .map(([path]) => path),
     formatFilesWithRawPointerMemoryBytes: [
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
+      ["native/zero-c/src/emit_macho_x64.c", machoX64Source],
     ]
       .filter(([, text]) => hasRawX64PointerMemoryBytes(text))
       .map(([path]) => path),

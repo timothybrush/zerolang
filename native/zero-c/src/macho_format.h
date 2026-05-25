@@ -13,7 +13,13 @@ typedef struct {
   uint64_t value;
 } ZMachOSymbol;
 
+typedef enum {
+  Z_MACHO_CPU_ARM64,
+  Z_MACHO_CPU_X86_64
+} ZMachOCpu;
+
 typedef struct {
+  ZMachOCpu cpu;
   const ZBuf *text;
   const ZBuf *rodata;
   const ZBuf *relocs;
@@ -51,6 +57,7 @@ typedef struct {
 } ZMachOExecutableLayout;
 
 typedef struct {
+  ZMachOCpu cpu;
   const ZBuf *text;
   const ZBuf *rodata;
   const ZBuf *rebase;

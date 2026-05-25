@@ -8497,7 +8497,7 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
 }
 
 static void append_release_matrix_target_support_json(ZBuf *buf) {
-  const char *targets[] = {"linux-musl-x64", "linux-arm64", "darwin-arm64", "win32-x64.exe", NULL};
+  const char *targets[] = {"linux-musl-x64", "linux-arm64", "darwin-arm64", "darwin-x64", "win32-x64.exe", NULL};
   zbuf_append(buf, "[");
   for (size_t i = 0; targets[i]; i++) {
     if (i > 0) zbuf_append(buf, ",");
