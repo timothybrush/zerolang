@@ -183,12 +183,14 @@ static void print_diag(const char *path, const ZDiag *diag) {
 static void append_json_string(ZBuf *buf, const char *value) {
   zbuf_append_char(buf, '"');
   for (const char *cursor = value ? value : ""; *cursor; cursor++) {
-    if (*cursor == '"') zbuf_append(buf, "\\\"");
-    else if (*cursor == '\\') zbuf_append(buf, "\\\\");
-    else if (*cursor == '\n') zbuf_append(buf, "\\n");
-    else if (*cursor == '\r') zbuf_append(buf, "\\r");
-    else if (*cursor == '\t') zbuf_append(buf, "\\t");
-    else zbuf_append_char(buf, *cursor);
+    unsigned char ch = (unsigned char)*cursor;
+    if (ch == '"') zbuf_append(buf, "\\\"");
+    else if (ch == '\\') zbuf_append(buf, "\\\\");
+    else if (ch == '\n') zbuf_append(buf, "\\n");
+    else if (ch == '\r') zbuf_append(buf, "\\r");
+    else if (ch == '\t') zbuf_append(buf, "\\t");
+    else if (ch < 0x20) zbuf_appendf(buf, "\\u%04x", (unsigned)ch);
+    else zbuf_append_char(buf, (char)ch);
   }
   zbuf_append_char(buf, '"');
 }
@@ -199,6 +201,11 @@ static void append_json_string_or_null(ZBuf *buf, const char *value) {
   } else {
     zbuf_append(buf, "null");
   }
+}
+
+static void append_json_nullable_string(ZBuf *buf, const char *value) {
+  if (value) append_json_string(buf, value);
+  else zbuf_append(buf, "null");
 }
 
 static void print_json_string(const char *value) {
@@ -9158,9 +9165,9 @@ static void append_graph_patch_diagnostic_json(ZBuf *buf, const ZProgramGraphPat
   zbuf_append(buf, ", \"message\": ");
   append_json_string(buf, result ? result->message : "program graph patch failed");
   zbuf_append(buf, ", \"expected\": ");
-  append_json_string_or_null(buf, result ? result->expected : NULL);
+  append_json_nullable_string(buf, result ? result->expected : NULL);
   zbuf_append(buf, ", \"actual\": ");
-  append_json_string_or_null(buf, result ? result->actual : NULL);
+  append_json_nullable_string(buf, result ? result->actual : NULL);
   zbuf_append(buf, "}");
 }
 
@@ -9174,15 +9181,15 @@ static void append_graph_patch_operation_json(ZBuf *buf, const ZProgramGraphPatc
   zbuf_append(buf, ", \"ok\": ");
   zbuf_append(buf, op && op->ok ? "true" : "false");
   zbuf_append(buf, ", \"node\": ");
-  append_json_string_or_null(buf, op ? op->node : NULL);
+  append_json_nullable_string(buf, op ? op->node : NULL);
   zbuf_append(buf, ", \"field\": ");
-  append_json_string_or_null(buf, op ? op->field : NULL);
+  append_json_nullable_string(buf, op ? op->field : NULL);
   zbuf_append(buf, ", \"expected\": ");
-  append_json_string_or_null(buf, op && op->has_expected ? op->expected : NULL);
+  append_json_nullable_string(buf, op && op->has_expected ? op->expected : NULL);
   zbuf_append(buf, ", \"actual\": ");
-  append_json_string_or_null(buf, op ? op->actual : NULL);
+  append_json_nullable_string(buf, op ? op->actual : NULL);
   zbuf_append(buf, ", \"value\": ");
-  append_json_string_or_null(buf, op ? op->value : NULL);
+  append_json_nullable_string(buf, op ? op->value : NULL);
   if (op && !op->ok && op->code[0]) {
     zbuf_append(buf, ", \"code\": ");
     append_json_string(buf, op->code);

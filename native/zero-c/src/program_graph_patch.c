@@ -56,6 +56,13 @@ static void patch_skip_spaces(const char **cursor) {
   while (cursor && *cursor && isspace((unsigned char)**cursor)) (*cursor)++;
 }
 
+static int patch_hex_value(char ch) {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+  if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+  return -1;
+}
+
 static bool patch_parse_quoted(const char **cursor, char **out) {
   patch_skip_spaces(cursor);
   if (!cursor || !*cursor || **cursor != '"') return false;
@@ -63,20 +70,38 @@ static bool patch_parse_quoted(const char **cursor, char **out) {
   ZBuf buf;
   zbuf_init(&buf);
   while (**cursor && **cursor != '"') {
-    char ch = **cursor;
-    if (ch == '\\') {
+    unsigned char ch = (unsigned char)**cursor;
+    if (ch != '\\') {
+      zbuf_append_char(&buf, (char)ch);
       (*cursor)++;
-      if (!**cursor) {
+      continue;
+    }
+    (*cursor)++;
+    switch (**cursor) {
+      case '\\': zbuf_append_char(&buf, '\\'); (*cursor)++; break;
+      case '"': zbuf_append_char(&buf, '"'); (*cursor)++; break;
+      case 'n': zbuf_append_char(&buf, '\n'); (*cursor)++; break;
+      case 'r': zbuf_append_char(&buf, '\r'); (*cursor)++; break;
+      case 't': zbuf_append_char(&buf, '\t'); (*cursor)++; break;
+      case 'u': {
+        if ((*cursor)[1] != '0' || (*cursor)[2] != '0' || !(*cursor)[3] || !(*cursor)[4]) {
+          zbuf_free(&buf);
+          return false;
+        }
+        int high = patch_hex_value((*cursor)[3]);
+        int low = patch_hex_value((*cursor)[4]);
+        if (high < 0 || low < 0) {
+          zbuf_free(&buf);
+          return false;
+        }
+        zbuf_append_char(&buf, (char)((high << 4) | low));
+        *cursor += 5;
+        break;
+      }
+      default:
         zbuf_free(&buf);
         return false;
-      }
-      ch = **cursor;
-      if (ch == 'n') ch = '\n';
-      else if (ch == 'r') ch = '\r';
-      else if (ch == 't') ch = '\t';
     }
-    zbuf_append_char(&buf, ch);
-    (*cursor)++;
   }
   if (**cursor != '"') {
     zbuf_free(&buf);
