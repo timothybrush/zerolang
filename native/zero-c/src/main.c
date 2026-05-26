@@ -2155,6 +2155,7 @@ static void print_check_json_success(const char *path, SourceInput *input, const
   zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"sourceFile\": ");
   append_json_string(&buf, path);
   if (command) append_program_graph_artifact_source_json(&buf, &command->graph_source);
+  bool graph_input = command && z_program_graph_artifact_source_present(&command->graph_source);
   CapabilitySummary caps = program_capabilities(program);
   ZMetaCacheStats meta = z_meta_cache_stats();
   char *manifest = read_optional_file("zero.json");
@@ -2174,11 +2175,14 @@ static void print_check_json_success(const char *path, SourceInput *input, const
   zbuf_append(&buf, ",\n  \"compilerPhases\": ");
   append_compiler_phases_json(&buf, input);
   zbuf_append(&buf, ",\n  \"compilerCaches\": ");
-  append_compiler_caches_json(&buf, input, target, "release");
+  if (graph_input) append_compiler_caches_json_ex(&buf, input, target, "release", "program-graph", command->graph_source.graph_hash);
+  else append_compiler_caches_json(&buf, input, target, "release");
   zbuf_append(&buf, ",\n  \"interfaceFingerprints\": ");
-  append_interface_fingerprints_json(&buf, input, target);
+  if (graph_input) append_interface_fingerprints_json_ex(&buf, input, target, command->graph_source.graph_hash);
+  else append_interface_fingerprints_json(&buf, input, target);
   zbuf_append(&buf, ",\n  \"incrementalInvalidation\": ");
-  append_incremental_invalidations_json(&buf, input, target, "release");
+  if (graph_input) append_incremental_invalidations_json_ex(&buf, input, target, "release", command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
+  else append_incremental_invalidations_json(&buf, input, target, "release");
   zbuf_append(&buf, ",\n  \"selfHostRouting\": ");
   append_self_host_routing_json(&buf, "check", NULL, program, &caps, target);
   zbuf_append(&buf, "\n}\n");
