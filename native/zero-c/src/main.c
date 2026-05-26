@@ -4249,17 +4249,9 @@ static bool resolve_direct_row_source(const char *path, SourceInput *input, ZDia
   return ok;
 }
 
-static char *direct_manifest_path_for_input(const char *input_path) {
-  if (strcmp(input_path, "zero.json") == 0 || has_suffix(input_path, "/zero.json")) return z_strdup(input_path);
-  char *manifest_path = direct_join_path(input_path, "zero.json");
-  if (direct_file_exists(manifest_path)) return manifest_path;
-  free(manifest_path);
-  return NULL;
-}
-
 static bool resolve_direct_row_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
   *handled = false;
-  char *manifest_path = direct_manifest_path_for_input(input_path);
+  char *manifest_path = z_manifest_path_for_input(input_path);
   if (!manifest_path) return false;
   *handled = true;
 
@@ -10098,10 +10090,19 @@ static int run_graph_artifact_roundtrip_command(const Command *command, ZDiag *d
 
 static bool graph_roundtrip_input_is_artifact(const Command *command) {
   if (!command || !command->input || is_row_source_path(command->input)) return false;
-  char *manifest_path = direct_manifest_path_for_input(command->input);
+  char *manifest_path = z_manifest_path_for_input(command->input);
   bool package_input = manifest_path != NULL;
   free(manifest_path);
   return !package_input;
+}
+
+static bool resolve_graph_command_manifest_input(Command *command, ZDiag *diag) {
+  if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !z_program_graph_command_kind_uses_artifact_input(command->kind)) return true;
+  char *artifact_path = NULL;
+  bool handled = false;
+  if (!z_resolve_manifest_graph_artifact_path(command->input, &artifact_path, &handled, diag)) return false;
+  if (handled) command->input = artifact_path;
+  return true;
 }
 
 static void graph_roundtrip_replace_path(char **slot, const char *old_path, const char *new_path) {
@@ -10527,6 +10528,12 @@ int main(int argc, char **argv) {
     snprintf(diag.help, sizeof(diag.help), "rerun with --plan to inspect repairs, --patch to preview edits, or --apply for behavior-preserving edits");
     if (command.json) print_diag_json(command.input, &diag);
     else print_diag(command.input, &diag);
+    return 1;
+  }
+
+  if (!resolve_graph_command_manifest_input(&command, &diag)) {
+    if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
+    else print_diag(diag.path ? diag.path : command.input, &diag);
     return 1;
   }
 

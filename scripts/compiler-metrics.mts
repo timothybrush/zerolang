@@ -15,10 +15,10 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 980, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 981, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9846, maxStrcmpCalls: 279 },
-  "native/zero-c/src/main.c": { maxLines: 11109, maxStrcmpCalls: 462 },
+  "native/zero-c/src/main.c": { maxLines: 11116, maxStrcmpCalls: 462 },
   "native/zero-c/src/ir.c": { maxLines: 3750, maxStrcmpCalls: 226 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -54,12 +54,12 @@ const fileBudgets = {
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 330, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff.c": { maxLines: 1195, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 380, maxStrcmpCalls: 0 },
-  "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
+  "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 33 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph.c": { maxLines: 117, maxStrcmpCalls: 4 },
-  "native/zero-c/src/program_graph_build.c": { maxLines: 50, maxStrcmpCalls: 8 },
-  "native/zero-c/src/program_graph_build.h": { maxLines: 17, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_build.c": { maxLines: 55, maxStrcmpCalls: 8 },
+  "native/zero-c/src/program_graph_build.h": { maxLines: 18, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_compare.c": { maxLines: 445, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_compare.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_format.c": { maxLines: 707, maxStrcmpCalls: 1 },

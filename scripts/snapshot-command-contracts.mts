@@ -339,6 +339,10 @@ const graphArgsDumpPath = join(outDir, "std-args.program-graph");
 const graphArgsRunPath = join(outDir, "std-args.program-graph-run");
 const graphTestDumpPath = join(outDir, "test-blocks.program-graph");
 const graphPackageTestDumpPath = join(outDir, "test-app.program-graph");
+const graphManifestPackageDir = join(outDir, "graph-manifest-package");
+const graphManifestArtifactPath = join(graphManifestPackageDir, "artifacts", "test-app.program-graph");
+const graphManifestBuildPath = join(outDir, "graph-manifest-package-build");
+const graphManifestRunPath = join(outDir, "graph-manifest-package-run");
 const graphSizeNoisePatchPath = join(outDir, "hello.program-graph.size-noise.patch");
 const graphSizeNoisePath = join(outDir, "hello.program-graph.size-noise.program-graph");
 const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
@@ -411,6 +415,9 @@ rmSync(graphArgsDumpPath, { force: true });
 rmSync(graphArgsRunPath, { force: true });
 rmSync(graphTestDumpPath, { force: true });
 rmSync(graphPackageTestDumpPath, { force: true });
+rmSync(graphManifestPackageDir, { force: true, recursive: true });
+rmSync(graphManifestBuildPath, { force: true });
+rmSync(graphManifestRunPath, { force: true });
 rmSync(graphSizeNoisePatchPath, { force: true });
 rmSync(graphSizeNoisePath, { force: true });
 rmSync(graphRoundtripViewPath, { force: true });
@@ -645,6 +652,34 @@ assert.equal(graphPackageExpectedFail.location.sourceFile, "conformance/packages
 assert.equal(graphPackageExpectedFail.location.line, 7);
 assert.equal(graphPackageExpectedFail.failure.sourceFile, "conformance/packages/test-app/src/helper.0");
 assert.equal(graphPackageExpectedFail.failure.line, 8);
+mkdirSync(join(graphManifestPackageDir, "src"), { recursive: true });
+mkdirSync(join(graphManifestPackageDir, "artifacts"), { recursive: true });
+writeFileSync(join(graphManifestPackageDir, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
+writeFileSync(join(graphManifestPackageDir, "zero.json"), `${JSON.stringify({
+  package: { name: "graph-manifest-package", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/test-app.program-graph" } },
+}, null, 2)}\n`);
+assert.equal(zero(["graph", "import", "--out", graphManifestArtifactPath, "conformance/packages/test-app"]).stdout, "");
+assert.equal(zero(["graph", "validate", graphManifestPackageDir]).stdout, "program graph ok\n");
+const graphManifestCheckJson = json(["graph", "check", "--json", graphManifestPackageDir]).body;
+assert.equal(graphManifestCheckJson.ok, true);
+assert.equal(graphManifestCheckJson.artifact, graphManifestArtifactPath);
+assert.equal(graphManifestCheckJson.moduleIdentity, "package:test-app@0.1.0");
+assert.equal(graphManifestCheckJson.check.lowering, "direct-program-graph");
+const graphManifestSizeJson = json(["graph", "size", "--json", "--target", "linux-musl-x64", graphManifestPackageDir]).body;
+assert.equal(graphManifestSizeJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(graphManifestSizeJson.graph.lowering, "direct-program-graph");
+const graphManifestBuildJson = json(["graph", "build", "--json", "--target", "linux-musl-x64", "--out", graphManifestBuildPath, graphManifestPackageDir]).body;
+assert.equal(graphManifestBuildJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(graphManifestBuildJson.graph.lowering, "direct-program-graph");
+assert.equal(zero(["graph", "run", "--out", graphManifestRunPath, graphManifestPackageDir]).stdout, "package tests\n");
+const graphManifestTestJson = json(["graph", "test", "--json", graphManifestPackageDir]).body;
+assert.equal(graphManifestTestJson.ok, true);
+assert.equal(graphManifestTestJson.graph.artifact, graphManifestArtifactPath);
+assert.equal(graphManifestTestJson.testDiscovery.mode, "package-graph");
+const graphManifestMissingJson = json(["graph", "check", "--json", "conformance/packages/test-app"], { allowFailure: true });
+assert.equal(graphManifestMissingJson.code, 1);
+assert.equal(graphManifestMissingJson.body.diagnostics[0].message, "zero.json is missing targets.cli.graph");
 writeFileSync(graphSizeNoisePatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

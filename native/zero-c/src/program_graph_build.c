@@ -6,12 +6,21 @@
 
 #include <string.h>
 
-bool z_program_graph_command_kind_is_known(const char *kind) {
-  static const char *kinds[] = {"dump", "import", "inspect", "validate", "view", "check", "size", "build", "run", "test", "patch", "roundtrip"};
-  for (size_t i = 0; kind && i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+static bool graph_kind_in_list(const char *kind, const char *const *kinds, size_t count) {
+  for (size_t i = 0; kind && i < count; i++) {
     if (strcmp(kind, kinds[i]) == 0) return true;
   }
   return false;
+}
+
+bool z_program_graph_command_kind_is_known(const char *kind) {
+  static const char *const kinds[] = {"dump", "import", "inspect", "validate", "view", "check", "size", "build", "run", "test", "patch", "roundtrip"};
+  return graph_kind_in_list(kind, kinds, sizeof(kinds) / sizeof(kinds[0]));
+}
+
+bool z_program_graph_command_kind_uses_artifact_input(const char *kind) {
+  static const char *const kinds[] = {"validate", "view", "check", "size", "build", "run", "test", "patch"};
+  return graph_kind_in_list(kind, kinds, sizeof(kinds) / sizeof(kinds[0]));
 }
 
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source) {

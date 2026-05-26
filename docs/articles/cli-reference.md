@@ -108,6 +108,10 @@ linking facts such as retained runtime objects, provider libraries, and
 `zero ship --json` nests the same contract under
 `releasePreview.targetContract`.
 
+Graph artifact commands (`validate`, `view`, `check`, `size`, `build`, `run`,
+`test`, and `patch`) also accept a package directory or `zero.json` when
+`targets.cli.graph` points at a saved ProgramGraph artifact.
+
 ## ProgramGraph Patches
 
 `zero graph patch` applies checked edits to a saved ProgramGraph artifact and
@@ -205,9 +209,9 @@ zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--o
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
 zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
-zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>
-zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]
-zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>
+zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package>
+zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact-or-package> [-- args...]
+zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact-or-package>
 zero doc [--json] [--target <target>] <input>
 zero size [--json] [--target <target>] [--out <artifact>] <input>
 zero explain [--json] <diagnostic-code>
