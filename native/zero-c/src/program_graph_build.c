@@ -24,7 +24,7 @@ bool z_program_graph_command_kind_uses_artifact_input(const char *kind) {
 }
 
 bool z_program_graph_direct_command_uses_manifest_input(const char *command) {
-  static const char *const commands[] = {"check", "build", "run", "test", "size"};
+  static const char *const commands[] = {"check", "build", "run", "test", "size", "ship"};
   return graph_kind_in_list(command, commands, sizeof(commands) / sizeof(commands[0]));
 }
 

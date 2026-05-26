@@ -5793,8 +5793,10 @@ static void append_ship_artifact_json(ZBuf *buf, const char *kind, const char *p
 static void print_ship_json(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const ShipArtifacts *artifacts, long long elapsed_ms) {
   ZBuf buf;
   zbuf_init(&buf);
+  bool graph_input = command && z_program_graph_artifact_source_present(&command->graph_source);
   zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"command\": \"ship\",\n  \"sourceFile\": ");
   append_json_string(&buf, input ? input->source_file : "");
+  if (command) append_program_graph_artifact_source_json(&buf, &command->graph_source);
   zbuf_append(&buf, ",\n  \"target\": ");
   append_json_string(&buf, target ? target->name : z_host_target());
   zbuf_append(&buf, ",\n  \"hostTarget\": ");
@@ -5842,13 +5844,15 @@ static void print_ship_json(const Command *command, const SourceInput *input, co
   zbuf_append(&buf, ",\n  \"releaseTargetContract\": ");
   append_release_target_contract_json(&buf, input, target, command, "exe");
   zbuf_append(&buf, ",\n  \"compilerCaches\": ");
-  append_compiler_caches_json(&buf, input, target, command ? command->profile : "release");
+  if (graph_input) append_compiler_caches_json_ex(&buf, input, target, command ? command->profile : "release", "program-graph", command->graph_source.graph_hash);
+  else append_compiler_caches_json(&buf, input, target, command ? command->profile : "release");
   zbuf_append(&buf, ",\n  \"package\": ");
   append_package_metadata_json(&buf, input, target);
   zbuf_append(&buf, ",\n  \"packageCache\": ");
   append_package_cache_audit_json(&buf, input, target, command ? command->profile : "release");
   zbuf_append(&buf, ",\n  \"incrementalInvalidation\": ");
-  append_incremental_invalidations_json(&buf, input, target, command ? command->profile : "release");
+  if (graph_input) append_incremental_invalidations_json_ex(&buf, input, target, command ? command->profile : "release", command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
+  else append_incremental_invalidations_json(&buf, input, target, command ? command->profile : "release");
   zbuf_append(&buf, ",\n  \"objectBackend\": ");
   append_object_backend_json(&buf, input, target, command, "exe");
   CapabilitySummary caps = program_capabilities(program);

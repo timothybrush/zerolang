@@ -111,9 +111,9 @@ linking facts such as retained runtime objects, provider libraries, and
 Graph artifact commands (`validate`, `view`, `check`, `size`, `build`, `run`,
 `test`, and `patch`) also accept a package directory or `zero.json` when
 `targets.cli.graph` points at a saved ProgramGraph artifact.
-The direct `check`, `size`, `build`, `run`, and `test` commands use that graph
-entrypoint for packages that declare it; packages without `targets.cli.graph`
-continue to use `targets.cli.main`.
+The direct `check`, `size`, `build`, `run`, `test`, and `ship` commands use
+that graph entrypoint for packages that declare it; packages without
+`targets.cli.graph` continue to use `targets.cli.main`.
 
 ## ProgramGraph Patches
 
