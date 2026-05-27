@@ -5,6 +5,7 @@
 #include "zero.h"
 #include "buildability.h"
 #include "program_graph_build.h"
+#include "program_graph_command.h"
 #include "program_graph_compare.h"
 #include "program_graph_format.h"
 #include "program_graph_import.h"
@@ -9484,6 +9485,22 @@ static const char *graph_check_diagnostic_path(const Command *command) {
   return command && command->input ? command->input : "<program-graph>";
 }
 
+static int reject_graph_unsupported_out(const Command *command, ZDiag *diag) {
+  ZProgramGraphOutputContract contract = z_program_graph_command_output_contract(command ? command->kind : NULL);
+  diag->code = 2002;
+  diag->path = command && command->input ? command->input : NULL;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "%s", contract.message ? contract.message : "graph command does not support --out");
+  snprintf(diag->expected, sizeof(diag->expected), "%s", contract.expected ? contract.expected : "zero graph <output-capable-subcommand> --out <file> <input>");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", contract.actual ? contract.actual : "zero graph --out");
+  snprintf(diag->help, sizeof(diag->help), "%s", contract.help ? contract.help : "remove --out or choose a graph subcommand that writes an artifact");
+  if (command && command->json) print_diag_json(diag->path ? diag->path : (command->input ? command->input : "<graph>"), diag);
+  else print_diag(diag->path ? diag->path : (command && command->input ? command->input : "<graph>"), diag);
+  return 1;
+}
+
 static void append_graph_check_json(
   ZBuf *buf,
   const Command *command,
@@ -9873,18 +9890,7 @@ static const char *graph_check_phase_name(GraphCheckPhase phase) {
 
 static int run_graph_check_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
   if (command->out) {
-    diag->code = 2002;
-    diag->path = command->input;
-    diag->line = 1;
-    diag->column = 1;
-    diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "graph check does not write generated source views");
-    snprintf(diag->expected, sizeof(diag->expected), "zero graph view --out <file.0> <graph-artifact>");
-    snprintf(diag->actual, sizeof(diag->actual), "zero graph check --out");
-    snprintf(diag->help, sizeof(diag->help), "run zero graph view to render a generated source view, or run zero graph check without --out to typecheck the artifact");
-    if (command->json) print_diag_json(command->input, diag);
-    else print_diag(command->input, diag);
-    return 1;
+    return reject_graph_unsupported_out(command, diag);
   }
 
   ZProgramGraph graph;
@@ -10195,8 +10201,7 @@ static int run_graph_command(const Command *command, SourceInput *input, Program
     return 1;
   }
   if (command->out && !graph_dump && !graph_roundtrip) {
-    fprintf(stderr, "graph --out is only supported with dump, import, or roundtrip\n");
-    return 1;
+    return reject_graph_unsupported_out(command, diag);
   }
   if (graph_roundtrip) return run_graph_roundtrip_command(command, input, program, diag);
   ZBuf graph;
@@ -10377,6 +10382,10 @@ int main(int argc, char **argv) {
       print_diag(command.input, &diag);
       return 1;
     }
+  }
+
+  if (strcmp(command.command, "graph") == 0 && command.out && !z_program_graph_command_kind_supports_out(command.kind)) {
+    return reject_graph_unsupported_out(&command, &diag);
   }
 
   if (strcmp(command.command, "explain") == 0) {
