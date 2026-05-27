@@ -72,6 +72,13 @@ static bool canon_word_part(char ch) {
   return isalnum((unsigned char)ch) || ch == '_';
 }
 
+static int canon_hex_digit(char ch) {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
+  if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
+  return -1;
+}
+
 static bool canon_scan_string(const char *source, size_t *offset, int *column, ZCanonicalTokenVec *tokens, ZDiag *diag, int line) {
   size_t start = *offset;
   int start_col = *column;
@@ -97,19 +104,41 @@ static bool canon_scan_string(const char *source, size_t *offset, int *column, Z
 static bool canon_scan_char(const char *source, size_t *offset, int *column, ZCanonicalTokenVec *tokens, ZDiag *diag, int line) {
   size_t start = *offset;
   int start_col = *column;
+  ZCanonicalToken at_start = {Z_CANON_TOKEN_CHAR, NULL, line, start_col, start, 1};
   (*offset)++;
   (*column)++;
-  while (source[*offset] && source[*offset] != '\'') {
-    if (source[*offset] == '\n') return canon_fail(diag, NULL, "unterminated char literal", "closing quote", "newline");
-    if (source[*offset] == '\\' && source[*offset + 1]) {
-      *offset += 2;
-      *column += 2;
-      continue;
+
+  if (!source[*offset] || source[*offset] == '\n' || source[*offset] == '\r' || source[*offset] == '\'') {
+    return canon_fail(diag, &at_start, "malformed character literal", "one byte character literal", "empty");
+  }
+
+  if (source[*offset] == '\\') {
+    (*offset)++;
+    (*column)++;
+    char escaped = source[*offset];
+    if (!escaped || escaped == '\n' || escaped == '\r') return canon_fail(diag, &at_start, "malformed character escape", "one byte character literal", "newline");
+    if (escaped == 'x') {
+      char high_ch = source[*offset + 1];
+      char low_ch = high_ch ? source[*offset + 2] : 0;
+      if (canon_hex_digit(high_ch) < 0 || canon_hex_digit(low_ch) < 0) {
+        return canon_fail(diag, &at_start, "malformed hex character escape", "two hex digits", "invalid escape");
+      }
+      *offset += 3;
+      *column += 3;
+    } else {
+      if (escaped != 'n' && escaped != 'r' && escaped != 't' && escaped != '0' && escaped != '\'' && escaped != '"' && escaped != '\\') {
+        return canon_fail(diag, &at_start, "invalid character escape", "one byte character literal", "invalid escape");
+      }
+      (*offset)++;
+      (*column)++;
     }
+  } else {
+    if ((unsigned char)source[*offset] >= 128) return canon_fail(diag, &at_start, "character literal must be one byte", "ASCII byte", "non-ASCII");
     (*offset)++;
     (*column)++;
   }
-  if (source[*offset] != '\'') return canon_fail(diag, NULL, "unterminated char literal", "closing quote", "end of file");
+
+  if (source[*offset] != '\'') return canon_fail(diag, &at_start, "character literal must contain exactly one byte", "closing quote", "extra content");
   (*offset)++;
   (*column)++;
   canon_push_token(tokens, (ZCanonicalToken){Z_CANON_TOKEN_CHAR, canon_slice(source, start, *offset), line, start_col, start, *offset - start});
@@ -268,7 +297,113 @@ static bool canon_parse_until(CanonParser *parser, const char *stop_a, const cha
   return true;
 }
 
+static bool canon_expr_operand_token(const ZCanonicalToken *token) {
+  return token && (token->kind == Z_CANON_TOKEN_WORD || token->kind == Z_CANON_TOKEN_STRING || token->kind == Z_CANON_TOKEN_CHAR || token->kind == Z_CANON_TOKEN_NUMBER);
+}
+
+static bool canon_expr_keyword_operator(const ZCanonicalToken *token) {
+  return token && token->kind == Z_CANON_TOKEN_WORD && (canon_text_eq(token->text, "as") || canon_text_eq(token->text, "rescue") || canon_text_eq(token->text, "err") || canon_text_eq(token->text, "in"));
+}
+
+static bool canon_expr_open_symbol(const ZCanonicalToken *token) {
+  return canon_is_symbol_text(token, "(") || canon_is_symbol_text(token, "[") || canon_is_symbol_text(token, "{");
+}
+
+static bool canon_expr_close_symbol(const ZCanonicalToken *token) {
+  return canon_is_symbol_text(token, ")") || canon_is_symbol_text(token, "]") || canon_is_symbol_text(token, "}");
+}
+
+static bool canon_expr_binary_symbol(const ZCanonicalToken *token) {
+  return canon_is_symbol_text(token, "+") || canon_is_symbol_text(token, "-") || canon_is_symbol_text(token, "*") || canon_is_symbol_text(token, "/") ||
+    canon_is_symbol_text(token, "%") || canon_is_symbol_text(token, "==") || canon_is_symbol_text(token, "!=") || canon_is_symbol_text(token, "<") ||
+    canon_is_symbol_text(token, "<=") || canon_is_symbol_text(token, ">") || canon_is_symbol_text(token, ">=") || canon_is_symbol_text(token, "&&") ||
+    canon_is_symbol_text(token, "||") || canon_is_symbol_text(token, "=>");
+}
+
+static bool canon_expr_prefix_symbol(const ZCanonicalToken *token) {
+  return canon_is_symbol_text(token, "&") || canon_is_symbol_text(token, "*") || canon_is_symbol_text(token, "!") || canon_is_symbol_text(token, "-") || canon_is_symbol_text(token, "+");
+}
+
+static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t end) {
+  if (start == end) return true;
+  bool expect_operand = true;
+  bool saw_operand = false;
+  int delimiter_depth = 0;
+  int brace_depth = 0;
+  for (size_t i = start; i < end; i++) {
+    const ZCanonicalToken *token = &parser->tokens->items[i];
+    const ZCanonicalToken *previous = i > start ? &parser->tokens->items[i - 1] : NULL;
+
+    if (canon_expr_keyword_operator(token)) {
+      if (canon_text_eq(token->text, "err") || !expect_operand) {
+        expect_operand = true;
+        continue;
+      }
+      return canon_fail(parser->diag, token, "expected expression before keyword", "expression", token->text);
+    }
+
+    if (token->kind != Z_CANON_TOKEN_SYMBOL) {
+      if (!canon_expr_operand_token(token)) return canon_fail(parser->diag, token, "unexpected token in expression", "expression", token->text);
+      if (canon_text_eq(token->text, "mut") && previous && canon_is_symbol_text(previous, "&") && expect_operand) continue;
+      if (!expect_operand) return canon_fail(parser->diag, token, "expected operator between expressions", "operator", token->text);
+      expect_operand = false;
+      saw_operand = true;
+      continue;
+    }
+
+    if (canon_expr_open_symbol(token)) {
+      if (canon_is_symbol_text(token, "{") && expect_operand) return canon_fail(parser->diag, token, "expected expression before object literal", "expression", "{");
+      delimiter_depth++;
+      if (canon_is_symbol_text(token, "{")) brace_depth++;
+      expect_operand = true;
+      continue;
+    }
+    if (canon_expr_close_symbol(token)) {
+      if (expect_operand && !(previous && (canon_expr_open_symbol(previous) || canon_is_symbol_text(previous, "..")))) {
+        return canon_fail(parser->diag, token, "expected expression before delimiter", "expression", token->text);
+      }
+      if (delimiter_depth > 0) delimiter_depth--;
+      if (canon_is_symbol_text(token, "}") && brace_depth > 0) brace_depth--;
+      expect_operand = false;
+      saw_operand = true;
+      continue;
+    }
+    if (canon_is_symbol_text(token, ",")) {
+      if (expect_operand) return canon_fail(parser->diag, token, "expected expression before comma", "expression", ",");
+      if (delimiter_depth == 0) return canon_fail(parser->diag, token, "unexpected comma in expression", "expression delimiter", ",");
+      expect_operand = true;
+      continue;
+    }
+    if (canon_is_symbol_text(token, ":")) {
+      if (expect_operand) return canon_fail(parser->diag, token, "expected field name before ':'", "field name", ":");
+      if (brace_depth == 0) return canon_fail(parser->diag, token, "unexpected ':' in expression", "object field", ":");
+      expect_operand = true;
+      continue;
+    }
+    if (canon_is_symbol_text(token, ".")) {
+      if (expect_operand) return canon_fail(parser->diag, token, "expected expression before member access", "expression", ".");
+      expect_operand = true;
+      continue;
+    }
+    if (canon_is_symbol_text(token, "..")) {
+      expect_operand = true;
+      continue;
+    }
+    if (expect_operand && canon_expr_prefix_symbol(token)) continue;
+    if (canon_expr_binary_symbol(token)) {
+      if (expect_operand) return canon_fail(parser->diag, token, "expected expression before operator", "expression", token->text);
+      expect_operand = true;
+      continue;
+    }
+    return canon_fail(parser->diag, token, "unexpected token in expression", "expression", token->text);
+  }
+  if (!saw_operand) return canon_fail(parser->diag, end > start ? &parser->tokens->items[end - 1] : canon_peek(parser), "expected expression", "expression", "empty");
+  if (expect_operand) return canon_fail(parser->diag, &parser->tokens->items[end - 1], "incomplete expression", "expression", parser->tokens->items[end - 1].text);
+  return true;
+}
+
 static bool canon_validate_expr(CanonParser *parser, size_t start, size_t end) {
+  if (!canon_validate_expr_shape(parser, start, end)) return false;
   size_t compare_counts[128] = {0};
   size_t compare_depth = 0;
   for (size_t i = start; i < end; i++) {

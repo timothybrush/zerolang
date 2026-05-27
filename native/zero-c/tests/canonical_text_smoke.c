@@ -220,6 +220,16 @@ static void parses_public_declarations_and_extern_types(void) {
   expect(facts.interface_count == 1, "expected public interface declaration");
 }
 
+static void parses_character_literals(void) {
+  const char *source =
+    "fn chars() -> Void {\n"
+    "    let letter: char = 'a'\n"
+    "    let newline: char = '\\n'\n"
+    "    let hex: char = '\\x41'\n"
+    "}\n";
+  expect_accepts(source, "character literals");
+}
+
 static void parses_empty_return_but_not_empty_checks(void) {
   expect_accepts("fn ok() -> Void {\n    return\n}\n", "empty return");
   expect_rejects("fn bad() -> Void {\n    check\n}\n", "empty check");
@@ -251,6 +261,12 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    break extra\n}\n", "trailing break tokens");
   expect_rejects("fn bad() -> Void {\n    continue extra\n}\n", "trailing continue tokens");
   expect_rejects("fn bad() -> Void raises {\n    raise InvalidInput extra\n}\n", "trailing raise tokens");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = +\n}\n", "operandless operator");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = ;\n}\n", "unexpected expression punctuation");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = 1 +\n}\n", "trailing expression operator");
+  expect_rejects("fn bad() -> Void {\n    let value: char = ''\n}\n", "empty character literal");
+  expect_rejects("fn bad() -> Void {\n    let value: char = 'ab'\n}\n", "wide character literal");
+  expect_rejects("fn bad() -> Void {\n    let value: char = '\\q'\n}\n", "invalid character escape");
 }
 
 static void parse_file_arg(const char *mode, const char *path) {
@@ -269,6 +285,7 @@ int main(int argc, char **argv) {
   parses_parenthesized_comparisons();
   records_block_open_locations();
   parses_public_declarations_and_extern_types();
+  parses_character_literals();
   parses_empty_return_but_not_empty_checks();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
