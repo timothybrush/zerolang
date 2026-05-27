@@ -403,6 +403,10 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let value: char = 'ab'\n}\n", "wide character literal");
   expect_rejects("fn bad() -> Void {\n    let value: char = '\\q'\n}\n", "invalid character escape");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\\x0aworld\"\n}\n", "escaped string newline");
+  expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\xZZ\"\n}\n", "malformed hex string escape");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal");
+  expect_rejects("type Point {\n    x: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { 1: 2 }\n}\n", "numeric object field");
   expect_rejects("alias Bad = 1\n", "literal alias target");
   expect_rejects("alias Bad = 1 + 2\n", "alias expression target");
   expect_rejects("pub alias Bad = 1 + 2\n", "public alias expression target");

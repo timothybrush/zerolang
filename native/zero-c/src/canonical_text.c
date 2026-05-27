@@ -83,6 +83,78 @@ static int canon_hex_digit(char ch) {
   return -1;
 }
 
+static bool canon_integer_suffix_text(const char *text) {
+  const char *suffixes[] = {"i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", NULL};
+  for (size_t i = 0; suffixes[i]; i++) if (canon_text_eq(text, suffixes[i])) return true;
+  return false;
+}
+
+static bool canon_validate_integer_number_text(const char *text) {
+  if (!text || !text[0]) return false;
+  size_t text_len = strlen(text);
+  size_t body_len = text_len;
+  const char *last_underscore = strrchr(text, '_');
+  if (last_underscore) {
+    const char *candidate = last_underscore + 1;
+    if (candidate[0] == 0) return false;
+    if (canon_integer_suffix_text(candidate)) body_len = (size_t)(last_underscore - text);
+    else if (candidate[0] == 'i' || candidate[0] == 'u') return false;
+  }
+  if (body_len == 0) return false;
+
+  int radix = 10;
+  size_t index = 0;
+  if (body_len >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+    radix = 16;
+    index = 2;
+  } else if (body_len >= 2 && text[0] == '0' && (text[1] == 'b' || text[1] == 'B')) {
+    radix = 2;
+    index = 2;
+  } else if (body_len >= 2 && text[0] == '0' && (text[1] == 'o' || text[1] == 'O')) {
+    radix = 8;
+    index = 2;
+  }
+  if (index >= body_len) return false;
+
+  bool saw_digit = false;
+  bool previous_underscore = false;
+  for (; index < body_len; index++) {
+    char ch = text[index];
+    if (ch == '_') {
+      if (!saw_digit || previous_underscore) return false;
+      previous_underscore = true;
+      continue;
+    }
+    int digit = canon_hex_digit(ch);
+    if (digit < 0 || digit >= radix) return false;
+    saw_digit = true;
+    previous_underscore = false;
+  }
+  return saw_digit && !previous_underscore;
+}
+
+static bool canon_validate_float_number_text(const char *text) {
+  if (!text || !text[0] || strchr(text, '_')) return false;
+  size_t index = 0;
+  if (!isdigit((unsigned char)text[index])) return false;
+  while (isdigit((unsigned char)text[index])) index++;
+  if (text[index] != '.') return false;
+  index++;
+  if (!isdigit((unsigned char)text[index])) return false;
+  while (isdigit((unsigned char)text[index])) index++;
+  if (text[index] == 'e' || text[index] == 'E') {
+    index++;
+    if (text[index] == '+' || text[index] == '-') index++;
+    if (!isdigit((unsigned char)text[index])) return false;
+    while (isdigit((unsigned char)text[index])) index++;
+  }
+  return text[index] == 0;
+}
+
+static bool canon_validate_number_text(const char *text) {
+  return text && strchr(text, '.') ? canon_validate_float_number_text(text) : canon_validate_integer_number_text(text);
+}
+
 static bool canon_scan_string(const char *source, size_t *offset, int *column, ZCanonicalTokenVec *tokens, ZDiag *diag, int line) {
   size_t start = *offset;
   int start_col = *column;
@@ -94,6 +166,17 @@ static bool canon_scan_string(const char *source, size_t *offset, int *column, Z
       ZCanonicalToken escape = {Z_CANON_TOKEN_STRING, NULL, line, *column, *offset, 1};
       if (source[*offset + 1] == '\n' || source[*offset + 1] == '\r') {
         return canon_fail(diag, &escape, "escaped newlines are not canonical string literals", "escaped byte or closing quote", "newline");
+      }
+      if (source[*offset + 1] == 'x') {
+        char high_ch = source[*offset + 2];
+        char low_ch = high_ch ? source[*offset + 3] : 0;
+        int high = canon_hex_digit(high_ch);
+        int low = canon_hex_digit(low_ch);
+        if (high < 0 || low < 0) return canon_fail(diag, &escape, "malformed hex string escape", "two hex digits", "invalid escape");
+        if (((high << 4) | low) == 0) return canon_fail(diag, &escape, "string literal cannot contain a zero byte", "nonzero byte", "zero byte");
+        *offset += 4;
+        *column += 4;
+        continue;
       }
       *offset += 2;
       *column += 2;
@@ -215,12 +298,20 @@ ZCanonicalTokenVec z_canonical_text_tokenize(const char *source, ZDiag *diag) {
     if (isdigit((unsigned char)ch)) {
       size_t start = offset;
       int start_col = column;
-      while (source[offset] && (isalnum((unsigned char)source[offset]) || source[offset] == '_' || source[offset] == '.')) {
+      while (source[offset] && (isalnum((unsigned char)source[offset]) || source[offset] == '_' || source[offset] == '.' ||
+             ((source[offset] == '+' || source[offset] == '-') && offset > start && (source[offset - 1] == 'e' || source[offset - 1] == 'E')))) {
         if (source[offset] == '.' && source[offset + 1] == '.') break;
         offset++;
         column++;
       }
-      canon_push_token(&tokens, (ZCanonicalToken){Z_CANON_TOKEN_NUMBER, canon_slice(source, start, offset), line, start_col, start, offset - start});
+      char *text = canon_slice(source, start, offset);
+      ZCanonicalToken token = {Z_CANON_TOKEN_NUMBER, text, line, start_col, start, offset - start};
+      if (!canon_validate_number_text(text)) {
+        canon_fail(diag, &token, "malformed number literal", "number literal", text);
+        free(text);
+        break;
+      }
+      canon_push_token(&tokens, token);
       continue;
     }
     size_t len = canon_two_char_symbol(source, offset) ? 2 : 1;
@@ -402,12 +493,44 @@ static bool canon_empty_call_args_close(CanonParser *parser, size_t start, size_
   return callee->kind == Z_CANON_TOKEN_WORD || canon_is_symbol_text(callee, ")") || canon_is_symbol_text(callee, "]") || canon_is_symbol_text(callee, "}") || canon_is_symbol_text(callee, ">");
 }
 
+static bool canon_validate_object_field_name(CanonParser *parser, size_t field_start, size_t colon_index) {
+  if (field_start + 1 != colon_index) return canon_fail(parser->diag, &parser->tokens->items[colon_index], "expected object field name before ':'", "field name", ":");
+  const ZCanonicalToken *field = &parser->tokens->items[field_start];
+  if (field->kind != Z_CANON_TOKEN_WORD || canon_is_reserved_word(field->text)) {
+    return canon_fail(parser->diag, field, "object field name must be an identifier", "field name", field->text);
+  }
+  return true;
+}
+
+static void canon_note_expr_open_delimiter(const ZCanonicalToken *token, int *delimiter_depth, int *brace_depth, bool delimiter_is_brace[], size_t object_field_start[], size_t delimiter_cap, size_t field_start) {
+  (*delimiter_depth)++;
+  if ((size_t)*delimiter_depth < delimiter_cap) {
+    delimiter_is_brace[*delimiter_depth] = canon_is_symbol_text(token, "{");
+    object_field_start[*delimiter_depth] = field_start;
+  }
+  if (canon_is_symbol_text(token, "{")) (*brace_depth)++;
+}
+
+static bool canon_note_expr_comma(CanonParser *parser, const ZCanonicalToken *token, int delimiter_depth, bool delimiter_is_brace[], size_t object_field_start[], size_t delimiter_cap, size_t next_field_start) {
+  if (delimiter_depth == 0) return canon_fail(parser->diag, token, "unexpected comma in expression", "expression delimiter", ",");
+  if ((size_t)delimiter_depth < delimiter_cap && delimiter_is_brace[delimiter_depth]) object_field_start[delimiter_depth] = next_field_start;
+  return true;
+}
+
+static bool canon_validate_object_colon(CanonParser *parser, const ZCanonicalToken *token, int delimiter_depth, int brace_depth, bool delimiter_is_brace[], size_t object_field_start[], size_t delimiter_cap, size_t colon_index) {
+  if (brace_depth == 0) return canon_fail(parser->diag, token, "unexpected ':' in expression", "object field", ":");
+  if ((size_t)delimiter_depth >= delimiter_cap || !delimiter_is_brace[delimiter_depth]) return canon_fail(parser->diag, token, "unexpected ':' in expression", "object field", ":");
+  return canon_validate_object_field_name(parser, object_field_start[delimiter_depth], colon_index);
+}
+
 static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t end) {
   if (start == end) return true;
   bool expect_operand = true;
   bool saw_operand = false;
   int delimiter_depth = 0;
   int brace_depth = 0;
+  bool delimiter_is_brace[256] = {0};
+  size_t object_field_start[256] = {0};
   size_t bracket_depth = 0;
   bool bracket_literal[128] = {0};
   size_t bracket_repeat_count[128] = {0};
@@ -450,8 +573,7 @@ static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t 
     if (canon_expr_open_symbol(token)) {
       if (canon_is_symbol_text(token, "(") && !expect_operand && previous && !canon_tokens_connected(previous, token)) return canon_fail(parser->diag, token, "call parentheses must follow the callee directly", "adjacent '('", "(");
       if (canon_is_symbol_text(token, "{") && expect_operand) return canon_fail(parser->diag, token, "expected expression before object literal", "expression", "{");
-      delimiter_depth++;
-      if (canon_is_symbol_text(token, "{")) brace_depth++;
+      canon_note_expr_open_delimiter(token, &delimiter_depth, &brace_depth, delimiter_is_brace, object_field_start, sizeof(delimiter_is_brace) / sizeof(delimiter_is_brace[0]), i + 1);
       if (canon_is_symbol_text(token, "[")) {
         if (bracket_depth + 1 < sizeof(bracket_literal) / sizeof(bracket_literal[0])) bracket_depth++;
         bracket_literal[bracket_depth] = expect_operand;
@@ -475,13 +597,13 @@ static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t 
     }
     if (canon_is_symbol_text(token, ",")) {
       if (expect_operand) return canon_fail(parser->diag, token, "expected expression before comma", "expression", ",");
-      if (delimiter_depth == 0) return canon_fail(parser->diag, token, "unexpected comma in expression", "expression delimiter", ",");
+      if (!canon_note_expr_comma(parser, token, delimiter_depth, delimiter_is_brace, object_field_start, sizeof(delimiter_is_brace) / sizeof(delimiter_is_brace[0]), i + 1)) return false;
       expect_operand = true;
       continue;
     }
     if (canon_is_symbol_text(token, ":")) {
       if (expect_operand) return canon_fail(parser->diag, token, "expected field name before ':'", "field name", ":");
-      if (brace_depth == 0) return canon_fail(parser->diag, token, "unexpected ':' in expression", "object field", ":");
+      if (!canon_validate_object_colon(parser, token, delimiter_depth, brace_depth, delimiter_is_brace, object_field_start, sizeof(delimiter_is_brace) / sizeof(delimiter_is_brace[0]), i)) return false;
       expect_operand = true;
       continue;
     }
