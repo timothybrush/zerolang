@@ -2730,6 +2730,8 @@ const programGraphCanonicalFile = await readFile(programGraphCanonicalPath, "utf
 const programGraphView = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
 const programGraphViewAgain = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
 const programGraphViewJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", programGraphDumpPath])).stdout);
+const programGraphTypeInvalidView = (await execFileAsync(zero, ["graph", "view", "conformance/check/fail/unknown-name.0"])).stdout;
+const programGraphTypeInvalidCheckJson = await execFileAsync(zero, ["graph", "check", "--json", "conformance/check/fail/unknown-name.0"]).catch((error) => error);
 const programGraphViewOut = await execFileAsync(zero, ["graph", "view", "--out", programGraphViewPath, programGraphDumpPath]);
 const programGraphViewFile = await readFile(programGraphViewPath, "utf8");
 const programGraphViewOutJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", "--out", programGraphViewPath, programGraphDumpPath])).stdout);
@@ -2835,6 +2837,12 @@ assert.equal(programGraphViewJson.view, programGraphView);
 assert.equal(programGraphViewOutJson.ok, true);
 assert.equal(programGraphViewOutJson.saved.path, programGraphViewPath);
 assert.equal(programGraphViewOutJson.view, null);
+assert.match(programGraphTypeInvalidView, /pub fn main\(world: World\) -> Void raises/);
+assert.match(programGraphTypeInvalidView, /message/);
+assert.notEqual(programGraphTypeInvalidCheckJson.code, 0);
+const programGraphTypeInvalidCheckBody = JSON.parse(programGraphTypeInvalidCheckJson.stdout);
+assert.equal(programGraphTypeInvalidCheckBody.ok, false);
+assert.equal(programGraphTypeInvalidCheckBody.diagnostics[0].code, "NAM003");
 assert.equal(programGraphRoundtrip.stdout, "program graph roundtrip ok\n");
 assert.equal(programGraphRoundtripJson.ok, true);
 assert.equal(programGraphRoundtripJson.canonicalSource, true);
@@ -3185,7 +3193,7 @@ const errorSetMismatchJson = await execFileAsync(zero, ["check", "--json", "conf
 assert.notEqual(errorSetMismatchJson.code, 0);
 const errorSetMismatchBody = JSON.parse(errorSetMismatchJson.stdout);
 assert.equal(errorSetMismatchBody.diagnostics[0].code, "ERR002");
-assert.match(errorSetMismatchBody.diagnostics[0].expected, /caller `!\[\.\.\.\]` set/);
+assert.match(errorSetMismatchBody.diagnostics[0].expected, /caller `raises \[\.\.\.\]` set/);
 assert.equal(errorSetMismatchBody.diagnostics[0].fixSafety, "api-changing");
 
 const stdFsErrorMismatchJson = await execFileAsync(zero, ["check", "--json", "conformance/native/fail/std-fs-error-set-mismatch.0"]).catch((error) => error);
@@ -3198,7 +3206,7 @@ const stdFsCreateErrorMismatchJson = await execFileAsync(zero, ["check", "--json
 assert.notEqual(stdFsCreateErrorMismatchJson.code, 0);
 const stdFsCreateErrorMismatchBody = JSON.parse(stdFsCreateErrorMismatchJson.stdout);
 assert.equal(stdFsCreateErrorMismatchBody.diagnostics[0].code, "ERR002");
-assert.match(stdFsCreateErrorMismatchBody.diagnostics[0].help, /`!\[\.\.\.\]`/);
+assert.match(stdFsCreateErrorMismatchBody.diagnostics[0].help, /`raises \[\.\.\.\]`/);
 
 const stdFsUncheckedResourceJson = await execFileAsync(zero, ["check", "--json", "conformance/native/fail/std-fs-unchecked-resource-fallible.0"]).catch((error) => error);
 assert.notEqual(stdFsUncheckedResourceJson.code, 0);

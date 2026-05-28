@@ -36,7 +36,7 @@ The important parts are:
 - `world World` is the capability object passed to the program by the runtime.
 - `world.out.write ...` writes through that explicit capability.
 - `check` handles a fallible operation.
-- `!` marks that `main` can return an error.
+- `raises` marks that `main` can return an error.
 
 Zero makes effects visible. A program that writes output asks for `World`
 instead of reading a hidden global process object.

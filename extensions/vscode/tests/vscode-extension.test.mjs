@@ -21,10 +21,10 @@ describe("VS Code extension manifest", () => {
     assert.equal(snippets.path, "./snippets/zero.json");
   });
 
-  it("ships snippets for main, shape, fun, and test", async () => {
+  it("ships snippets for main, type, fn, and test", async () => {
     const snippets = JSON.parse(await readFile("snippets/zero.json", "utf8"));
     assert.ok(snippets.main);
-    assert.ok(snippets.shape);
+    assert.ok(snippets.type);
     assert.ok(snippets.function);
     assert.ok(snippets.test);
   });
@@ -36,9 +36,9 @@ describe("VS Code extension manifest", () => {
       .map((pattern) => pattern.match ?? "")
       .join("\n");
 
-    assert.match(matches, /fun/);
+    assert.match(matches, /fn/);
     assert.match(matches, /raises/);
-    assert.match(matches, /shape/);
+    assert.match(matches, /type/);
     assert.match(matches, /World/);
     assert.doesNotMatch(matches, /Vercel|Request|Response/);
   });

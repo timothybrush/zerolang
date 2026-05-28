@@ -2783,7 +2783,7 @@ static const ExplainInfo explain_infos[] = {
     "ERR002",
     "fallibility",
     "Error set mismatch",
-    "A caller with an explicit `![...]` set checked a callee that may raise an unlisted error.",
+    "A caller with an explicit `raises [...]` set checked a callee that may raise an unlisted error.",
     "Public and explicit error sets are part of the function contract, so propagation must keep the set complete.",
     "Add the missing error name to the caller's `raises [...]` set or handle the call locally with `rescue`.",
     "pub fn main(world: World) -> Void raises [NotFound] {\n    check std.fs.createOrRaise(fs, path)\n}",
@@ -9983,8 +9983,39 @@ static bool load_graph_from_checked_canonical_source_file(const char *path, Sour
   return graph_build_from_source_program(input, program, true, graph, diag);
 }
 
+static bool parse_graph_read_source_input(SourceInput *input, Program *program, ZDiag *diag) {
+  if (!input || !program) return false;
+  if (diag) diag->path = input->source_file;
+  bool ok = input->canonical_text_source
+    ? z_parse_canonical_text_program_source(input->source, program, diag)
+    : parse_row_source_text(input->source, program, diag);
+  if (!ok && diag) z_map_source_diag(input, diag);
+  return ok;
+}
+
+static bool load_source_program_for_graph_read(const char *input_path, SourceInput *input, Program *program, ZDiag *diag) {
+  bool handled_row_package = false;
+  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+    return parse_graph_read_source_input(input, program, diag);
+  }
+  if (handled_row_package) return false;
+
+  if (is_row_source_path(input_path)) {
+    if (has_suffix(input_path, ".0")) {
+      if (!resolve_direct_canonical_source(input_path, input, diag)) return false;
+    } else {
+      if (!resolve_direct_row_source(input_path, input, diag)) return false;
+    }
+    return parse_graph_read_source_input(input, program, diag);
+  }
+
+  set_source_input_diag(input_path, diag);
+  return false;
+}
+
 static bool load_graph_from_current_source(const Command *command, const ZTargetInfo *target, SourceInput *input, Program *program, ZProgramGraph *graph, GraphInputKind *kind, ZDiag *diag) {
-  if (!compile_input(command->input, target, input, program, diag)) return false;
+  (void)target;
+  if (!load_source_program_for_graph_read(command->input, input, program, diag)) return false;
   if (!graph_build_from_source_program(input, program, input->canonical_text_source, graph, diag)) return false;
   if (kind) *kind = input->canonical_text_source ? GRAPH_INPUT_CANONICAL_SOURCE : GRAPH_INPUT_CURRENT_SOURCE;
   return true;

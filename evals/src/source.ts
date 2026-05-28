@@ -24,7 +24,7 @@ export function finalSourceResponseFailures(
   if (trimmed.startsWith("```") || /(^|\n)```/.test(trimmed)) {
     return ["final response included prose or Markdown around the source"];
   }
-  if (!/^\s*((pub\s+)?fun\s+|(use|const|shape|enum|choice|test)\s+)/.test(trimmed)) {
+  if (!/^\s*((pub\s+)?fn\s+|use\s+|(pub\s+)?(const|type|enum|choice)\s+|test\s+)/.test(trimmed)) {
     return ["final response did not start with Zero source"];
   }
   return [];

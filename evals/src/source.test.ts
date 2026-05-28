@@ -8,13 +8,13 @@ import {
 
 describe("eval source helpers", () => {
   it("extracts fenced Zero code", () => {
-    const source = extractZeroSource("```zero\npub fun main() -> Void {}\n```");
-    assert.equal(source, "pub fun main() -> Void {}\n");
+    const source = extractZeroSource("```zero\npub fn main() -> Void {}\n```");
+    assert.equal(source, "pub fn main() -> Void {}\n");
   });
 
   it("keeps plain source", () => {
-    const source = extractZeroSource("pub fun main() -> Void {}");
-    assert.equal(source, "pub fun main() -> Void {}\n");
+    const source = extractZeroSource("pub fn main() -> Void {}");
+    assert.equal(source, "pub fn main() -> Void {}\n");
   });
 
   it("reports missing source patterns", () => {
@@ -25,7 +25,7 @@ describe("eval source helpers", () => {
 
   it("accepts a source-only final response", () => {
     assert.deepEqual(
-      finalSourceResponseFailures("pub fun main() -> Void {}\n", "pub fun main() -> Void {}\n"),
+      finalSourceResponseFailures("pub fn main() -> Void {}\n", "pub fn main() -> Void {}\n"),
       [],
     );
   });
@@ -33,8 +33,8 @@ describe("eval source helpers", () => {
   it("rejects prose or Markdown around final source", () => {
     assert.deepEqual(
       finalSourceResponseFailures(
-        "Here is the source:\n\n```zero\npub fun main() -> Void {}\n```",
-        "pub fun main() -> Void {}\n",
+        "Here is the source:\n\n```zero\npub fn main() -> Void {}\n```",
+        "pub fn main() -> Void {}\n",
       ),
       ["final response included prose or Markdown around the source"],
     );
@@ -43,8 +43,8 @@ describe("eval source helpers", () => {
   it("rejects unfenced prose before source", () => {
     assert.deepEqual(
       finalSourceResponseFailures(
-        "The program checks cleanly.\n\npub fun main() -> Void {}",
-        "The program checks cleanly.\n\npub fun main() -> Void {}\n",
+        "The program checks cleanly.\n\npub fn main() -> Void {}",
+        "The program checks cleanly.\n\npub fn main() -> Void {}\n",
       ),
       ["final response did not start with Zero source"],
     );
