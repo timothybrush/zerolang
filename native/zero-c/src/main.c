@@ -35,7 +35,7 @@
 #endif
 #include <unistd.h>
 
-#define ZERO_VERSION "0.1.4"
+#define ZERO_VERSION "0.2.0"
 
 #include "embedded_runtime_sources.inc"
 #include "embedded_skills.inc"

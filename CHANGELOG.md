@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.1.4
+## 0.2.0
 
 <!-- release:start -->
+
+- Makes canonical `.0` text the native source surface, with a parser, formatter, Program import path, diagnostics, docs, examples, stdlib sources, benchmarks, conformance fixtures, and command snapshots aligned around that format.
+- Promotes ProgramGraph from inspection output into an editable artifact workflow with deterministic dump, validate, view, check, roundtrip, import, patch, build, run, test, size, and package entrypoint support.
+- Adds source-backed graph edits so checked graph patches can rewrite canonical `.0` files while preserving package/import context, std helper context, metadata, and stable graph identities.
+- Expands direct backend coverage with darwin-x64 Mach-O executable support, shared AArch64 ELF/COFF emission, target-readiness reporting, byte-view ABI fixes, and stronger cross-target buildability checks.
+- Adds source-backed `std.path`, `std.str`, and `std.math` modules with docs, examples, Rosetta coverage, and direct target validation.
+- Exposes resolved call-resolution and stdlib helper facts in graph JSON, tightening generic return typing, member call facts, std helper validation, and package cache metadata.
+- Grows Rosetta and compiler smoke coverage, graph command contracts, metrics budgets, CLI docs, skills, and docs tests around the current agent edit loop.
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.1.4
 
 - Adopts canonical `.0` text as the current Zero source surface across parsing, import resolution, package manifests, command workflows, docs, fixtures, formatting, and artifact contracts.
 - Rebuilds checker internals around TypeCore, binder-aware unification, generic inference, static interface validation, provenance substitution, and shared call-resolution facts.
@@ -15,8 +31,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.1.3
 
