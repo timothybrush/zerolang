@@ -52,6 +52,8 @@ static void fmt_append(ZBuf *out, const char *text) {
 static void fmt_newline(CanonFormat *fmt) {
   if (fmt->out->len > 0 && fmt->out->data[fmt->out->len - 1] != '\n') fmt_append_char(fmt->out, '\n');
   fmt->line_start = true;
+  fmt->previous = NULL;
+  fmt->before_previous = NULL;
   fmt->line_first = NULL;
   fmt->line_has_assignment = false;
   fmt->line_has_list_declaration = false;
@@ -236,6 +238,10 @@ bool z_canonical_text_format(const ZCanonicalTokenVec *tokens, ZBuf *out, ZDiag 
     if (token->kind == Z_CANON_TOKEN_EOF) break;
     if (token->kind == Z_CANON_TOKEN_NEWLINE) {
       const ZCanonicalToken *next = fmt_next_significant(tokens, i);
+      size_t j = i + 1;
+      while (j < tokens->len && tokens->items[j].kind == Z_CANON_TOKEN_NEWLINE) j++;
+      const ZCanonicalToken *next_non_newline = j < tokens->len ? &tokens->items[j] : NULL;
+      if (fmt_is_symbol(fmt.previous, "}") && fmt_is_word(next_non_newline, "else")) continue;
       if (next && fmt.indent == 0 && fmt_starts_declaration(next) && fmt.out->len > 0) fmt_blank_line(&fmt);
       else fmt_newline(&fmt);
       continue;
@@ -245,7 +251,6 @@ bool z_canonical_text_format(const ZCanonicalTokenVec *tokens, ZBuf *out, ZDiag 
       fmt_indent(&fmt);
       fmt_append(out, token->text);
       fmt_newline(&fmt);
-      fmt.previous = token;
       continue;
     }
     if (fmt_is_symbol(token, "{")) {

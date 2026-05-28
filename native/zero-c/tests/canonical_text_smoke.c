@@ -316,6 +316,37 @@ static void formats_public_lists_match_patterns_and_prefix_forms(void) {
   expect_formats_to(source, expected, "public lists, match patterns, and prefix forms");
 }
 
+static void formats_else_and_line_start_prefix_forms(void) {
+  const char *else_source =
+    "fn choose(flag:Bool)->Void{if flag{return}\n"
+    "else{return}}\n";
+  const char *else_expected =
+    "fn choose(flag: Bool) -> Void {\n"
+    "    if flag {\n"
+    "        return\n"
+    "    } else {\n"
+    "        return\n"
+    "    }\n"
+    "}\n";
+  expect_formats_to(else_source, else_expected, "else newline canonical formatting");
+
+  const char *prefix_source =
+    "fn prefix(value:i32,ptr:Ptr,ok:Bool)->Void{call()\n"
+    "-value\n"
+    "+value\n"
+    "*ptr\n"
+    "!ok}\n";
+  const char *prefix_expected =
+    "fn prefix(value: i32, ptr: Ptr, ok: Bool) -> Void {\n"
+    "    call()\n"
+    "    -value\n"
+    "    +value\n"
+    "    *ptr\n"
+    "    !ok\n"
+    "}\n";
+  expect_formats_to(prefix_source, prefix_expected, "line-start prefix expression formatting");
+}
+
 static void parses_fallibility_choices_and_interfaces(void) {
   const char *source =
     "choice Result {\n"
@@ -785,6 +816,7 @@ int main(int argc, char **argv) {
   formats_angles_comparisons_and_ranges_canonically();
   formats_deep_nested_blocks();
   formats_public_lists_match_patterns_and_prefix_forms();
+  formats_else_and_line_start_prefix_forms();
   parses_fallibility_choices_and_interfaces();
   parses_nested_generic_type_commas();
   parses_separate_boolean_comparisons();
