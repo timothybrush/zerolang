@@ -697,6 +697,53 @@ static void parses_effectful_expression_forms(void) {
   expect_accepts(source, "effectful expression forms");
 }
 
+static void imports_decoded_literals_and_prefix_forms(void) {
+  const char *source =
+    "extern c \"conformance/c/simple.h\" as c\n"
+    "\n"
+    "const message: String = \"hi\\n\"\n"
+    "const letter: char = 'a'\n"
+    "\n"
+    "fn prefix(ok: Bool, value: i32, ptr: Ptr) -> Void {\n"
+    "    let neg: i32 = -value\n"
+    "    let pos: i32 = +value\n"
+    "    let not_ok: Bool = !ok\n"
+    "    let deref_value: i32 = *ptr\n"
+    "}\n"
+    "\n"
+    "test \"literal\\nname\" {\n"
+    "    expect true\n"
+    "}\n";
+  ZDiag diag = {0};
+  Program program = {0};
+  expect(z_parse_canonical_text_program_source(source, &program, &diag), diag.message);
+  expect(program.c_imports.len == 1, "expected C import");
+  expect(strcmp(program.c_imports.items[0].header, "conformance/c/simple.h") == 0, "expected decoded C header path");
+  expect(program.consts.len == 2, "expected decoded literal constants");
+  expect(program.consts.items[0].expr && program.consts.items[0].expr->kind == EXPR_STRING, "expected string constant");
+  expect(strcmp(program.consts.items[0].expr->text, "hi\n") == 0, "expected decoded string literal");
+  expect(program.consts.items[1].expr && program.consts.items[1].expr->kind == EXPR_CHAR, "expected char constant");
+  expect(strcmp(program.consts.items[1].expr->text, "97") == 0, "expected decoded character literal");
+  expect(program.functions.len == 2, "expected prefix function and generated test");
+  Function *prefix = &program.functions.items[0];
+  expect(prefix->body.len == 4, "expected prefix function body");
+  expect(prefix->body.items[1]->expr && prefix->body.items[1]->expr->kind == EXPR_BINARY, "expected unary plus import");
+  expect(strcmp(prefix->body.items[1]->expr->text, "+") == 0, "expected unary plus to import as addition");
+  expect(prefix->body.items[2]->expr && prefix->body.items[2]->expr->kind == EXPR_BINARY, "expected prefix not import");
+  expect(strcmp(prefix->body.items[2]->expr->text, "==") == 0, "expected prefix not to import as comparison");
+  expect(prefix->body.items[2]->expr->right && prefix->body.items[2]->expr->right->kind == EXPR_BOOL && !prefix->body.items[2]->expr->right->bool_value, "expected prefix not false operand");
+  expect(prefix->body.items[3]->expr && prefix->body.items[3]->expr->kind == EXPR_CALL, "expected deref prefix import");
+  expect(prefix->body.items[3]->expr->left && strcmp(prefix->body.items[3]->expr->left->text, "deref") == 0, "expected deref prefix callee");
+  Function *test = &program.functions.items[1];
+  expect(test->is_test, "expected generated test function");
+  expect(strcmp(test->test_name, "literal\nname") == 0, "expected decoded test name");
+  z_free_program(&program);
+
+  Program invalid = {0};
+  expect(!z_parse_canonical_text_program_source("fun main() -> Void {}\n", &invalid, NULL), "expected canonical Program parse failure without caller diag");
+  z_free_program(&invalid);
+}
+
 static void expect_program_checks_and_roundtrips(const char *source, const char *label, bool library) {
   ZDiag diag = {0};
   Program program = {0};
@@ -913,6 +960,7 @@ int main(int argc, char **argv) {
   parses_use_declarations_and_zero_arg_calls();
   parses_assignment_statements();
   parses_effectful_expression_forms();
+  imports_decoded_literals_and_prefix_forms();
   parses_checks_and_graph_roundtrips_core_program();
   parses_checks_and_graph_roundtrips_library_program();
   rejects_noncanonical_spellings();

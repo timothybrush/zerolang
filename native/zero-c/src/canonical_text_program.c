@@ -31,6 +31,13 @@ static bool canon_ast_text_eq(const char *left, const char *right) {
 
 static bool canon_ast_has_diag(ZDiag *diag) { return diag && diag->code != 0; }
 
+static int canon_ast_hex_digit(char ch) {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
+  if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
+  return -1;
+}
+
 static const ZCanonicalToken *canon_ast_token(const ZCanonicalTokenVec *tokens, size_t index) {
   return tokens && index < tokens->len ? &tokens->items[index] : NULL;
 }
@@ -95,6 +102,99 @@ static const ZCanonicalToken *canon_ast_expect_word(CanonAstParser *parser, cons
   }
   canon_ast_fail(parser->diag, token, message, "identifier", token ? token->text : "end of file");
   return NULL;
+}
+
+static bool canon_ast_decode_hex_byte(const char *text, size_t len, size_t index, unsigned *out) {
+  if (index + 2 >= len) return false;
+  int high = canon_ast_hex_digit(text[index + 1]);
+  int low = canon_ast_hex_digit(text[index + 2]);
+  if (high < 0 || low < 0) return false;
+  *out = (unsigned)((high << 4) | low);
+  return true;
+}
+
+static char *canon_ast_decode_string_literal(const ZCanonicalToken *token, ZDiag *diag) {
+  const char *text = token && token->text ? token->text : "";
+  size_t len = strlen(text);
+  if (len < 2 || text[0] != '"' || text[len - 1] != '"') {
+    canon_ast_fail(diag, token, "malformed string literal", "string literal", text);
+    return z_strdup("");
+  }
+  ZBuf buf;
+  zbuf_init(&buf);
+  for (size_t i = 1; i + 1 < len; i++) {
+    unsigned char ch = (unsigned char)text[i];
+    if (ch != '\\') {
+      zbuf_append_char(&buf, (char)ch);
+      continue;
+    }
+    if (i + 1 >= len - 1) {
+      canon_ast_fail(diag, token, "malformed string escape", "escaped byte", text);
+      break;
+    }
+    char escaped = text[++i];
+    if (escaped == 'n') zbuf_append_char(&buf, '\n');
+    else if (escaped == 'r') zbuf_append_char(&buf, '\r');
+    else if (escaped == 't') zbuf_append_char(&buf, '\t');
+    else if (escaped == 'x') {
+      unsigned value = 0;
+      if (!canon_ast_decode_hex_byte(text, len - 1, i, &value) || value == 0) {
+        canon_ast_fail(diag, token, "malformed hex string escape", "nonzero byte escape", text);
+        break;
+      }
+      zbuf_append_char(&buf, (char)value);
+      i += 2;
+    } else {
+      zbuf_append_char(&buf, escaped);
+    }
+  }
+  if (canon_ast_has_diag(diag)) {
+    free(buf.data);
+    return z_strdup("");
+  }
+  return buf.data ? buf.data : z_strdup("");
+}
+
+static char *canon_ast_decode_char_literal(const ZCanonicalToken *token, ZDiag *diag) {
+  const char *text = token && token->text ? token->text : "";
+  size_t len = strlen(text);
+  if (len < 3 || text[0] != '\'' || text[len - 1] != '\'') {
+    canon_ast_fail(diag, token, "malformed character literal", "character literal", text);
+    return z_strdup("0");
+  }
+  size_t i = 1;
+  unsigned value = 0;
+  if (text[i] == '\\') {
+    i++;
+    char escaped = text[i++];
+    if (escaped == 'n') value = '\n';
+    else if (escaped == 'r') value = '\r';
+    else if (escaped == 't') value = '\t';
+    else if (escaped == '0') value = '\0';
+    else if (escaped == '\'') value = '\'';
+    else if (escaped == '"') value = '"';
+    else if (escaped == '\\') value = '\\';
+    else if (escaped == 'x') {
+      i--;
+      if (!canon_ast_decode_hex_byte(text, len - 1, i, &value)) {
+        canon_ast_fail(diag, token, "malformed hex character escape", "byte escape", text);
+        return z_strdup("0");
+      }
+      i += 3;
+    } else {
+      canon_ast_fail(diag, token, "malformed character escape", "one byte character literal", text);
+      return z_strdup("0");
+    }
+  } else {
+    value = (unsigned char)text[i++];
+  }
+  if (i != len - 1 || value > 255) {
+    canon_ast_fail(diag, token, "malformed character literal", "one byte character literal", text);
+    return z_strdup("0");
+  }
+  char decoded[16];
+  snprintf(decoded, sizeof(decoded), "%u", value);
+  return z_strdup(decoded);
 }
 
 static void canon_push_param_ast(ParamVec *vec, Param item) {
@@ -560,12 +660,12 @@ static Expr *canon_parse_primary(CanonExprParser *parser) {
   const ZCanonicalToken *token = &parser->tokens->items[parser->pos++];
   if (token->kind == Z_CANON_TOKEN_STRING) {
     Expr *expr = canon_ast_new_expr(EXPR_STRING, token);
-    expr->text = z_strdup(token->text);
+    expr->text = canon_ast_decode_string_literal(token, parser->diag);
     return canon_parse_postfix(parser, expr);
   }
   if (token->kind == Z_CANON_TOKEN_CHAR) {
     Expr *expr = canon_ast_new_expr(EXPR_CHAR, token);
-    expr->text = z_strdup(token->text);
+    expr->text = canon_ast_decode_char_literal(token, parser->diag);
     return canon_parse_postfix(parser, expr);
   }
   if (token->kind == Z_CANON_TOKEN_NUMBER) {
@@ -624,6 +724,33 @@ static Expr *canon_parse_prefix(CanonExprParser *parser) {
     expr->left->text = z_strdup("0");
     expr->right = canon_parse_expr_prec(parser, 8);
     return expr;
+  }
+  if (token && canon_ast_is_text(token, "+")) {
+    parser->pos++;
+    Expr *expr = canon_ast_new_expr(EXPR_BINARY, token);
+    expr->text = z_strdup("+");
+    expr->left = canon_ast_new_expr(EXPR_NUMBER, token);
+    expr->left->text = z_strdup("0");
+    expr->right = canon_parse_expr_prec(parser, 8);
+    return expr;
+  }
+  if (token && canon_ast_is_text(token, "!")) {
+    parser->pos++;
+    Expr *expr = canon_ast_new_expr(EXPR_BINARY, token);
+    expr->text = z_strdup("==");
+    expr->left = canon_parse_expr_prec(parser, 8);
+    expr->right = canon_ast_new_expr(EXPR_BOOL, token);
+    expr->right->bool_value = false;
+    return expr;
+  }
+  if (token && canon_ast_is_text(token, "*")) {
+    parser->pos++;
+    Expr *callee = canon_ast_new_expr(EXPR_IDENT, token);
+    callee->text = z_strdup("deref");
+    Expr *call = canon_ast_new_expr(EXPR_CALL, token);
+    call->left = callee;
+    canon_push_expr_ast(&call->args, canon_parse_expr_prec(parser, 8));
+    return call;
   }
   return canon_parse_primary(parser);
 }
@@ -1092,8 +1219,11 @@ static void canon_parse_c_import_ast(CanonAstParser *parser, Program *program) {
   parser->pos++;
   canon_ast_expect(parser, "as", "expected C import alias");
   const ZCanonicalToken *alias = canon_ast_expect_word(parser, "expected C import alias name");
+  char *header_text = canon_ast_decode_string_literal(header, parser->diag);
   if (alias) {
-    canon_push_c_import_ast(&program->c_imports, (CImport){.header = z_strdup(header->text), .alias = z_strdup(alias->text), .line = header->line, .column = header->column});
+    canon_push_c_import_ast(&program->c_imports, (CImport){.header = header_text, .alias = z_strdup(alias->text), .line = header->line, .column = header->column});
+  } else {
+    free(header_text);
   }
 }
 
@@ -1107,7 +1237,7 @@ static void canon_parse_test_decl_ast(CanonAstParser *parser, Program *program) 
   ZBuf generated;
   zbuf_init(&generated);
   zbuf_appendf(&generated, "__zero_test_%zu", parser->test_counter++);
-  Function fun = {.name = generated.data, .test_name = z_strdup(name->text), .return_type = z_strdup("Void"), .is_test = true, .line = name->line, .column = name->column};
+  Function fun = {.name = generated.data, .test_name = canon_ast_decode_string_literal(name, parser->diag), .return_type = z_strdup("Void"), .is_test = true, .line = name->line, .column = name->column};
   fun.body = canon_parse_block_ast(parser);
   canon_push_function_ast(&program->functions, fun);
 }
@@ -1147,37 +1277,41 @@ static void canon_parse_declaration_ast(CanonAstParser *parser, Program *program
 }
 
 Program z_parse_canonical_text_program(const ZCanonicalTokenVec *tokens, ZDiag *diag) {
+  ZDiag local_diag = {0};
+  ZDiag *active_diag = diag ? diag : &local_diag;
   Program program = {0};
   if (!tokens) {
-    canon_ast_fail(diag, NULL, "missing canonical text token stream", "tokens", "missing");
+    canon_ast_fail(active_diag, NULL, "missing canonical text token stream", "tokens", "missing");
     return program;
   }
   ZCanonicalTree tree = {0};
   ZCanonicalFacts facts = {0};
-  if (!z_canonical_text_parse(tokens, &tree, &facts, diag)) {
+  if (!z_canonical_text_parse(tokens, &tree, &facts, active_diag)) {
     z_free_canonical_text_tree(&tree);
     return program;
   }
   z_free_canonical_text_tree(&tree);
-  CanonAstParser parser = {.tokens = tokens, .diag = diag};
+  CanonAstParser parser = {.tokens = tokens, .diag = active_diag};
   canon_ast_skip_newlines(&parser);
-  while (!canon_ast_has_diag(diag) && canon_ast_peek(&parser) && canon_ast_peek(&parser)->kind != Z_CANON_TOKEN_EOF) {
+  while (!canon_ast_has_diag(active_diag) && canon_ast_peek(&parser) && canon_ast_peek(&parser)->kind != Z_CANON_TOKEN_EOF) {
     canon_parse_declaration_ast(&parser, &program);
     canon_ast_skip_newlines(&parser);
   }
-  if (canon_ast_has_diag(diag)) z_free_program(&program);
+  if (canon_ast_has_diag(active_diag)) z_free_program(&program);
   return program;
 }
 
 bool z_parse_canonical_text_program_source(const char *source, Program *out, ZDiag *diag) {
-  if (!out) return canon_ast_fail(diag, NULL, "missing canonical text program output", "Program output", "missing");
+  ZDiag local_diag = {0};
+  ZDiag *active_diag = diag ? diag : &local_diag;
+  if (!out) return canon_ast_fail(active_diag, NULL, "missing canonical text program output", "Program output", "missing");
   *out = (Program){0};
-  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(source, diag);
-  if (canon_ast_has_diag(diag)) {
+  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(source, active_diag);
+  if (canon_ast_has_diag(active_diag)) {
     z_free_canonical_text_tokens(&tokens);
     return false;
   }
-  *out = z_parse_canonical_text_program(&tokens, diag);
+  *out = z_parse_canonical_text_program(&tokens, active_diag);
   z_free_canonical_text_tokens(&tokens);
-  return !canon_ast_has_diag(diag);
+  return !canon_ast_has_diag(active_diag);
 }
