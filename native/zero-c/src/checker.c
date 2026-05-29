@@ -30,6 +30,7 @@ typedef struct {
   Place origin;
   bool mutable_borrow;
   bool local_storage;
+  bool index_exact;
 } ProvenanceEntry;
 
 typedef struct {
@@ -323,7 +324,7 @@ static char *origin_path_join(const char *prefix, const char *suffix) {
   return joined;
 }
 
-static bool value_provenance_add_full(ValueProvenance *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage, const char *path, const char *origin_path) {
+static bool value_provenance_add_full_with_index_exact(ValueProvenance *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage, bool index_exact, const char *path, const char *origin_path) {
   if (!origins || !root || !root[0]) return false;
   for (size_t i = 0; i < origins->len; i++) {
     ProvenanceEntry *entry = &origins->items[i];
@@ -331,6 +332,7 @@ static bool value_provenance_add_full(ValueProvenance *origins, const char *root
         origin_path_equal(entry->value_path, path) && origin_path_equal(entry->origin.path, origin_path)) {
       entry->mutable_borrow = entry->mutable_borrow || mut_borrow;
       entry->local_storage = entry->local_storage || local_storage;
+      entry->index_exact = entry->index_exact && index_exact;
       return true;
     }
   }
@@ -344,9 +346,14 @@ static bool value_provenance_add_full(ValueProvenance *origins, const char *root
     },
     .mutable_borrow = mut_borrow,
     .local_storage = local_storage,
+    .index_exact = index_exact,
   };
   origins->len++;
   return true;
+}
+
+static bool value_provenance_add_full(ValueProvenance *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage, const char *path, const char *origin_path) {
+  return value_provenance_add_full_with_index_exact(origins, root, root_scope, mut_borrow, local_storage, false, path, origin_path);
 }
 
 static bool value_provenance_add_path(ValueProvenance *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage, const char *path) {
@@ -362,7 +369,7 @@ static bool value_provenance_add_all(ValueProvenance *out, const ValueProvenance
   if (!out || !source) return false;
   for (size_t i = 0; i < source->len; i++) {
     ProvenanceEntry *entry = &source->items[i];
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->value_path, entry->origin.path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, entry->value_path, entry->origin.path)) added = true;
   }
   return added;
 }
@@ -373,7 +380,7 @@ static bool value_provenance_add_all_with_prefix(ValueProvenance *out, const Val
   for (size_t i = 0; i < source->len; i++) {
     ProvenanceEntry *entry = &source->items[i];
     char *path = origin_path_join(path_prefix, entry->value_path);
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, path, entry->origin.path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, path, entry->origin.path)) added = true;
     free(path);
   }
   return added;
@@ -385,7 +392,7 @@ static bool value_provenance_add_all_as_with_prefix(ValueProvenance *out, const 
   for (size_t i = 0; i < source->len; i++) {
     ProvenanceEntry *entry = &source->items[i];
     char *path = origin_path_join(path_prefix, entry->value_path);
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, path, entry->origin.path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, entry->index_exact, path, entry->origin.path)) added = true;
     free(path);
   }
   return added;
@@ -398,7 +405,7 @@ static bool value_provenance_add_all_as_with_origin_suffix(ValueProvenance *out,
     ProvenanceEntry *entry = &source->items[i];
     char *value_path = origin_path_join(value_prefix, entry->value_path);
     char *origin_path = origin_path_join(entry->origin.path, origin_suffix);
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, value_path, origin_path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, entry->index_exact, value_path, origin_path)) added = true;
     free(value_path);
     free(origin_path);
   }
@@ -412,7 +419,7 @@ static bool value_provenance_add_direct_as_with_origin_suffix(ValueProvenance *o
     ProvenanceEntry *entry = &source->items[i];
     if (origin_path_text(entry->value_path)[0]) continue;
     char *origin_path = origin_path_join(entry->origin.path, origin_suffix);
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, NULL, origin_path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, mut_borrow, entry->local_storage, entry->index_exact, NULL, origin_path)) added = true;
     free(origin_path);
   }
   return added;
@@ -425,7 +432,7 @@ static bool value_provenance_add_all_under_path(ValueProvenance *out, const Valu
     ProvenanceEntry *entry = &source->items[i];
     if (!origin_path_is_within(entry->value_path, path_prefix)) continue;
     const char *relative_path = origin_path_after_prefix(entry->value_path, path_prefix);
-    if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, relative_path, entry->origin.path)) added = true;
+    if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, relative_path, entry->origin.path)) added = true;
   }
   return added;
 }
@@ -690,16 +697,14 @@ static bool scope_is_moved(Scope *scope, const char *name) {
   return false;
 }
 
-static bool scope_set_moved(Scope *scope, const char *name, bool moved) {
-  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    for (size_t i = 0; i < cursor->len; i++) {
-      if (strcmp(cursor->names[i], name) == 0) {
-        cursor->moved[i] = moved;
-        return true;
-      }
-    }
-  }
-  return false;
+static bool scope_set_moved_in_scope(Scope *scope, Scope *binding_scope, const char *name, bool moved) {
+  if (!name) return false;
+  Scope *target = binding_scope ? binding_scope : scope_binding_scope(scope, name);
+  if (!target) return false;
+  size_t index = 0;
+  if (!scope_binding_index_in_scope(target, name, &index)) return false;
+  target->moved[index] = moved;
+  return true;
 }
 
 static bool scope_is_param(Scope *scope, const char *name) {
@@ -779,47 +784,68 @@ static void scope_clear_maybe_present_in_scope_for_resolved_place(Scope *target,
   place_vec_clear_maybe_present_for_place(&target->maybe_present, lookup_scope, place->root_scope, place->root, place->path);
 }
 
-static bool scope_add_moved_place(Scope *scope, const char *root, const char *path) {
+static void scope_clear_maybe_present_for_resolved_place(Scope *scope, const Place *place) {
+  if (!scope || !place || !place->root || !place->root[0]) return;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    scope_clear_maybe_present_in_scope_for_resolved_place(cursor, scope, place);
+  }
+}
+
+static bool scope_add_moved_place_with_scope(Scope *scope, Scope *root_scope, const char *root, const char *path) {
   if (!scope || !root || !root[0]) return false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   Scope *target_scope = root_scope ? root_scope : scope;
   return place_vec_add(&target_scope->moved_places, root, root_scope, path);
 }
 
-static bool scope_has_moved_place(Scope *scope, const char *root, const char *path) {
+static bool scope_add_moved_resolved_place(Scope *scope, const Place *place) {
+  if (!place) return false;
+  return scope_add_moved_place_with_scope(scope, place->root_scope, place->root, place->path);
+}
+
+static bool scope_has_moved_place_with_scope(Scope *scope, Scope *root_scope, const char *root, const char *path, bool covering) {
   if (!scope || !root || !root[0]) return false;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->moved_places.len; i++) {
       Place *place = &cursor->moved_places.items[i];
       if (strcmp(place->root, root) != 0) continue;
       if (root_scope && place->root_scope && place->root_scope != root_scope) continue;
-      if (origin_path_overlaps(place->path, path)) return true;
+      if (covering ? origin_path_is_within(path, place->path) : origin_path_overlaps(place->path, path)) return true;
     }
   }
   return false;
+}
+
+static bool scope_has_moved_place(Scope *scope, const char *root, const char *path) {
+  return scope_has_moved_place_with_scope(scope, scope_binding_scope(scope, root), root, path, false);
+}
+
+static bool scope_has_moved_resolved_place(Scope *scope, const Place *place) {
+  if (!place) return false;
+  return scope_has_moved_place_with_scope(scope, place->root_scope, place->root, place->path, false);
 }
 
 static bool scope_has_moved_place_covering(Scope *scope, const char *root, const char *path) {
-  if (!scope || !root || !root[0]) return false;
-  Scope *root_scope = scope_binding_scope(scope, root);
-  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    for (size_t i = 0; i < cursor->moved_places.len; i++) {
-      Place *place = &cursor->moved_places.items[i];
-      if (strcmp(place->root, root) != 0) continue;
-      if (root_scope && place->root_scope && place->root_scope != root_scope) continue;
-      if (origin_path_is_within(path, place->path)) return true;
-    }
-  }
-  return false;
+  return scope_has_moved_place_with_scope(scope, scope_binding_scope(scope, root), root, path, true);
 }
 
-static void scope_clear_moved_place(Scope *scope, const char *root, const char *path) {
+static bool scope_has_moved_resolved_place_covering(Scope *scope, const Place *place) {
+  if (!place) return false;
+  return scope_has_moved_place_with_scope(scope, place->root_scope, place->root, place->path, true);
+}
+
+static void scope_clear_moved_place_with_scope(Scope *scope, Scope *root_scope, const char *root, const char *path) {
   if (!scope || !root || !root[0]) return;
-  Scope *root_scope = scope_binding_scope(scope, root);
+  if (!root_scope) root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     place_vec_clear_for_place(&cursor->moved_places, root_scope, root, path);
   }
+}
+
+static void scope_clear_moved_resolved_place(Scope *scope, const Place *place) {
+  if (!place) return;
+  scope_clear_moved_place_with_scope(scope, place->root_scope, place->root, place->path);
 }
 
 static bool scope_borrow_counts_for_place(Scope *scope, const char *root, const char *path, size_t *shared, size_t *mut) {
@@ -933,7 +959,7 @@ static void scope_replace_value_provenance_at(Scope *lookup_scope, Scope *bindin
   if (!origins) return;
   for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
     ProvenanceEntry *entry = &origins->items[origin_index];
-    value_provenance_add_full(&binding_scope->value_provenance[index], entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->value_path, entry->origin.path);
+    value_provenance_add_full_with_index_exact(&binding_scope->value_provenance[index], entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, entry->value_path, entry->origin.path);
   }
 }
 
@@ -944,7 +970,7 @@ static void scope_replace_value_provenance_path_at(Scope *lookup_scope, Scope *b
   for (size_t i = 0; i < existing->len; i++) {
     ProvenanceEntry *entry = &existing->items[i];
     if (origin_path_is_definitely_within(entry->value_path, path)) continue;
-    value_provenance_add_full(&merged, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->value_path, entry->origin.path);
+    value_provenance_add_full_with_index_exact(&merged, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, entry->value_path, entry->origin.path);
   }
   value_provenance_add_all_with_prefix(&merged, origins, path);
   scope_replace_value_provenance_at(lookup_scope, binding_scope, index, &merged);
@@ -994,7 +1020,7 @@ static bool scope_copy_value_provenance(Scope *scope, const char *name, ValuePro
       if (strcmp(cursor->names[i], name) == 0) {
         for (size_t origin_index = 0; origin_index < cursor->value_provenance[i].len; origin_index++) {
           ProvenanceEntry *entry = &cursor->value_provenance[i].items[origin_index];
-          if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->value_path, entry->origin.path)) added = true;
+          if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, entry->value_path, entry->origin.path)) added = true;
         }
         return added;
       }
@@ -1010,7 +1036,7 @@ static bool scope_copy_value_provenance_from_scope(Scope *scope, Scope *binding_
     if (!scope_binding_index_in_scope(binding_scope, name, &index)) return false;
     for (size_t origin_index = 0; origin_index < binding_scope->value_provenance[index].len; origin_index++) {
       ProvenanceEntry *entry = &binding_scope->value_provenance[index].items[origin_index];
-      if (value_provenance_add_full(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->value_path, entry->origin.path)) added = true;
+      if (value_provenance_add_full_with_index_exact(out, entry->origin.root, entry->origin.root_scope, entry->mutable_borrow, entry->local_storage, entry->index_exact, entry->value_path, entry->origin.path)) added = true;
     }
     return added;
   }
@@ -1443,6 +1469,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
 static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope);
 static bool is_int_type(const char *type);
 static void set_expr_resolved_type(const Expr *expr, const char *type);
+static bool collect_assignment_target_places(const Expr *target, Scope *scope, PlaceVec *places);
 static bool span_element_text(const char *type, char *out, size_t out_len);
 static bool readable_view_element_text(const char *type, char *out, size_t out_len);
 static bool fixed_array_type_parts(const char *type, char *length, size_t length_len, char *element, size_t element_len);
@@ -1542,7 +1569,7 @@ static bool span_view_expr_provenance(CheckContext *ctx, const Program *program,
         bool local_storage = path[0]
           ? span_view_place_origin_is_local_storage(scope, root)
           : reference_source_origin_is_local_storage(scope, root);
-        return value_provenance_add_full(origins, root, scope_binding_scope(scope, root), false, local_storage, NULL, path);
+        return value_provenance_add_full_with_index_exact(origins, root, scope_binding_scope(scope, root), false, local_storage, true, NULL, path);
       }
     }
     if (expr->kind == EXPR_IDENT &&
@@ -1619,6 +1646,21 @@ static bool check_place_available(const Expr *expr, Scope *scope, const char *ro
     snprintf(actual_detail, sizeof(actual_detail), "%.200s was moved", place);
     return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
   }
+  PlaceVec resolved_places = {0};
+  if (collect_assignment_target_places(expr, scope, &resolved_places)) {
+    for (size_t i = 0; i < resolved_places.len; i++) {
+      Place *place = &resolved_places.items[i];
+      if (scope_has_moved_resolved_place(scope, place)) {
+        char place_text[200];
+        format_origin_place(place_text, sizeof(place_text), place->root, place->path);
+        char actual_detail[240];
+        snprintf(actual_detail, sizeof(actual_detail), "%.200s was moved", place_text);
+        place_vec_free(&resolved_places);
+        return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
+      }
+    }
+  }
+  place_vec_free(&resolved_places);
   return true;
 }
 
@@ -1637,6 +1679,21 @@ static bool check_lvalue_base_available(const Expr *expr, Scope *scope, const ch
     snprintf(actual_detail, sizeof(actual_detail), "%.200s was moved", place);
     return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
   }
+  PlaceVec resolved_places = {0};
+  if (collect_assignment_target_places(expr, scope, &resolved_places)) {
+    for (size_t i = 0; i < resolved_places.len; i++) {
+      Place *place = &resolved_places.items[i];
+      if (scope_has_moved_resolved_place_covering(scope, place)) {
+        char place_text[200];
+        format_origin_place(place_text, sizeof(place_text), place->root, place->path);
+        char actual_detail[240];
+        snprintf(actual_detail, sizeof(actual_detail), "%.200s was moved", place_text);
+        place_vec_free(&resolved_places);
+        return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
+      }
+    }
+  }
+  place_vec_free(&resolved_places);
   return true;
 }
 
@@ -1724,7 +1781,7 @@ static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place
     for (size_t i = 0; i < root_origins.len; i++) {
       ProvenanceEntry *entry = &root_origins.items[i];
       if (origin_path_text(entry->value_path)[0]) continue;
-      char *generalized_path = root_view_like ? origin_path_generalize_indexes(guard_place->path) : NULL;
+      char *generalized_path = root_view_like && !entry->index_exact ? origin_path_generalize_indexes(guard_place->path) : NULL;
       char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : guard_place->path);
       bool same_storage_root = strcmp(entry->origin.root, mutation_root) == 0 &&
         place_root_scope_matches(entry->origin.root_scope, mutation_root_scope);
@@ -7325,45 +7382,50 @@ static bool check_expr(CheckContext *ctx, const Program *program, const Expr *ex
   return check_expr_expected(ctx, program, expr, scope, diag, NULL);
 }
 
+static bool mark_owned_payload_move_from_maybe_expr(const Expr *maybe_expr, Scope *scope) {
+  PlaceVec places = {0};
+  bool marked = false;
+  if (collect_assignment_target_places(maybe_expr, scope, &places)) {
+    for (size_t i = 0; i < places.len; i++) {
+      Place *place = &places.items[i];
+      char *payload_path = origin_path_join(place->path, "value");
+      if (scope_add_moved_place_with_scope(scope, place->root_scope, place->root, payload_path)) marked = true;
+      free(payload_path);
+    }
+  }
+  place_vec_free(&places);
+  return marked;
+}
+
 static void mark_owned_move_if_needed(const Program *program, const Expr *expr, Scope *scope, const char *destination_type) {
   if (!expr || !scope || !destination_type || !type_contains_owned(program, destination_type, 0)) return;
   if (expr->kind == EXPR_CHECK) {
-    char root[128];
-    char path[256];
-    if (expr_binding_path(expr->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root)) {
-      char *payload_path = origin_path_join(path, "value");
-      scope_add_moved_place(scope, root, payload_path);
-      free(payload_path);
-      ((Expr *)expr)->moves_ownership = true;
-    }
+    if (mark_owned_payload_move_from_maybe_expr(expr->left, scope)) ((Expr *)expr)->moves_ownership = true;
     return;
   }
   if (expr->kind == EXPR_RESCUE) {
-    char root[128];
-    char path[256];
-    if (expr_binding_path(expr->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root)) {
-      char *payload_path = origin_path_join(path, "value");
-      scope_add_moved_place(scope, root, payload_path);
-      free(payload_path);
-      ((Expr *)expr)->moves_ownership = true;
-    }
+    if (mark_owned_payload_move_from_maybe_expr(expr->left, scope)) ((Expr *)expr)->moves_ownership = true;
     mark_owned_move_if_needed(program, expr->right, scope, destination_type);
     return;
   }
-  char root[128];
-  char path[256];
-  if (!expr_binding_path(expr, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return;
-  if (!path[0]) {
-    const char *source_type = scope_type(scope, root);
-    if (source_type && type_contains_owned(program, source_type, 0)) {
-      scope_add_moved_place(scope, root, NULL);
-      scope_set_moved(scope, root, true);
-      ((Expr *)expr)->moves_ownership = true;
+  PlaceVec places = {0};
+  bool marked = false;
+  if (collect_assignment_target_places(expr, scope, &places)) {
+    for (size_t i = 0; i < places.len; i++) {
+      Place *place = &places.items[i];
+      if (!origin_path_text(place->path)[0]) {
+        const char *source_type = scope_type_in_binding_scope(scope, place->root_scope, place->root);
+        if (source_type && type_contains_owned(program, source_type, 0)) {
+          if (scope_add_moved_place_with_scope(scope, place->root_scope, place->root, NULL)) marked = true;
+          scope_set_moved_in_scope(scope, place->root_scope, place->root, true);
+        }
+      } else if (scope_add_moved_resolved_place(scope, place)) {
+        marked = true;
+      }
     }
-    return;
   }
-  scope_add_moved_place(scope, root, path);
-  ((Expr *)expr)->moves_ownership = true;
+  place_vec_free(&places);
+  if (marked) ((Expr *)expr)->moves_ownership = true;
 }
 
 static bool check_owned_array_element_transfer(const Program *program, const Expr *expr, Scope *scope, const char *element_type, bool array_repeat, ZDiag *diag) {
@@ -7377,11 +7439,15 @@ static bool check_owned_array_element_transfer(const Program *program, const Exp
 
 static void mark_owned_target_live_if_needed(const Program *program, const Expr *target, Scope *scope, const char *target_type) {
   if (!target || !scope || !target_type || !type_contains_owned(program, target_type, 0)) return;
-  char root[128];
-  char path[256];
-  if (!expr_binding_path(target, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return;
-  if (!path[0]) scope_set_moved(scope, root, false);
-  scope_clear_moved_place(scope, root, path);
+  PlaceVec places = {0};
+  if (collect_assignment_target_places(target, scope, &places)) {
+    for (size_t i = 0; i < places.len; i++) {
+      Place *place = &places.items[i];
+      if (!origin_path_text(place->path)[0]) scope_set_moved_in_scope(scope, place->root_scope, place->root, false);
+      scope_clear_moved_resolved_place(scope, place);
+    }
+  }
+  place_vec_free(&places);
 }
 
 static bool check_lvalue_target(CheckContext *ctx, const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len) {
@@ -8657,7 +8723,7 @@ static bool collect_assignment_target_places(const Expr *target, Scope *scope, P
       for (size_t i = 0; i < root_origins.len; i++) {
         ProvenanceEntry *entry = &root_origins.items[i];
         if (origin_path_text(entry->value_path)[0]) continue;
-        char *generalized_path = root_view_like ? origin_path_generalize_indexes(path) : NULL;
+        char *generalized_path = root_view_like && !entry->index_exact ? origin_path_generalize_indexes(path) : NULL;
         char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : path);
         if (place_vec_add(places, entry->origin.root, entry->origin.root_scope, target_path)) added = true;
         free(generalized_path);
@@ -9083,7 +9149,7 @@ static void scope_clear_maybe_guards_for_places(Scope *scope, const PlaceVec *pl
   if (!scope || !places) return;
   for (size_t i = 0; i < places->len; i++) {
     const Place *place = &places->items[i];
-    scope_clear_maybe_present_for_place(scope, place->root, place->path);
+    scope_clear_maybe_present_for_resolved_place(scope, place);
   }
 }
 
@@ -9811,7 +9877,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (collect_assignment_target_places(target, scope, &assigned_places)) {
       for (size_t i = 0; i < assigned_places.len; i++) {
         Place *place = &assigned_places.items[i];
-        scope_clear_maybe_present_for_place(scope, place->root, place->path);
+        scope_clear_maybe_present_for_resolved_place(scope, place);
       }
     }
     place_vec_free(&assigned_places);
