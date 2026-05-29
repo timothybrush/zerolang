@@ -2344,6 +2344,16 @@ const tinyHello = join(outDir, "tiny-hello");
 rmSync(tinyHello, { force: true });
 zero(["build", "--release", "tiny", "--target", "linux-musl-x64", "examples/hello.0", "--out", tinyHello]);
 assert(statSync(tinyHello).size < 10 * 1024);
+const profileCacheCheckSource = join(outDir, "profile-cache-check.0");
+writeFileSync(profileCacheCheckSource, `pub fn main(world: World) -> Void raises {
+    check world.out.write("profile cache ${process.pid}\\n")
+}
+`);
+const profileCacheCheck = json(["check", "--json", "--profile", "fast", profileCacheCheckSource]).body;
+const profileCacheSpecialization = profileCacheCheck.compilerCaches.find((cache) => cache.name === "specialization");
+assert(profileCacheSpecialization);
+assert.equal(profileCacheCheck.incrementalInvalidation.profileDependency, "fast");
+assert.equal(existsSync(join(".zero", "cache", "native", `specialization-${profileCacheSpecialization.key}.cache`)), true);
 const buildReport = json(["build", "--json", "--target", "linux-musl-x64", "examples/hello.0", "--out", join(outDir, "hello-linux-report")]).body;
 assert.equal(buildReport.schemaVersion, 1);
 assert.equal(buildReport.emit, "exe");
@@ -3398,10 +3408,13 @@ for (const [fixture, code] of [
   const result = json(["check", "--json", fixture], { allowFailure: true });
   assert.notEqual(result.code, 0);
   assert.equal(result.body.diagnostics[0].code, code);
+  assert.equal(result.body.safetyFacts.schemaVersion, 1);
+  assert.equal(result.body.safetyFacts.profileKey, "small");
 }
 const targetIncompatible = json(["check", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"], { allowFailure: true });
 assert.notEqual(targetIncompatible.code, 0);
 assert.equal(targetIncompatible.body.diagnostics[0].code, "PKG004");
+assert.equal(targetIncompatible.body.safetyFacts.schemaVersion, 1);
 
 const zeroHashSize = json(["size", "--json", "--target", "linux-musl-x64", "examples/zero-hash", "--out", join(outDir, "zero-hash-sized")]).body;
 assert.equal(zeroHashSize.generatedCBytes, 0);
