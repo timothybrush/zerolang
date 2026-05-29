@@ -9948,7 +9948,6 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
       for (size_t previous = 0; previous < arm_index; previous++) {
         if (!arm->guard && !stmt->match_arms.items[previous].guard && strcmp(stmt->match_arms.items[previous].case_name, arm->case_name) == 0) return set_diag_detail(diag, 3107, "duplicate match arm", arm->line, arm->column, "one unguarded arm per variant case", arm->case_name, "remove the duplicate arm");
       }
-      if (!check_match_guard(ctx, program, arm, scope, diag)) return false;
     }
     for (size_t case_index = 0; case_index < cases->len; case_index++) {
       bool seen = false;
@@ -9971,6 +9970,19 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
           scope_add(&arm_scope, arm->payload_name, item_case->type, false);
           register_match_payload_binding_provenance(ctx, program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
         }
+      }
+      if (!check_match_guard(ctx, program, arm, &arm_scope, diag)) {
+        scope_free(&arm_scope);
+        provenance_scope_snapshot_restore(before);
+        for (size_t i = 0; i < stmt->match_arms.len; i++) {
+          provenance_scope_snapshot_free(arm_states[i]);
+          place_vec_free(&arm_maybe_present[i]);
+        }
+        free(arm_states);
+        free(arm_continues);
+        free(arm_maybe_present);
+        provenance_scope_snapshot_free(before);
+        return false;
       }
       scope_clear_maybe_guards_for_expr_mutations(ctx, program, arm->guard, &arm_scope, &arm_scope);
       scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, &arm_scope, &arm_scope);

@@ -346,6 +346,7 @@ for (const fixture of [
   "conformance/native/pass/maybe-guard-short-circuit-match.0",
   "conformance/native/pass/maybe-guard-static-index-literals.0",
   "conformance/native/pass/maybe-guard-variant-match-after.0",
+  "conformance/native/pass/maybe-guard-variant-guard-side-effect.0",
   "conformance/native/pass/match-scalar-guards.0",
   "conformance/native/pass/indexing-primitives.0",
   "conformance/native/pass/checked-bounds-get.0",
