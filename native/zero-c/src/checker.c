@@ -1483,10 +1483,23 @@ static void scope_clear_maybe_guards_for_mutating_call_args(CheckContext *ctx, c
 
 static bool slice_source_is_mutable_storage(const Expr *source, Scope *scope, const char *source_type) {
   if (!source || !scope || !source_type) return false;
+  char source_mutref_inner[160];
+  char source_ref_inner[160];
+  if (named_ref_inner_text(source_type, "mutref", source_mutref_inner, sizeof(source_mutref_inner))) {
+    source_type = source_mutref_inner;
+  } else if (named_ref_inner_text(source_type, "ref", source_ref_inner, sizeof(source_ref_inner))) {
+    return false;
+  }
   if (type_is_named_generic(source_type, "MutSpan")) return true;
   char element_type[128];
   if (!fixed_array_type_parts(source_type, NULL, 0, element_type, sizeof(element_type))) return false;
-  return source->kind == EXPR_IDENT && scope_is_mutable(scope, source->text);
+  char root[128];
+  char path[256];
+  if (!expr_binding_path(source, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
+  const char *root_type = scope_type(scope, root);
+  char root_mutref_inner[160];
+  if (named_ref_inner_text(root_type, "mutref", root_mutref_inner, sizeof(root_mutref_inner))) return true;
+  return scope_is_mutable(scope, root);
 }
 
 static bool borrow_expr_source_is_local_storage(const Expr *borrowed, Scope *scope, const char *root) {

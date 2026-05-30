@@ -82,12 +82,14 @@ static void macho_emit_add_scaled_index(ZBuf *text, unsigned dst, unsigned base,
 
 static void macho_emit_load_ptr_element(ZBuf *text, unsigned dst, unsigned base, IrTypeKind element_type) {
   if (element_type == IR_TYPE_U8 || element_type == IR_TYPE_BOOL) z_aarch64_emit_load_b_imm(text, dst, base, 0);
+  else if (element_type == IR_TYPE_U16) z_aarch64_emit_load_h_imm(text, dst, base, 0);
   else if (macho_type_is_scalar64(element_type)) z_aarch64_emit_load_x_imm(text, dst, base, 0);
   else z_aarch64_emit_load_w_imm(text, dst, base, 0);
 }
 
 static void macho_emit_store_ptr_element(ZBuf *text, unsigned src, unsigned base, IrTypeKind element_type) {
   if (element_type == IR_TYPE_U8 || element_type == IR_TYPE_BOOL) z_aarch64_emit_store_b_imm(text, src, base, 0);
+  else if (element_type == IR_TYPE_U16) z_aarch64_emit_store_h_imm(text, src, base, 0);
   else if (macho_type_is_scalar64(element_type)) z_aarch64_emit_store_x_imm(text, src, base, 0);
   else z_aarch64_emit_store_w_imm(text, src, base, 0);
 }
@@ -709,15 +711,16 @@ static bool macho_emit_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, c
     macho_emit_load_local_w(text, fun, reg, value->array_index, const_index * 4u, frame_size);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array &&
+      (local->element_type == IR_TYPE_U16 || local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
     if (!value->index || !macho_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
     if (!macho_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
     z_aarch64_emit_movz_w(text, 9, local->array_len);
     macho_emit_u32_bounds_check(text, 8, 9);
     if (!macho_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
     z_aarch64_emit_add_x_sp_imm(text, 9, macho_local_slot_offset(fun, value->array_index, 0, frame_size));
-    z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
-    z_aarch64_emit_load_w_imm(text, reg, 9, 0);
+    macho_emit_add_scaled_index(text, 9, 9, 8, local->element_type);
+    macho_emit_load_ptr_element(text, reg, 9, local->element_type);
     return true;
   }
   if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return macho_diag_at(diag, "direct AArch64 Mach-O indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
@@ -1228,14 +1231,15 @@ static bool macho_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *i
       macho_emit_store_local_w(text, fun, 10, instr->array_index, const_index * 4u, frame_size);
       return true;
     }
-    if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+    if (local->is_array &&
+        (local->element_type == IR_TYPE_U16 || local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
       if (!macho_emit_value_to_reg(text, fun, instr->value, 10, frame_size, ctx, diag)) return false;
       if (!instr->index || !macho_emit_value_to_reg(text, fun, instr->index, 8, frame_size, ctx, diag)) return false;
       z_aarch64_emit_movz_w(text, 9, local->array_len);
       macho_emit_u32_bounds_check(text, 8, 9);
       z_aarch64_emit_add_x_sp_imm(text, 9, macho_local_slot_offset(fun, instr->array_index, 0, frame_size));
-      z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
-      z_aarch64_emit_store_w_imm(text, 10, 9, 0);
+      macho_emit_add_scaled_index(text, 9, 9, 8, local->element_type);
+      macho_emit_store_ptr_element(text, 10, 9, local->element_type);
       return true;
     }
     if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return macho_diag_at(diag, "direct AArch64 Mach-O indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
@@ -1343,7 +1347,8 @@ static bool macho_validate_function(const IrFunction *fun, ZDiag *diag) {
       continue;
     }
     if (fun->locals[i].is_array && (fun->locals[i].element_type == IR_TYPE_U8 || fun->locals[i].element_type == IR_TYPE_BOOL ||
-                                    fun->locals[i].element_type == IR_TYPE_U32 || fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
+                                    fun->locals[i].element_type == IR_TYPE_U16 || fun->locals[i].element_type == IR_TYPE_U32 ||
+                                    fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
     if (fun->locals[i].is_record) continue;
     if (fun->locals[i].type == IR_TYPE_ALLOC || fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW || fun->locals[i].type == IR_TYPE_MAYBE_SCALAR) continue;
     if (fun->locals[i].type == IR_TYPE_VEC) continue;

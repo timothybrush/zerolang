@@ -58,8 +58,31 @@ static IrTypeKind machx64_view_element_type(const IrValue *view) {
 
 static unsigned machx64_type_byte_size(IrTypeKind type) {
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 1;
+  if (type == IR_TYPE_U16) return 2;
   if (machx64_type_is_i64(type)) return 8;
   return 4;
+}
+
+static bool machx64_type_is_array_element(IrTypeKind type) {
+  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE;
+}
+
+static bool machx64_type_is_word_array_element(IrTypeKind type) {
+  return type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE;
+}
+
+static void machx64_emit_load_ptr_element(ZBuf *text, unsigned dst_reg, unsigned base_reg, IrTypeKind element_type) {
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_movzx_reg32_ptr_reg_u8(text, dst_reg, base_reg);
+  else if (element_type == IR_TYPE_U16) z_x64_emit_movzx_reg32_ptr_reg_disp_u16(text, dst_reg, base_reg, 0);
+  else if (machx64_type_is_i64(element_type)) z_x64_emit_load_reg_ptr_reg(text, dst_reg, base_reg, true);
+  else z_x64_emit_load_reg_ptr_reg(text, dst_reg, base_reg, false);
+}
+
+static void machx64_emit_store_ptr_element(ZBuf *text, unsigned base_reg, unsigned src_reg, IrTypeKind element_type) {
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_store_ptr_reg8_from_reg(text, base_reg, src_reg);
+  else if (element_type == IR_TYPE_U16) z_x64_emit_store_ptr_reg16_from_reg(text, base_reg, src_reg);
+  else if (machx64_type_is_i64(element_type)) z_x64_emit_store_ptr_reg_from_reg(text, base_reg, src_reg, true);
+  else z_x64_emit_store_ptr_reg_from_reg(text, base_reg, src_reg, false);
 }
 
 static void machx64_emit_scale_index_into_rax(ZBuf *text, IrTypeKind element_type) {
@@ -557,9 +580,7 @@ static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction
   z_x64_emit_mov_reg_from_reg(text, 0, 8, true);
   IrTypeKind element_type = machx64_view_element_type(value->left);
   machx64_emit_scale_index_into_rax(text, element_type);
-  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 0);
-  else if (machx64_type_is_i64(element_type)) z_x64_emit_load_reg_ptr_reg(text, 0, 0, true);
-  else z_x64_emit_load_reg_ptr_reg(text, 0, 0, false);
+  machx64_emit_load_ptr_element(text, 0, 0, element_type);
   return true;
 }
 
@@ -608,32 +629,22 @@ static bool machx64_emit_byte_view_eq_value(ZBuf *text, const IrFunction *fun, c
 static bool machx64_emit_index_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
   if (value->array_index >= fun->local_len) return machx64_diag_at(diag, "direct x86_64 Mach-O indexed load array is out of range", value->line, value->column, "invalid array local");
   const IrLocal *local = &fun->locals[value->array_index];
-  bool byte_array = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL;
   unsigned const_index = 0;
-  if (local->is_array && !byte_array && machx64_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
+  if (local->is_array && machx64_type_is_word_array_element(local->element_type) && machx64_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
     machx64_emit_load_local_slot_eax(text, fun, value->array_index, const_index * 4u);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && machx64_type_is_array_element(local->element_type)) {
     if (!value->index || !machx64_emit_value(text, fun, value->index, ctx, diag)) return false;
     machx64_emit_bounds_check(text, local);
     z_x64_emit_push_rax(text);
     machx64_emit_array_base_rdx(text, fun, value->array_index);
     z_x64_emit_pop_reg64(text, 1);
-    z_x64_emit_shl_rcx_imm8(text, 2);
-    z_x64_emit_add_rdx_rcx(text, true);
-    z_x64_emit_load_reg_ptr_reg(text, 0, 2, false);
+    z_x64_emit_lea_base_index_scale_disp_reg(text, 2, 2, 1, machx64_type_byte_size(local->element_type), 0);
+    machx64_emit_load_ptr_element(text, 0, 2, local->element_type);
     return true;
   }
-  if (!local->is_array || !byte_array) return machx64_diag_at(diag, "direct x86_64 Mach-O indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
-  if (!value->index || !machx64_emit_value(text, fun, value->index, ctx, diag)) return false;
-  machx64_emit_bounds_check(text, local);
-  z_x64_emit_push_rax(text);
-  machx64_emit_array_base_rdx(text, fun, value->array_index);
-  z_x64_emit_pop_reg64(text, 1);
-  z_x64_emit_add_rdx_rcx(text, true);
-  z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 2);
-  return true;
+  return machx64_diag_at(diag, "direct x86_64 Mach-O indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
 }
 
 static bool machx64_emit_field_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, ZDiag *diag) {
@@ -764,9 +775,7 @@ static bool machx64_emit_byte_view_index_store_instr(ZBuf *text, const IrFunctio
   machx64_emit_scale_index_into_rax(text, element_type);
   z_x64_emit_mov_reg_from_reg(text, 2, 0, true);
   z_x64_emit_pop_reg64(text, 0);
-  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
-  else if (machx64_type_is_i64(element_type)) z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, true);
-  else z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, false);
+  machx64_emit_store_ptr_element(text, 2, 0, element_type);
   return true;
 }
 
@@ -774,35 +783,24 @@ static bool machx64_emit_index_store_instr(ZBuf *text, const IrFunction *fun, co
   if (instr->array_index >= fun->local_len) return machx64_diag_at(diag, "direct x86_64 Mach-O indexed store array is out of range", instr->line, instr->column, "invalid array local");
   const IrLocal *local = &fun->locals[instr->array_index];
   if (local->type == IR_TYPE_BYTE_VIEW) return machx64_emit_byte_view_index_store_instr(text, fun, instr, ctx, diag);
-  bool byte_array = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL;
   unsigned const_index = 0;
-  if (local->is_array && !byte_array && machx64_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
+  if (local->is_array && machx64_type_is_word_array_element(local->element_type) && machx64_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
     if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
     machx64_emit_store_local_slot_from_reg(text, fun, instr->array_index, 0, const_index * 4u, false);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && machx64_type_is_array_element(local->element_type)) {
     if (!instr->index || !machx64_emit_value(text, fun, instr->index, ctx, diag)) return false;
     machx64_emit_bounds_check(text, local);
     z_x64_emit_push_rax(text);
     if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
     z_x64_emit_pop_reg64(text, 1);
     machx64_emit_array_base_rdx(text, fun, instr->array_index);
-    z_x64_emit_shl_rcx_imm8(text, 2);
-    z_x64_emit_add_rdx_rcx(text, true);
-    z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, false);
+    z_x64_emit_lea_base_index_scale_disp_reg(text, 2, 2, 1, machx64_type_byte_size(local->element_type), 0);
+    machx64_emit_store_ptr_element(text, 2, 0, local->element_type);
     return true;
   }
-  if (!local->is_array || !byte_array) return machx64_diag_at(diag, "direct x86_64 Mach-O indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
-  if (!instr->index || !machx64_emit_value(text, fun, instr->index, ctx, diag)) return false;
-  machx64_emit_bounds_check(text, local);
-  z_x64_emit_push_rax(text);
-  if (!machx64_emit_value(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_pop_reg64(text, 1);
-  machx64_emit_array_base_rdx(text, fun, instr->array_index);
-  z_x64_emit_add_rdx_rcx(text, true);
-  z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
-  return true;
+  return machx64_diag_at(diag, "direct x86_64 Mach-O indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
 }
 
 static bool machx64_emit_if_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, MachOEmitContext *ctx, ZDiag *diag) {
@@ -905,7 +903,7 @@ static bool machx64_validate_function(const IrFunction *fun, ZDiag *diag) {
   }
   for (size_t i = 0; i < fun->local_len; i++) {
     if (fun->locals[i].type == IR_TYPE_BYTE_VIEW || fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
-    if (fun->locals[i].is_array && (fun->locals[i].element_type == IR_TYPE_BOOL || fun->locals[i].element_type == IR_TYPE_U8 || fun->locals[i].element_type == IR_TYPE_U32 || fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
+    if (fun->locals[i].is_array && machx64_type_is_array_element(fun->locals[i].element_type)) continue;
     if (fun->locals[i].is_record) continue;
     if (fun->locals[i].is_array || !machx64_type_is_supported_scalar(fun->locals[i].type)) {
       return machx64_diag_at(diag, "direct x86_64 Mach-O object backend currently supports only primitive scalar locals", fun->locals[i].line, fun->locals[i].column, fun->locals[i].name);

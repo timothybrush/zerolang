@@ -193,8 +193,9 @@ static bool build_check_function_shape(const ZBuildability *ctx, const IrFunctio
     if (local->is_record || local->type == IR_TYPE_BYTE_VIEW || local->type == IR_TYPE_ALLOC || local->type == IR_TYPE_VEC || local->type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
     if (ctx->backend != Z_DIRECT_BACKEND_COFF_X64 && local->type == IR_TYPE_MAYBE_SCALAR) continue;
     if (local->is_array) {
-      bool array_ok = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_U32 ||
-                      local->element_type == IR_TYPE_USIZE || ((ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64) && local->element_type == IR_TYPE_BOOL) ||
+      bool array_ok = local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_U16 || local->element_type == IR_TYPE_I32 ||
+                      local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_USIZE ||
+                      ((ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64) && local->element_type == IR_TYPE_BOOL) ||
                       (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 && local->element_type == IR_TYPE_BOOL) ||
                       (ctx->backend == Z_DIRECT_BACKEND_ELF64 && (local->element_type == IR_TYPE_I64 || local->element_type == IR_TYPE_U64));
       if (!array_ok) return z_build_diag(ctx, diag, "direct backend object buildability does not support this fixed-array local", local->line, local->column, z_build_type_name(local->element_type));

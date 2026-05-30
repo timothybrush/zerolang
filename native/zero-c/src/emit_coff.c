@@ -48,8 +48,29 @@ static IrTypeKind coff_view_element_type(const IrValue *view) {
 
 static unsigned coff_type_byte_size(IrTypeKind type) {
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 1;
+  if (type == IR_TYPE_U16) return 2;
   if (type == IR_TYPE_I64 || type == IR_TYPE_U64) return 8;
   return 4;
+}
+
+static bool coff_type_is_array_element(IrTypeKind type) {
+  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE;
+}
+
+static bool coff_type_is_word_array_element(IrTypeKind type) {
+  return type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE;
+}
+
+static void coff_emit_load_ptr_element(ZBuf *text, unsigned dst_reg, unsigned base_reg, IrTypeKind element_type) {
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_movzx_reg32_ptr_reg_u8(text, dst_reg, base_reg);
+  else if (element_type == IR_TYPE_U16) z_x64_emit_movzx_reg32_ptr_reg_disp_u16(text, dst_reg, base_reg, 0);
+  else z_x64_emit_load_reg_ptr_reg(text, dst_reg, base_reg, false);
+}
+
+static void coff_emit_store_ptr_element(ZBuf *text, unsigned base_reg, unsigned src_reg, IrTypeKind element_type) {
+  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_store_ptr_reg8_from_reg(text, base_reg, src_reg);
+  else if (element_type == IR_TYPE_U16) z_x64_emit_store_ptr_reg16_from_reg(text, base_reg, src_reg);
+  else z_x64_emit_store_ptr_reg_from_reg(text, base_reg, src_reg, false);
 }
 
 static void coff_emit_scale_index_into_rax(ZBuf *text, IrTypeKind element_type) {
@@ -513,8 +534,7 @@ static bool coff_emit_byte_view_index_load_value(ZBuf *text, const IrFunction *f
   z_x64_emit_mov_reg_from_reg(text, 0, 8, true);
   IrTypeKind element_type = coff_view_element_type(value->left);
   coff_emit_scale_index_into_rax(text, element_type);
-  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 0);
-  else z_x64_emit_load_reg_ptr_reg(text, 0, 0, false);
+  coff_emit_load_ptr_element(text, 0, 0, element_type);
   return true;
 }
 
@@ -568,30 +588,21 @@ static bool coff_emit_index_load_value(ZBuf *text, const IrFunction *fun, const 
   if (value->array_index >= fun->local_len) return coff_diag_at(diag, "direct COFF indexed load array is out of range", value->line, value->column, "invalid array local");
   const IrLocal *local = &fun->locals[value->array_index];
   unsigned const_index = 0;
-  if (local->is_array && local->element_type != IR_TYPE_U8 && coff_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
+  if (local->is_array && coff_type_is_word_array_element(local->element_type) && coff_const_u32_value(value->index, &const_index) && const_index < local->array_len) {
     coff_emit_load_local_slot_eax(text, fun, value->array_index, const_index * 4u);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && coff_type_is_array_element(local->element_type)) {
     if (!value->index || !coff_emit_value(text, fun, value->index, ctx, diag)) return false;
     coff_emit_u8_array_bounds_check(text, local);
     z_x64_emit_push_rax(text);
     coff_emit_array_base_rdx(text, fun, value->array_index);
     z_x64_emit_pop_reg64(text, 1);
-    z_x64_emit_shl_rcx_imm8(text, 2);
-    z_x64_emit_add_rdx_rcx(text, true);
-    z_x64_emit_load_reg_ptr_reg(text, 0, 2, false);
+    z_x64_emit_lea_base_index_scale_disp_reg(text, 2, 2, 1, coff_type_byte_size(local->element_type), 0);
+    coff_emit_load_ptr_element(text, 0, 2, local->element_type);
     return true;
   }
-  if (!local->is_array || local->element_type != IR_TYPE_U8) return coff_diag_at(diag, "direct COFF indexed load requires [N]u8 or integer arrays", value->line, value->column, "unsupported array local");
-  if (!value->index || !coff_emit_value(text, fun, value->index, ctx, diag)) return false;
-  coff_emit_u8_array_bounds_check(text, local);
-  z_x64_emit_push_rax(text);
-  coff_emit_array_base_rdx(text, fun, value->array_index);
-  z_x64_emit_pop_reg64(text, 1);
-  z_x64_emit_add_rdx_rcx(text, true);
-  z_x64_emit_movzx_reg32_ptr_reg_u8(text, 0, 2);
-  return true;
+  return coff_diag_at(diag, "direct COFF indexed load requires [N]u8 or integer arrays", value->line, value->column, "unsupported array local");
 }
 
 static bool coff_emit_field_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, ZDiag *diag) {
@@ -769,8 +780,7 @@ static bool coff_emit_byte_view_index_store_instr(ZBuf *text, const IrFunction *
   coff_emit_scale_index_into_rax(text, element_type);
   z_x64_emit_mov_reg_from_rax(text, 2, true);
   z_x64_emit_pop_reg64(text, 0);
-  if (element_type == IR_TYPE_BOOL || element_type == IR_TYPE_U8) z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
-  else z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, false);
+  coff_emit_store_ptr_element(text, 2, 0, element_type);
   return true;
 }
 
@@ -779,33 +789,23 @@ static bool coff_emit_index_store_instr(ZBuf *text, const IrFunction *fun, const
   const IrLocal *local = &fun->locals[instr->array_index];
   if (local->type == IR_TYPE_BYTE_VIEW) return coff_emit_byte_view_index_store_instr(text, fun, instr, ctx, diag);
   unsigned const_index = 0;
-  if (local->is_array && local->element_type != IR_TYPE_U8 && coff_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
+  if (local->is_array && coff_type_is_word_array_element(local->element_type) && coff_const_u32_value(instr->index, &const_index) && const_index < local->array_len) {
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     coff_emit_store_local_slot_from_reg(text, fun, instr->array_index, 0, const_index * 4u, false);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && coff_type_is_array_element(local->element_type)) {
     if (!instr->index || !coff_emit_value(text, fun, instr->index, ctx, diag)) return false;
     coff_emit_u8_array_bounds_check(text, local);
     z_x64_emit_push_rax(text);
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     z_x64_emit_pop_reg64(text, 1);
     coff_emit_array_base_rdx(text, fun, instr->array_index);
-    z_x64_emit_shl_rcx_imm8(text, 2);
-    z_x64_emit_add_rdx_rcx(text, true);
-    z_x64_emit_store_ptr_reg_from_reg(text, 2, 0, false);
+    z_x64_emit_lea_base_index_scale_disp_reg(text, 2, 2, 1, coff_type_byte_size(local->element_type), 0);
+    coff_emit_store_ptr_element(text, 2, 0, local->element_type);
     return true;
   }
-  if (!local->is_array || local->element_type != IR_TYPE_U8) return coff_diag_at(diag, "direct COFF indexed store requires [N]u8 or integer arrays", instr->line, instr->column, "unsupported array local");
-  if (!instr->index || !coff_emit_value(text, fun, instr->index, ctx, diag)) return false;
-  coff_emit_u8_array_bounds_check(text, local);
-  z_x64_emit_push_rax(text);
-  if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
-  z_x64_emit_pop_reg64(text, 1);
-  coff_emit_array_base_rdx(text, fun, instr->array_index);
-  z_x64_emit_add_rdx_rcx(text, true);
-  z_x64_emit_store_ptr_reg8_from_reg(text, 2, 0);
-  return true;
+  return coff_diag_at(diag, "direct COFF indexed store requires [N]u8 or integer arrays", instr->line, instr->column, "unsupported array local");
 }
 
 static bool coff_emit_if_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, CoffEmitContext *ctx, ZDiag *diag) {
@@ -901,7 +901,7 @@ static bool coff_validate_function(const IrFunction *fun, ZDiag *diag) {
     if (fun->locals[i].type == IR_TYPE_BYTE_VIEW) {
       continue;
     }
-    if (fun->locals[i].is_array && (fun->locals[i].element_type == IR_TYPE_U8 || fun->locals[i].element_type == IR_TYPE_U32 || fun->locals[i].element_type == IR_TYPE_I32 || fun->locals[i].element_type == IR_TYPE_USIZE)) continue;
+    if (fun->locals[i].is_array && coff_type_is_array_element(fun->locals[i].element_type)) continue;
     if (fun->locals[i].is_record) continue;
     if (fun->locals[i].type == IR_TYPE_ALLOC || fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
     if (fun->locals[i].type == IR_TYPE_VEC) continue;

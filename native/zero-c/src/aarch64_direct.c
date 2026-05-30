@@ -82,12 +82,14 @@ static void a64_emit_add_scaled_index(ZBuf *text, unsigned dst, unsigned base, u
 
 static void a64_emit_load_ptr_element(ZBuf *text, unsigned dst, unsigned base, IrTypeKind element_type) {
   if (element_type == IR_TYPE_U8 || element_type == IR_TYPE_BOOL) z_aarch64_emit_load_b_imm(text, dst, base, 0);
+  else if (element_type == IR_TYPE_U16) z_aarch64_emit_load_h_imm(text, dst, base, 0);
   else if (a64_type_is_scalar64(element_type)) z_aarch64_emit_load_x_imm(text, dst, base, 0);
   else z_aarch64_emit_load_w_imm(text, dst, base, 0);
 }
 
 static void a64_emit_store_ptr_element(ZBuf *text, unsigned src, unsigned base, IrTypeKind element_type) {
   if (element_type == IR_TYPE_U8 || element_type == IR_TYPE_BOOL) z_aarch64_emit_store_b_imm(text, src, base, 0);
+  else if (element_type == IR_TYPE_U16) z_aarch64_emit_store_h_imm(text, src, base, 0);
   else if (a64_type_is_scalar64(element_type)) z_aarch64_emit_store_x_imm(text, src, base, 0);
   else z_aarch64_emit_store_w_imm(text, src, base, 0);
 }
@@ -539,15 +541,15 @@ static bool a64_emit_index_load_to_reg_at(ZBuf *text, const IrFunction *fun, con
     a64_emit_load_local_w(text, fun, reg, value->array_index, const_index * 4u, frame_size);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && (local->element_type == IR_TYPE_U16 || local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
     if (!value->index || !a64_emit_value_to_reg_at(text, fun, value->index, 8, frame_size, scratch_slot, ctx, diag)) return false;
     if (!a64_emit_store_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
     z_aarch64_emit_movz_w(text, 9, local->array_len);
     a64_emit_u32_bounds_check(text, 8, 9);
     if (!a64_emit_load_scratch(text, 8, value->index ? value->index->type : IR_TYPE_U32, scratch_slot, value->index, diag)) return false;
     z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, value->array_index, 0, frame_size));
-    z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
-    z_aarch64_emit_load_w_imm(text, reg, 9, 0);
+    a64_emit_add_scaled_index(text, 9, 9, 8, local->element_type);
+    a64_emit_load_ptr_element(text, reg, 9, local->element_type);
     return true;
   }
   if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return a64_diag(diag, "direct AArch64 indexed load requires [N]u8, [N]Bool, or integer arrays", value->line, value->column, "unsupported array local");
@@ -751,16 +753,16 @@ static bool a64_emit_index_store(ZBuf *text, const IrFunction *fun, const IrInst
     a64_emit_store_local_w(text, fun, 10, instr->array_index, const_index * 4u, frame_size);
     return true;
   }
-  if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
+  if (local->is_array && (local->element_type == IR_TYPE_U16 || local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
     if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
     if (!a64_emit_store_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
     if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 1, ctx, diag)) return false;
     z_aarch64_emit_movz_w(text, 9, local->array_len);
     a64_emit_u32_bounds_check(text, 8, 9);
     z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, instr->array_index, 0, frame_size));
-    z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
+    a64_emit_add_scaled_index(text, 9, 9, 8, local->element_type);
     if (!a64_emit_load_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
-    z_aarch64_emit_store_w_imm(text, 10, 9, 0);
+    a64_emit_store_ptr_element(text, 10, 9, local->element_type);
     return true;
   }
   if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return a64_diag(diag, "direct AArch64 indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
@@ -868,7 +870,7 @@ static bool a64_validate_function(const IrFunction *fun, ZDiag *diag) {
   for (size_t i = 0; i < fun->local_len; i++) {
     const IrLocal *local = &fun->locals[i];
     if (local->type == IR_TYPE_BYTE_VIEW || local->type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
-    if (local->is_array && (local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL ||
+    if (local->is_array && (local->element_type == IR_TYPE_U8 || local->element_type == IR_TYPE_BOOL || local->element_type == IR_TYPE_U16 ||
                             local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) continue;
     if (local->is_array || !a64_type_is_scalar(local->type)) {
       return a64_diag(diag, "direct AArch64 backend supports only primitive scalar locals and fixed byte/integer arrays", local->line, local->column, local->name);

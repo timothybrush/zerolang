@@ -580,7 +580,7 @@ static bool ir_parse_fixed_array_type_for_program(const Program *program, const 
     if (len > UINT_MAX) return false;
   }
   IrTypeKind element = ir_type_kind_for_program(program, close + 1);
-  if (element != IR_TYPE_BOOL && element != IR_TYPE_U8 && element != IR_TYPE_I32 && element != IR_TYPE_U32 &&
+  if (element != IR_TYPE_BOOL && element != IR_TYPE_U8 && element != IR_TYPE_U16 && element != IR_TYPE_I32 && element != IR_TYPE_U32 &&
       element != IR_TYPE_USIZE && element != IR_TYPE_I64 && element != IR_TYPE_U64) {
     return false;
   }

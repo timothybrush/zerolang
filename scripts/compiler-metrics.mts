@@ -17,7 +17,7 @@ type CScanState = {
 const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 985, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
-  "native/zero-c/src/checker.c": { maxLines: 11181, maxStrcmpCalls: 284 },
+  "native/zero-c/src/checker.c": { maxLines: 11196, maxStrcmpCalls: 284 },
   "native/zero-c/src/main.c": { maxLines: 11888, maxStrcmpCalls: 464 },
   "native/zero-c/src/ir.c": { maxLines: 3822, maxStrcmpCalls: 226 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -46,15 +46,15 @@ const fileBudgets = {
   "native/zero-c/src/elf_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.c": { maxLines: 470, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_format.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/aarch64_direct.c": { maxLines: 970, maxStrcmpCalls: 1 },
+  "native/zero-c/src/aarch64_direct.c": { maxLines: 972, maxStrcmpCalls: 1 },
   "native/zero-c/src/aarch64_direct.h": { maxLines: 40, maxStrcmpCalls: 0 },
-  "native/zero-c/src/aarch64_emit.c": { maxLines: 380, maxStrcmpCalls: 0 },
-  "native/zero-c/src/aarch64_emit.h": { maxLines: 80, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_macho64.c": { maxLines: 1732, maxStrcmpCalls: 2 },
+  "native/zero-c/src/aarch64_emit.c": { maxLines: 388, maxStrcmpCalls: 0 },
+  "native/zero-c/src/aarch64_emit.h": { maxLines: 82, maxStrcmpCalls: 0 },
+  "native/zero-c/src/emit_macho64.c": { maxLines: 1737, maxStrcmpCalls: 2 },
   "native/zero-c/src/emit_macho_x64.c": { maxLines: 1332, maxStrcmpCalls: 1 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 2211, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2220, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 330, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff.c": { maxLines: 1221, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 380, maxStrcmpCalls: 0 },
@@ -1374,7 +1374,7 @@ const backendFormats = {
       /\bz_x64_emit_add_reg_i8\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_cmp_reg_i8\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(coffX64Source) &&
-      /\bz_x64_emit_shl_rcx_imm8\s*\(/.test(coffX64Source) &&
+      (/\bz_x64_emit_shl_rcx_imm8\s*\(/.test(coffX64Source) || /\bz_x64_emit_shl_reg_imm8\s*\(/.test(coffX64Source)) &&
       /\bz_x64_emit_movzx_reg32_ptr_reg_u8\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_load_reg_ptr_reg\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_store_ptr_reg8_from_reg\s*\(/.test(coffX64Source) &&
