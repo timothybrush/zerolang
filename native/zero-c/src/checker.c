@@ -1564,6 +1564,9 @@ static bool expr_value_provenance(const Expr *expr, Scope *scope, ValueProvenanc
 static bool span_view_expr_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, const char *view_type, ValueProvenance *origins) {
   if (!expr || !scope || !view_type || !origins) return false;
 
+  char expected_element[128];
+  if (!readable_view_element_text(view_type, expected_element, sizeof(expected_element))) return false;
+
   ValueProvenance existing = {0};
   if (expr_reference_provenance(ctx, program, expr, scope, &existing)) {
     bool added = value_provenance_add_all(origins, &existing);
@@ -1571,9 +1574,6 @@ static bool span_view_expr_provenance(CheckContext *ctx, const Program *program,
     return added;
   }
   value_provenance_free(&existing);
-
-  char expected_element[128];
-  if (!readable_view_element_text(view_type, expected_element, sizeof(expected_element))) return false;
 
   if (expr_is_addressable(expr)) {
     char root[128];
