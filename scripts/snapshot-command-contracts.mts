@@ -3506,6 +3506,18 @@ assert.equal(coffDynamicSliceBuild.objectBackend.objectEmission.path, "direct-co
 assert.equal(coffDynamicSliceBuild.generatedCBytes, 0);
 const coffDynamicSliceBytes = readFileSync(coffDynamicSlicePath);
 assert.equal(coffDynamicSliceBytes.readUInt16LE(0), 0x8664);
+const coffBoolCopyFixture = "conformance/native/pass/std-mem-bool-copy-items.0";
+const coffBoolCopyReadiness = json(["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffBoolCopyFixture]).body;
+assert.equal(coffBoolCopyReadiness.ok, true);
+assert.equal(coffBoolCopyReadiness.targetReadiness.ok, true);
+assert.equal(coffBoolCopyReadiness.targetReadiness.buildable, true);
+assert.equal(coffBoolCopyReadiness.targetReadiness.backend, "zero-coff-x64");
+const coffBoolCopyPath = join(outDir, "coff-bool-copy-items.obj");
+const coffBoolCopyBuild = json(["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", coffBoolCopyFixture, "--out", coffBoolCopyPath]).body;
+assert.equal(coffBoolCopyBuild.objectBackend.objectEmission.path, "direct-coff-x64-object");
+assert.equal(coffBoolCopyBuild.generatedCBytes, 0);
+const coffBoolCopyBytes = readFileSync(coffBoolCopyPath);
+assert.equal(coffBoolCopyBytes.readUInt16LE(0), 0x8664);
 function assertMachOObjectBuildabilityBlocked(fixture: string, outName: string, expectedMessage: RegExp) {
   const readiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", fixture]).body;
   assert.equal(readiness.ok, true);

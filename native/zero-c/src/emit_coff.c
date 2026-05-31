@@ -56,7 +56,7 @@ static unsigned coff_type_byte_size(IrTypeKind type) {
 }
 
 static bool coff_type_is_array_element(IrTypeKind type) {
-  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE || coff_type_is_i64(type);
+  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_U32 || type == IR_TYPE_I32 || type == IR_TYPE_USIZE || coff_type_is_i64(type);
 }
 
 static bool coff_type_is_word_array_element(IrTypeKind type) {
