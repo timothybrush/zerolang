@@ -33,9 +33,7 @@ static bool macho_diag_at(ZDiag *diag, const char *message, int line, int column
   return false;
 }
 
-static bool macho_diag(ZDiag *diag, const char *message) {
-  return macho_diag_at(diag, message, 1, 1, "unsupported feature");
-}
+static bool macho_diag(ZDiag *diag, const char *message) { return macho_diag_at(diag, message, 1, 1, "unsupported feature"); }
 
 static bool macho_return_literal(const IrFunction *fun, uint32_t *out, ZDiag *diag) {
   if (!fun || fun->param_count != 0) {
@@ -53,10 +51,7 @@ static bool macho_return_literal(const IrFunction *fun, uint32_t *out, ZDiag *di
   return macho_diag_at(diag, "direct AArch64 Mach-O object backend currently requires a small integer literal return", fun->line, fun->column, fun->name);
 }
 
-static bool macho_is_literal_return_function(const IrFunction *fun, uint32_t *out, ZDiag *diag) {
-  if (!fun || fun->local_len != 0 || fun->instr_len != 1) return false;
-  return macho_return_literal(fun, out, diag);
-}
+static bool macho_is_literal_return_function(const IrFunction *fun, uint32_t *out, ZDiag *diag) { return fun && fun->local_len == 0 && fun->instr_len == 1 && macho_return_literal(fun, out, diag); }
 
 static size_t macho_align(size_t value, size_t alignment) { return z_macho_align(value, alignment); }
 static void macho_pad_to(ZBuf *buf, size_t offset) { z_macho_pad_to(buf, offset); }
@@ -103,9 +98,7 @@ static void macho_emit_scale_len_for_element(ZBuf *text, unsigned reg, IrTypeKin
 
 static bool macho_is_main_function(const IrFunction *fun) { return fun && fun->is_exported && fun->name && strcmp(fun->name, "main") == 0; }
 
-static bool macho_function_propagates_to_process_exit(const IrFunction *fun) {
-  return fun && (fun->raises || (macho_is_main_function(fun) && fun->return_type == IR_TYPE_I32 && fun->value_return_type == IR_TYPE_VOID));
-}
+static bool macho_function_propagates_to_process_exit(const IrFunction *fun) { return fun && (fun->raises || (macho_is_main_function(fun) && fun->return_type == IR_TYPE_I32 && fun->value_return_type == IR_TYPE_VOID)); }
 
 static unsigned macho_abi_slots_for_param(const IrLocal *local) { return local && local->type == IR_TYPE_BYTE_VIEW ? 2u : 1u; }
 
@@ -639,14 +632,13 @@ static bool macho_emit_binary_value_to_reg_at(ZBuf *text, const IrFunction *fun,
 }
 
 static bool macho_emit_compare_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
-  if (!value->left || !value->right) {
-    return macho_diag_at(diag, "direct AArch64 Mach-O comparison requires two operands", value->line, value->column, "invalid comparison");
-  }
+  if (!value->left || !value->right) return macho_diag_at(diag, "direct AArch64 Mach-O comparison requires two operands", value->line, value->column, "invalid comparison");
   if (!macho_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
   if (!macho_emit_store_scratch(text, 8, value->left->type, scratch_slot, value->left, diag)) return false;
   if (!macho_emit_value_to_reg_at(text, fun, value->right, 9, frame_size, scratch_slot + 1, ctx, diag)) return false;
   if (!macho_emit_load_scratch(text, 8, value->left->type, scratch_slot, value->left, diag)) return false;
-  z_aarch64_emit_cmp_w(text, 8, 9);
+  if (macho_type_is_scalar64(value->left->type)) z_aarch64_emit_cmp_x(text, 8, 9);
+  else z_aarch64_emit_cmp_w(text, 8, 9);
   z_aarch64_emit_movz_w(text, reg, 0);
   size_t false_patch = z_aarch64_emit_b_cond_placeholder(text, macho_invert_cond(macho_cond_for_compare(value->compare_op, macho_type_is_unsigned(value->left->type))));
   z_aarch64_emit_movz_w(text, reg, 1);
