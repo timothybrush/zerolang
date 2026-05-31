@@ -242,6 +242,13 @@ static bool coff_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrV
 static bool coff_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrValue *view, CoffEmitContext *ctx, ZDiag *diag);
 static bool coff_emit_byte_view_pair(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned ptr_reg, unsigned len_reg, CoffEmitContext *ctx, ZDiag *diag);
 
+static void coff_emit_u64_upper_bound_check(ZBuf *text, unsigned value_reg, unsigned limit_reg) {
+  z_x64_emit_cmp_reg_reg(text, value_reg, limit_reg, true);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x86);
+  z_x64_emit_ud2(text);
+  z_x64_patch_rel32(text, ok_patch, text->len);
+}
+
 static bool coff_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrValue *view, CoffEmitContext *ctx, ZDiag *diag) {
   unsigned len = 0;
   if (coff_byte_view_const_len(view, &len)) {
@@ -261,39 +268,8 @@ static bool coff_emit_byte_view_len(ZBuf *text, const IrFunction *fun, const IrV
     z_x64_emit_mov_reg_from_reg(text, 0, 2, true);
     return true;
   }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && !view->right) {
-    if (!coff_emit_byte_view_len(text, fun, view->left, ctx, diag)) return false;
-    if (!view->index) return true;
-    unsigned start = 0;
-    if (coff_const_u32_value(view->index, &start)) {
-      if (start > 0) z_x64_emit_sub_rax_u32(text, start, true);
-      return true;
-    }
-    z_x64_emit_push_rax(text);
-    if (!coff_emit_value(text, fun, view->index, ctx, diag)) return false;
-    z_x64_emit_mov_rcx_from_rax(text, true);
-    z_x64_emit_pop_rax(text);
-    z_x64_emit_sub_rax_rcx(text, true);
-    return true;
-  }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && view->right) {
-    unsigned start = 0;
-    if (!view->index || coff_const_u32_value(view->index, &start)) {
-      unsigned end = 0;
-      if (coff_const_u32_value(view->right, &end) && start <= end) {
-        z_x64_emit_mov_eax_u32(text, end - start);
-        return true;
-      }
-      if (!coff_emit_value(text, fun, view->right, ctx, diag)) return false;
-      if (start > 0) z_x64_emit_sub_rax_u32(text, start, true);
-      return true;
-    }
-    if (!coff_emit_value(text, fun, view->index, ctx, diag)) return false;
-    z_x64_emit_push_rax(text);
-    if (!coff_emit_value(text, fun, view->right, ctx, diag)) return false;
-    z_x64_emit_pop_reg64(text, 1);
-    z_x64_emit_sub_reg_reg(text, 0, 1, true);
-    return true;
+  if (view && view->kind == IR_VALUE_BYTE_SLICE) {
+    return coff_emit_byte_view_pair(text, fun, view, 8, 0, ctx, diag);
   }
   (void)ctx;
   return coff_diag_at(diag, "direct COFF byte-view length currently requires a literal, constant slice, or byte-view local", view ? view->line : 1, view ? view->column : 1, "unsupported byte view length");
@@ -373,10 +349,14 @@ static bool coff_emit_byte_view_pair(ZBuf *text, const IrFunction *fun, const Ir
       z_x64_emit_push_reg64(text, 1);
       if (!coff_emit_value(text, fun, view->right, ctx, diag)) return false;
       z_x64_emit_pop_reg64(text, 1);
-      z_x64_emit_sub_reg_reg(text, 0, 1, true);
       z_x64_emit_pop_reg64(text, 10);
+      coff_emit_u64_upper_bound_check(text, 1, 0);
+      coff_emit_u64_upper_bound_check(text, 0, 10);
+      z_x64_emit_sub_reg_reg(text, 0, 1, true);
     } else {
-      z_x64_emit_pop_rax(text);
+      z_x64_emit_pop_reg64(text, 10);
+      coff_emit_u64_upper_bound_check(text, 1, 10);
+      z_x64_emit_mov_reg_from_reg(text, 0, 10, true);
       z_x64_emit_sub_reg_reg(text, 0, 1, true);
     }
     z_x64_emit_pop_reg64(text, 8);

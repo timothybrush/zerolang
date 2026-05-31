@@ -38,6 +38,7 @@ async function assertBoundsTrap(fixture, name) {
   assert.equal(body.generatedCBytes, 0);
   if (!canRunLinuxMuslX64) return;
   const failedRun = await execFileAsync(out, []).catch((error) => error);
+  assert.notEqual(failedRun.code ?? (failedRun.signal ? 1 : 0), 0);
   if (failedRun.stderr) assert.match(failedRun.stderr, /zero bounds check failed/);
 }
 
@@ -234,6 +235,25 @@ async function assertMachOArm64Object(path, exportedName) {
   assert.equal(bytes.readUInt32LE(12), 1);
   assert(bytes.includes(Buffer.concat([Buffer.from(`_${exportedName}`), Buffer.from([0])])));
   return bytes;
+}
+
+async function assertMachOX64Object(path, exportedName) {
+  const bytes = await readFile(path);
+  assert.equal(bytes.readUInt32LE(0), 0xfeedfacf);
+  assert.equal(bytes.readUInt32LE(4), 0x01000007);
+  assert.equal(bytes.readUInt32LE(12), 1);
+  assert(bytes.includes(Buffer.concat([Buffer.from(`_${exportedName}`), Buffer.from([0])])));
+  return bytes;
+}
+
+function assertX64SliceBoundsTrapBytes(bytes) {
+  assert(bytes.includes(Buffer.from([0x0f, 0x86])));
+  assert(bytes.includes(Buffer.from([0x0f, 0x0b])));
+}
+
+function assertX64U16RecordFieldBytes(bytes) {
+  assert(bytes.includes(Buffer.from([0x0f, 0xb7])));
+  assert(bytes.includes(Buffer.from([0x66, 0x89])));
 }
 
 async function assertMachOArm64Executable(path) {
@@ -1134,6 +1154,86 @@ await execFileAsync(zero, [
 const machoOpenSliceBoundsBytes = await assertMachOArm64Object(`${outDir}/macho-open-byte-slice-bounds.o`, "main");
 assert(hasAarch64CondBranch(machoOpenSliceBoundsBytes, 9));
 assert(hasAarch64Instruction(machoOpenSliceBoundsBytes, 0xd4200000));
+
+const x64OpenSliceBoundsFixture = `${outDir}/x64-open-u16-slice-bounds.0`;
+await writeFile(x64OpenSliceBoundsFixture, `export c fn main() -> u32 {
+    let words: [2]u16 = [1_u16, 2_u16]
+    let suffix: Span<u16> = words[3_usize..]
+    return (std.mem.len(suffix)) as u32
+}
+`);
+const x64SliceLenBoundsFixture = `${outDir}/x64-len-u16-slice-bounds.0`;
+await writeFile(x64SliceLenBoundsFixture, `export c fn main() -> u32 {
+    let words: [2]u16 = [1_u16, 2_u16]
+    return (std.mem.len(words[..3_usize])) as u32
+}
+`);
+
+await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "linux-arm64",
+  x64SliceLenBoundsFixture,
+  "--out",
+  `${outDir}/aarch64-len-u16-slice-bounds.o`,
+]);
+const aarch64LenSliceBoundsBytes = await assertElfAarch64Object(`${outDir}/aarch64-len-u16-slice-bounds.o`, "main");
+assert(hasAarch64CondBranch(aarch64LenSliceBoundsBytes, 9));
+assert(hasAarch64Instruction(aarch64LenSliceBoundsBytes, 0xd4200000));
+await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  x64SliceLenBoundsFixture,
+  "--out",
+  `${outDir}/macho-len-u16-slice-bounds.o`,
+]);
+const machoLenSliceBoundsBytes = await assertMachOArm64Object(`${outDir}/macho-len-u16-slice-bounds.o`, "main");
+assert(hasAarch64CondBranch(machoLenSliceBoundsBytes, 9));
+assert(hasAarch64Instruction(machoLenSliceBoundsBytes, 0xd4200000));
+
+async function assertX64SliceBoundsObject(fixture, name) {
+  const elfPath = `${outDir}/${name}-linux.o`;
+  await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", fixture, "--out", elfPath]);
+  assertX64SliceBoundsTrapBytes((await assertElf64Object(elfPath, "main")).bytes);
+
+  const machoPath = `${outDir}/${name}-macho-x64.o`;
+  await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", "darwin-x64", fixture, "--out", machoPath]);
+  assertX64SliceBoundsTrapBytes(await assertMachOX64Object(machoPath, "main"));
+
+  const coffPath = `${outDir}/${name}-coff.obj`;
+  await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", "win32-x64.exe", fixture, "--out", coffPath]);
+  assertX64SliceBoundsTrapBytes(await assertCoffX64Object(coffPath, "main"));
+}
+
+await assertX64SliceBoundsObject(x64OpenSliceBoundsFixture, "x64-open-u16-slice-bounds");
+await assertX64SliceBoundsObject(x64SliceLenBoundsFixture, "x64-len-u16-slice-bounds");
+
+const x64U16RecordFieldFixture = `${outDir}/x64-u16-record-field.0`;
+await writeFile(x64U16RecordFieldFixture, `type Holder {
+    values: [3]u16,
+}
+
+export c fn main() -> u32 {
+    var holder: Holder = Holder { values: [10_u16, 20_u16, 30_u16] }
+    if holder.values[0] == 10_u16 && holder.values[1] == 20_u16 && holder.values[2] == 30_u16 {
+        return 1
+    }
+    return 0
+}
+`);
+const x64U16RecordFieldElfPath = `${outDir}/x64-u16-record-field-linux.o`;
+await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", x64U16RecordFieldFixture, "--out", x64U16RecordFieldElfPath]);
+assertX64U16RecordFieldBytes((await assertElf64Object(x64U16RecordFieldElfPath, "main")).bytes);
+const x64U16RecordFieldMachOPath = `${outDir}/x64-u16-record-field-macho-x64.o`;
+await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", "darwin-x64", x64U16RecordFieldFixture, "--out", x64U16RecordFieldMachOPath]);
+assertX64U16RecordFieldBytes(await assertMachOX64Object(x64U16RecordFieldMachOPath, "main"));
 
 async function assertAArch64ObjectBuildabilityBlocked(target, backend, outName, expectedMessage) {
   const fixture = "conformance/native/pass/macho-nested-call-scratch-blocked.0";
@@ -3664,6 +3764,9 @@ await assertBoundsTrap("conformance/native/fail/bounds-span-index.0", "bounds-sp
 await assertBoundsTrap("conformance/native/fail/bounds-slice-end.0", "bounds-slice-end");
 await assertBoundsTrap("conformance/native/fail/bounds-slice-order.0", "bounds-slice-order");
 await assertBoundsTrap("conformance/native/fail/bounds-open-slice-start.0", "bounds-open-slice-start");
+await assertBoundsTrap("conformance/native/fail/bounds-slice-len-end.0", "bounds-slice-len-end");
+await assertBoundsTrap("conformance/native/fail/bounds-slice-len-order.0", "bounds-slice-len-order");
+await assertBoundsTrap("conformance/native/fail/bounds-open-slice-len-start.0", "bounds-open-slice-len-start");
 await assertBoundsTrap("conformance/native/fail/index-string.0", "index-string");
 await assertBoundsTrap("conformance/native/fail/slice-string.0", "slice-string");
 await assertBoundsTrap("conformance/native/fail/indexed-mutation-oob.0", "indexed-mutation-oob");

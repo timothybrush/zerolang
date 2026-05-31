@@ -135,6 +135,13 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
 }
 
 bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  unsigned len = 0;
+  if (build_byte_view_const_len(view, &len)) {
+    if (len > 65535u) {
+      return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length is too large for the this backend", view->line, view->column, "large byte view");
+    }
+    return true;
+  }
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535u) {
@@ -146,19 +153,7 @@ bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunctio
   if (view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_BYTE_SLICE) {
-    unsigned start = 0;
-    unsigned end = 0;
-    bool const_start = !view->index || build_const_u32_value(view->index, &start);
-    bool const_end = build_const_u32_value(view->right, &end);
-    if (!view->right) return z_build_check_macho_byte_view_len(ctx, fun, view->left, diag);
-    if (const_start && const_end && end >= start && end - start <= 65535u) return true;
-    if (const_start && view->right) {
-      if (start > BUILD_AARCH64_IMM12_MAX) {
-        return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte slice constant start is too large", view->line, view->column, "unsupported byte view length");
-      }
-      return true;
-    }
-    if (view->index && view->right) return true;
+    return z_build_check_macho_byte_view_len(ctx, fun, view->left, diag);
   }
   return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
 }

@@ -11,6 +11,16 @@ static bool build_const_u32_value(const IrValue *value, unsigned *out) {
   return true;
 }
 
+static bool build_byte_view_const_len(const IrValue *view, unsigned *out) {
+  if (!view) return false;
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) { if (out) *out = view->data_len; return true; }
+  if (view->kind != IR_VALUE_BYTE_SLICE) return false;
+  unsigned base_len = 0, start = 0, end = 0; if (!build_byte_view_const_len(view->left, &base_len)) return false;
+  end = base_len;
+  if ((view->index && !build_const_u32_value(view->index, &start)) || (view->right && !build_const_u32_value(view->right, &end))) return false;
+  if (start > end || end > base_len) return false; if (out) *out = end - start; return true;
+}
+
 static IrTypeKind build_view_element_type(const IrValue *view) {
   return view && view->element_type != IR_TYPE_UNSUPPORTED ? view->element_type : IR_TYPE_U8;
 }
@@ -34,22 +44,22 @@ static bool build_aarch64_index_load_uses_scratch(const IrFunction *fun, const I
            build_const_u32_value(value->index, &const_index) && const_index < local->array_len);
 }
 
+static bool build_check_aarch64_byte_view_ptr_spill(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, unsigned scratch_slot, unsigned slot_count, const char *message, ZDiag *diag);
+
 static bool build_check_aarch64_byte_view_len_spill(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, unsigned scratch_slot, unsigned slot_count, const char *message, ZDiag *diag) {
   if (!view || view->kind != IR_VALUE_BYTE_SLICE) return true;
-  unsigned start = 0, end = 0;
-  bool const_start = !view->index || build_const_u32_value(view->index, &start);
-  bool const_end = build_const_u32_value(view->right, &end);
-  if (const_start && const_end && end >= start && end - start <= 65535u) return true;
-  if ((const_start && view->right) || (view->index && view->right)) {
-    if (scratch_slot >= slot_count || (view->index && !const_start && scratch_slot + 1 >= slot_count)) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
-    if (!z_build_check_value(ctx, fun, view->right, false, scratch_slot, diag)) return false;
-    return const_start || z_build_check_value(ctx, fun, view->index, false, scratch_slot + 1, diag);
+  unsigned len = 0;
+  if (build_byte_view_const_len(view, &len) && len <= 65535u) return true;
+  if (!view->index && !view->right) {
+    if (!build_check_aarch64_byte_view_ptr_spill(ctx, fun, view->left, scratch_slot, slot_count, message, diag)) return false;
+    return build_check_aarch64_byte_view_len_spill(ctx, fun, view->left, scratch_slot, slot_count, message, diag);
   }
-  if (view->index && !view->right) {
-    if (scratch_slot + 1 >= slot_count) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
-    return z_build_check_value(ctx, fun, view->index, false, scratch_slot + 1, diag);
-  }
-  return true;
+  unsigned required_slot = view->right ? 3u : 2u;
+  if (scratch_slot + required_slot >= slot_count) return z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
+  if (!build_check_aarch64_byte_view_ptr_spill(ctx, fun, view->left, scratch_slot, slot_count, message, diag)) return false;
+  if (!build_check_aarch64_byte_view_len_spill(ctx, fun, view->left, scratch_slot, slot_count, message, diag)) return false;
+  return (!view->index || z_build_check_value(ctx, fun, view->index, false, scratch_slot + 2, diag)) &&
+         (!view->right || z_build_check_value(ctx, fun, view->right, false, scratch_slot + 3, diag));
 }
 
 static bool build_check_aarch64_byte_view_ptr_spill(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, unsigned scratch_slot, unsigned slot_count, const char *message, ZDiag *diag) {
@@ -99,6 +109,8 @@ static bool build_aarch64_byte_view_ptr(const ZBuildability *ctx, const IrFuncti
 }
 
 bool z_build_check_aarch64_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  unsigned len = 0;
+  if (build_byte_view_const_len(view, &len)) return len <= 65535u || z_build_diag(ctx, diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535u) return z_build_diag(ctx, diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
@@ -108,19 +120,7 @@ bool z_build_check_aarch64_byte_view_len(const ZBuildability *ctx, const IrFunct
   if (view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_CALL && view->type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_BYTE_SLICE) {
-    unsigned start = 0;
-    unsigned end = 0;
-    bool const_start = !view->index || build_const_u32_value(view->index, &start);
-    bool const_end = build_const_u32_value(view->right, &end);
-    if (!view->right) return z_build_check_aarch64_byte_view_len(ctx, fun, view->left, diag);
-    if (const_start && const_end && end >= start && end - start <= 65535u) return true;
-    if (const_start && view->right) {
-      if (start > BUILD_AARCH64_IMM12_MAX) {
-        return z_build_diag(ctx, diag, "direct AArch64 byte slice constant start is too large", view->line, view->column, "unsupported byte view length");
-      }
-      return true;
-    }
-    if (view->index && view->right) return true;
+    return z_build_check_aarch64_byte_view_len(ctx, fun, view->left, diag);
   }
   return z_build_diag(ctx, diag, "direct AArch64 byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
 }

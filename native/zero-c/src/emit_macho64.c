@@ -397,6 +397,12 @@ static bool macho_emit_json_parse_bytes_call_at(ZBuf *text, const IrFunction *fu
 
 static bool macho_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   if (!view) return macho_diag_at(diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
+  unsigned const_len = 0;
+  if (view->kind == IR_VALUE_BYTE_SLICE && macho_byte_view_const_len(view, &const_len)) {
+    if (const_len > 65535) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
+    z_aarch64_emit_movz_w(text, reg, const_len);
+    return true;
+  }
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length is too large for the current MVP", view->line, view->column, "large byte view");
     z_aarch64_emit_movz_w(text, reg, view->data_len);
@@ -416,38 +422,8 @@ static bool macho_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const
     return true;
   }
   if (view->kind == IR_VALUE_BYTE_SLICE) {
-    unsigned start = 0;
-    unsigned end = 0;
-    if (!view->right) {
-      if (!macho_emit_byte_view_len_at(text, fun, view->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (!view->index) return true;
-      unsigned tmp = reg == 8 ? 9 : 8;
-      if (!macho_emit_store_scratch(text, reg, IR_TYPE_U32, scratch_slot, view->left, diag)) return false;
-      if (!macho_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
-      if (!macho_emit_load_scratch(text, reg, IR_TYPE_U32, scratch_slot, view->left, diag)) return false;
-      macho_emit_u32_upper_bound_check(text, tmp, reg);
-      macho_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
-      return true;
-    }
-    if ((!view->index || macho_const_u32_value(view->index, &start)) &&
-        macho_const_u32_value(view->right, &end) && end >= start && end - start <= 65535) {
-      z_aarch64_emit_movz_w(text, reg, end - start);
-      return true;
-    }
-    if ((!view->index || macho_const_u32_value(view->index, &start)) && view->right) {
-      if (!macho_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (start > 0) z_aarch64_emit_sub_w_imm(text, reg, reg, start);
-      return true;
-    }
-    if (view->index && view->right) {
-      unsigned tmp = reg == 8 ? 9 : 8;
-      if (!macho_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (!macho_emit_store_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
-      if (!macho_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
-      if (!macho_emit_load_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
-      macho_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
-      return true;
-    }
+    unsigned ptr_tmp = reg == 11 ? 12 : 11;
+    return macho_emit_byte_view_pair_at(text, fun, view, ptr_tmp, reg, frame_size, scratch_slot, ctx, diag);
   }
   (void)ctx;
   return macho_diag_at(diag, "direct AArch64 Mach-O byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");

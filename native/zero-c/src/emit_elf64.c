@@ -116,6 +116,9 @@ static void elf_emit_load_field_rax(ZBuf *code, const IrLocal *local, unsigned f
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
     z_x64_append_u8(code, 0x0f);
     z_x64_emit_rbp_disp_reg(code, 0xb6, 0, disp, false);
+  } else if (type == IR_TYPE_U16) {
+    z_x64_append_u8(code, 0x0f);
+    z_x64_emit_rbp_disp_reg(code, 0xb7, 0, disp, false);
   } else if (elf_type_is_i64(type)) {
     z_x64_emit_rbp_disp_reg(code, 0x8b, 0, disp, true);
   } else {
@@ -127,6 +130,9 @@ static void elf_emit_store_field_from_rax(ZBuf *code, const IrLocal *local, unsi
   unsigned disp = elf_record_field_disp(local, field_offset);
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
     z_x64_emit_rbp_disp_reg(code, 0x88, 0, disp, false);
+  } else if (type == IR_TYPE_U16) {
+    z_x64_append_u8(code, 0x66);
+    z_x64_emit_rbp_disp_reg(code, 0x89, 0, disp, false);
   } else if (elf_type_is_i64(type)) {
     z_x64_emit_rbp_disp_reg(code, 0x89, 0, disp, true);
   } else {
@@ -435,6 +441,13 @@ static bool elf_emit_json_parse_bytes_call(ZBuf *code, const IrFunction *fun, co
   return z_elf_record_value_runtime_patch(ctx, ELF_RUNTIME_JSON_PARSE_BYTES, patch, diag, value);
 }
 
+static void elf_emit_u64_upper_bound_check(ZBuf *code, unsigned value_reg, unsigned limit_reg) {
+  z_x64_emit_cmp_reg_reg(code, value_reg, limit_reg, true);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x86);
+  z_x64_emit_ud2(code);
+  z_x64_patch_rel32(code, ok_patch, code->len);
+}
+
 static void elf_emit_move_byte_view_pair(ZBuf *code, unsigned ptr_reg, unsigned len_reg, unsigned src_ptr_reg, unsigned src_len_reg) {
   if (ptr_reg == src_len_reg && len_reg == src_ptr_reg) {
     z_x64_emit_push_reg64(code, src_ptr_reg);
@@ -457,38 +470,8 @@ static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrVa
     z_x64_emit_mov_eax_u32(code, len);
     return true;
   }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && !view->right) {
-    if (!elf_emit_byte_view_len(code, fun, view->left, ctx, diag)) return false;
-    if (!view->index) return true;
-    unsigned start = 0;
-    if (elf_const_u32_value(view->index, &start)) {
-      if (start > 0) z_x64_emit_sub_rax_u32(code, start, true);
-      return true;
-    }
-    elf_emit_push_rax(code);
-    if (!elf_emit_value(code, fun, view->index, ctx, diag)) return false;
-    z_x64_emit_mov_rcx_from_rax(code, true);
-    z_x64_emit_pop_rax(code);
-    z_x64_emit_sub_rax_rcx(code, true);
-    return true;
-  }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && view->right) {
-    unsigned start = 0;
-    if (!view->index || elf_const_u32_value(view->index, &start)) {
-      unsigned end = 0;
-      if (elf_const_u32_value(view->right, &end) && start <= end) { z_x64_emit_mov_eax_u32(code, end - start); return true; }
-      if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
-      if (start > 0) z_x64_emit_sub_rax_u32(code, start, true);
-      return true;
-    }
-  }
-  if (view && view->kind == IR_VALUE_BYTE_SLICE && view->index && view->right) {
-    if (!elf_emit_value(code, fun, view->index, ctx, diag)) return false;
-    elf_emit_push_rax(code);
-    if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
-    z_x64_emit_pop_reg64(code, 1);
-    z_x64_emit_sub_reg_reg(code, 0, 1, true);
-    return true;
+  if (view && view->kind == IR_VALUE_BYTE_SLICE) {
+    return elf_emit_byte_view_pair(code, fun, view, 8, 0, ctx, diag);
   }
   if (view && view->kind == IR_VALUE_LOCAL && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) {
     elf_emit_load_local_slot_rax(code, &fun->locals[view->local_index], 8);
@@ -567,10 +550,14 @@ static bool elf_emit_byte_view_pair(ZBuf *code, const IrFunction *fun, const IrV
       z_x64_emit_push_reg64(code, 1);
       if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
       z_x64_emit_pop_reg64(code, 1);
-      z_x64_emit_sub_reg_reg(code, 0, 1, true);
       z_x64_emit_pop_reg64(code, 10);
+      elf_emit_u64_upper_bound_check(code, 1, 0);
+      elf_emit_u64_upper_bound_check(code, 0, 10);
+      z_x64_emit_sub_reg_reg(code, 0, 1, true);
     } else {
-      z_x64_emit_pop_rax(code);
+      z_x64_emit_pop_reg64(code, 10);
+      elf_emit_u64_upper_bound_check(code, 1, 10);
+      z_x64_emit_mov_reg_from_reg(code, 0, 10, true);
       z_x64_emit_sub_reg_reg(code, 0, 1, true);
     }
     z_x64_emit_pop_reg64(code, 8);

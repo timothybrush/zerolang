@@ -107,6 +107,26 @@ static bool a64_const_u32_value(const IrValue *value, unsigned *out) {
   return true;
 }
 
+static bool a64_byte_view_const_len(const IrValue *view, unsigned *out) {
+  if (!view) return false;
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (out) *out = view->data_len;
+    return true;
+  }
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned base_len = 0;
+    if (!a64_byte_view_const_len(view->left, &base_len)) return false;
+    unsigned start = 0;
+    unsigned end = base_len;
+    if (view->index && !a64_const_u32_value(view->index, &start)) return false;
+    if (view->right && !a64_const_u32_value(view->right, &end)) return false;
+    if (start > end || end > base_len) return false;
+    if (out) *out = end - start;
+    return true;
+  }
+  return false;
+}
+
 static unsigned a64_cond_for_compare(IrCompareOp op, bool uns) {
   switch (op) {
     case IR_CMP_EQ: return 0;
@@ -278,6 +298,12 @@ static void a64_emit_move_byte_view_pair(ZBuf *text, unsigned ptr_reg, unsigned 
 
 static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const IrValue *view, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!view) return a64_diag(diag, "direct AArch64 byte view is missing", 1, 1, "missing byte view");
+  unsigned const_len = 0;
+  if (view->kind == IR_VALUE_BYTE_SLICE && a64_byte_view_const_len(view, &const_len)) {
+    if (const_len > 65535) return a64_diag(diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
+    z_aarch64_emit_movz_w(text, reg, const_len);
+    return true;
+  }
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535) return a64_diag(diag, "direct AArch64 byte-view length is too large for this backend", view->line, view->column, "large byte view");
     z_aarch64_emit_movz_w(text, reg, view->data_len);
@@ -297,38 +323,8 @@ static bool a64_emit_byte_view_len_at(ZBuf *text, const IrFunction *fun, const I
     return true;
   }
   if (view->kind == IR_VALUE_BYTE_SLICE) {
-    unsigned start = 0;
-    unsigned end = 0;
-    if (!view->right) {
-      if (!a64_emit_byte_view_len_at(text, fun, view->left, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (!view->index) return true;
-      unsigned tmp = reg == 8 ? 9 : 8;
-      if (!a64_emit_store_scratch(text, reg, IR_TYPE_U32, scratch_slot, view->left, diag)) return false;
-      if (!a64_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
-      if (!a64_emit_load_scratch(text, reg, IR_TYPE_U32, scratch_slot, view->left, diag)) return false;
-      a64_emit_u32_upper_bound_check(text, tmp, reg);
-      a64_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
-      return true;
-    }
-    if ((!view->index || a64_const_u32_value(view->index, &start)) &&
-        a64_const_u32_value(view->right, &end) && end >= start && end - start <= 65535) {
-      z_aarch64_emit_movz_w(text, reg, end - start);
-      return true;
-    }
-    if ((!view->index || a64_const_u32_value(view->index, &start)) && view->right) {
-      if (!a64_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (start > 0) z_aarch64_emit_sub_w_imm(text, reg, reg, start);
-      return true;
-    }
-    if (view->index && view->right) {
-      unsigned tmp = reg == 8 ? 9 : 8;
-      if (!a64_emit_value_to_reg_at(text, fun, view->right, reg, frame_size, scratch_slot, ctx, diag)) return false;
-      if (!a64_emit_store_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
-      if (!a64_emit_value_to_reg_at(text, fun, view->index, tmp, frame_size, scratch_slot + 1, ctx, diag)) return false;
-      if (!a64_emit_load_scratch(text, reg, view->right ? view->right->type : IR_TYPE_U32, scratch_slot, view->right, diag)) return false;
-      a64_emit_binary_reg(text, IR_BIN_SUB, reg, reg, tmp, false);
-      return true;
-    }
+    unsigned ptr_tmp = reg == 11 ? 12 : 11;
+    return a64_emit_byte_view_pair_at(text, fun, view, ptr_tmp, reg, frame_size, scratch_slot, ctx, diag);
   }
   return a64_diag(diag, "direct AArch64 byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
 }
