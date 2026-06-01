@@ -91,7 +91,7 @@ const fileBudgets = {
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 443, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_sig.h": { maxLines: 60, maxStrcmpCalls: 0 },
-  "native/zero-c/src/std_source.c": { maxLines: 336, maxStrcmpCalls: 2 },
+  "native/zero-c/src/std_source.c": { maxLines: 340, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_source.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/target_backend.c": { maxLines: 360, maxStrcmpCalls: 32 },
   "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },

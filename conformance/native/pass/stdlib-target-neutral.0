@@ -22,7 +22,7 @@ fn targetNeutralStdlibOk() -> Bool {
 
     var json_buf: [16]u8 = [0_u8; 16]
     let json_text: Maybe<String> = std.json.writeString(json_buf, "zero")
-    if !json_text.has || !std.mem.eql(json_text.value, "\"zero\"") {
+    if !json_text.has || !std.mem.eql(json_text.value, "\"zero\"") || !std.json.validate("{\"ok\":true}") || std.json.streamTokens("{\"ok\":true}") != 3 {
         ok = false
     }
 

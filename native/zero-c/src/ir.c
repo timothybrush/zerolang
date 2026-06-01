@@ -2045,27 +2045,6 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
-      if ((strcmp(callee_name, "std.json.validate") == 0 ||
-           strcmp(callee_name, "std.json.validateBytes") == 0 ||
-           strcmp(callee_name, "std.json.streamTokens") == 0 ||
-           strcmp(callee_name, "std.json.streamTokensBytes") == 0) &&
-          expr->args.len == 1) {
-        IrValue *view = NULL;
-        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
-          free(callee_name);
-          return false;
-        }
-        IrValueKind kind = (strcmp(callee_name, "std.json.validate") == 0 ||
-                            strcmp(callee_name, "std.json.validateBytes") == 0) ? IR_VALUE_JSON_VALIDATE_BYTES : IR_VALUE_JSON_STREAM_TOKENS_BYTES;
-        IrTypeKind type = kind == IR_VALUE_JSON_VALIDATE_BYTES ? IR_TYPE_BOOL : IR_TYPE_USIZE;
-        IrValue *value = ir_new_value(ir, kind, type, expr->line, expr->column);
-        value->left = view;
-        if (ir->direct_runtime_helper_count < 1) ir->direct_runtime_helper_count = 1;
-        if (ir->direct_host_runtime_import_count < 1) ir->direct_host_runtime_import_count = 1;
-        free(callee_name);
-        *out = value;
-        return true;
-      }
       if ((strcmp(callee_name, "std.json.parse") == 0 ||
            strcmp(callee_name, "std.json.parseBytes") == 0) &&
           expr->args.len == 2) {
