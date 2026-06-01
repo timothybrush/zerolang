@@ -4,6 +4,7 @@
 
 #include "zero.h"
 #include "buildability.h"
+#include "c_import.h"
 #include "canonical_text.h"
 #include "program_graph_build.h"
 #include "program_graph_command.h"
@@ -734,6 +735,42 @@ static void append_c_link_name_flags(ZBuf *flags, const char *link_json) {
   while (json_array_next_string(&cursor, item, sizeof(item))) {
     zbuf_appendf(flags, " -l%s", item);
   }
+}
+
+static void append_json_array_item_string(ZBuf *buf, bool *first, const char *value) {
+  if (!buf || !first) return;
+  if (!*first) zbuf_append(buf, ",");
+  append_json_string(buf, value ? value : "");
+  *first = false;
+}
+
+static void append_manifest_c_link_plan_items_json(ZBuf *static_libraries, bool *static_first, ZBuf *system_libraries, bool *system_first, const SourceInput *input) {
+  if (!input || !input->manifest_path) return;
+  ZDiag read_diag = {0};
+  char *manifest = z_read_file(input->manifest_path, &read_diag);
+  if (!manifest) return;
+  ZManifest parsed = {0};
+  if (!z_parse_manifest_json(manifest, &parsed, &read_diag)) {
+    free(manifest);
+    return;
+  }
+  for (size_t i = 0; i < parsed.c_lib_count; i++) {
+    const ZManifestCLib *lib = &parsed.c_libs[i];
+    const char *lib_cursor = lib->lib_json ? lib->lib_json : "";
+    char lib_item[512];
+    while (json_array_next_string(&lib_cursor, lib_item, sizeof(lib_item))) {
+      char *path = runtime_path_is_absolute(lib_item) ? z_strdup(lib_item) : runtime_join_path(input->package_root && input->package_root[0] ? input->package_root : ".", lib_item);
+      append_json_array_item_string(static_libraries, static_first, path);
+      free(path);
+    }
+    const char *link_cursor = lib->link_json ? lib->link_json : "";
+    char link_item[256];
+    while (json_array_next_string(&link_cursor, link_item, sizeof(link_item))) {
+      append_json_array_item_string(system_libraries, system_first, link_item);
+    }
+  }
+  z_free_manifest(&parsed);
+  free(manifest);
 }
 
 static void append_manifest_c_link_flags(ZBuf *flags, const SourceInput *input) {
@@ -4681,7 +4718,7 @@ static bool load_format_source(const char *input_path, SourceInput *input, ZDiag
 
 static char *resolve_c_import_header_path(const SourceInput *input, const char *header) {
   if (!header || !header[0]) return z_strdup(header ? header : "");
-  if (runtime_path_is_absolute(header) || direct_file_exists(header)) return z_strdup(header);
+  if (runtime_path_is_absolute(header)) return z_strdup(header);
   if (input && input->package_root && input->package_root[0]) {
     char *package_path = direct_join_path(input->package_root, header);
     if (direct_file_exists(package_path)) return package_path;
@@ -4694,6 +4731,7 @@ static char *resolve_c_import_header_path(const SourceInput *input, const char *
     if (direct_file_exists(source_path)) return source_path;
     free(source_path);
   }
+  if (direct_file_exists(header)) return z_strdup(header);
   return z_strdup(header);
 }
 
@@ -5543,10 +5581,16 @@ static void append_target_capability_names_json(ZBuf *buf, const ZTargetInfo *ta
   zbuf_append(buf, "]");
 }
 
+static bool source_uses_linked_executable_path(const SourceInput *input, const char *emit_kind) {
+  return emit_kind && strcmp(emit_kind, "exe") == 0 && input &&
+         (input->direct_host_runtime_import_count > 0 || input->direct_c_import_call_count > 0);
+}
+
 static void append_release_target_contract_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const Command *command, const char *emit_kind) {
   const char *object_format = target && target->object_format ? target->object_format : "unknown";
   ZToolchainPlan plan = z_plan_toolchain(command ? command->cc : NULL, command ? command->profile : NULL, target);
-  ZDirectReleaseTargetFacts release = z_direct_release_target_facts(target, emit_kind, command ? command->backend : NULL, &plan);
+  bool linked_executable = source_uses_linked_executable_path(input, emit_kind);
+  ZDirectReleaseTargetFacts release = z_direct_release_target_facts(target, emit_kind, command ? command->backend : NULL, &plan, linked_executable);
 
   zbuf_append(buf, "{\"schemaVersion\":1,\"target\":");
   append_json_string(buf, target ? target->name : z_host_target());
@@ -5606,27 +5650,95 @@ static void append_release_target_contract_json(ZBuf *buf, const SourceInput *in
   zbuf_appendf(buf, ",\"sourceFileCount\":%zu,\"moduleCount\":%zu}", input ? input->source_file_count : 0, input ? input->module_count : 0);
 }
 
+static void append_target_libraries_label_json(ZBuf *buf, bool links_zero_runtime, bool links_http_runtime, bool links_c_imports) {
+  if (!links_zero_runtime && !links_http_runtime && !links_c_imports) {
+    append_json_string(buf, "none");
+    return;
+  }
+  ZBuf label;
+  zbuf_init(&label);
+  if (links_zero_runtime) zbuf_append(&label, "zero-runtime");
+  if (links_http_runtime) {
+    if (label.len > 0) zbuf_append_char(&label, ',');
+    zbuf_append(&label, "curl");
+  }
+  if (links_c_imports) {
+    if (label.len > 0) zbuf_append_char(&label, ',');
+    zbuf_append(&label, "c-imports");
+  }
+  append_json_string(buf, label.data ? label.data : "none");
+  zbuf_free(&label);
+}
+
+static void append_object_linker_plan_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const ZDirectObjectBackendFacts *direct, const ZToolchainPlan *runtime_toolchain, const char *object_format, const char *runtime_external_toolchain, bool links_zero_runtime, bool links_http_runtime, bool uses_c_imports) {
+  ZBuf static_libraries;
+  ZBuf system_libraries;
+  zbuf_init(&static_libraries);
+  zbuf_init(&system_libraries);
+  zbuf_append(&static_libraries, "[");
+  zbuf_append(&system_libraries, "[");
+  bool static_first = true;
+  bool system_first = true;
+  if (links_zero_runtime) append_json_array_item_string(&static_libraries, &static_first, "zero_runtime.o");
+  if (links_http_runtime) append_json_array_item_string(&static_libraries, &static_first, "zero_http_curl.o");
+  if (links_http_runtime) append_json_array_item_string(&system_libraries, &system_first, "curl");
+  if (uses_c_imports) append_manifest_c_link_plan_items_json(&static_libraries, &static_first, &system_libraries, &system_first, input);
+  zbuf_append(&static_libraries, "]");
+  zbuf_append(&system_libraries, "]");
+  zbuf_append(buf, ",\"linkerPlan\":{\"format\":");
+  append_json_string(buf, object_format);
+  zbuf_append(buf, ",\"flavor\":");
+  append_json_string(buf, direct ? direct->linker_flavor : "none");
+  zbuf_append(buf, ",\"archives\":[],\"staticLibraries\":");
+  zbuf_append(buf, static_libraries.data ? static_libraries.data : "[]");
+  zbuf_append(buf, ",\"importLibraries\":[],\"systemLibraries\":");
+  zbuf_append(buf, system_libraries.data ? system_libraries.data : "[]");
+  zbuf_append(buf, ",\"rpaths\":[],\"loadPaths\":[],\"visibility\":\"exported-c-and-main-only\",\"crossLinking\":true,\"externalToolchain\":");
+  append_json_string(buf, runtime_external_toolchain);
+  zbuf_append(buf, ",\"reproducible\":true,\"libcMode\":");
+  append_json_string(buf, links_zero_runtime && runtime_toolchain ? runtime_toolchain->libc_mode : "none");
+  zbuf_append(buf, ",\"targetLibcMode\":");
+  append_json_string(buf, z_target_libc_mode(target));
+  bool artifact_requires_sysroot = links_zero_runtime && runtime_toolchain && runtime_toolchain->requires_sysroot;
+  zbuf_appendf(buf, ",\"requiresSysroot\":%s,\"targetRequiresSysroot\":%s,\"sysrootStatus\":",
+               artifact_requires_sysroot ? "true" : "false",
+               z_target_requires_sysroot(target) ? "true" : "false");
+  append_json_string(buf, artifact_requires_sysroot && runtime_toolchain ? runtime_toolchain->sysroot_status : (z_target_requires_sysroot(target) ? "not-used-by-direct-artifact" : "not-required"));
+  zbuf_append(buf, "}");
+  zbuf_free(&static_libraries);
+  zbuf_free(&system_libraries);
+}
+
 static void append_object_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const Command *command, const char *emit_kind) {
-  ZDirectObjectBackendFacts direct = z_direct_object_backend_facts(target, emit_kind, command ? command->backend : NULL, input && input->direct_host_runtime_import_count > 0);
+  bool uses_host_runtime = input && input->direct_host_runtime_import_count > 0;
+  bool uses_http_runtime = input && input->direct_http_runtime_import_count > 0;
+  bool uses_c_imports = input && input->direct_c_import_call_count > 0;
+  bool linked_executable = source_uses_linked_executable_path(input, emit_kind);
+  ZDirectObjectBackendFacts direct = z_direct_object_backend_facts(target, emit_kind, command ? command->backend : NULL, linked_executable);
   if (direct.active) {
     const char *object_format = target && target->object_format ? target->object_format : "unknown";
     const char *arch = target && target->arch ? target->arch : "unknown";
     size_t direct_symbol_count = input ? input->direct_function_count : 0;
-    bool uses_zero_runtime = input && input->direct_host_runtime_import_count > 0;
-    bool uses_http_runtime = input && input->direct_http_runtime_import_count > 0;
-    bool links_zero_runtime = uses_zero_runtime;
+    bool links_zero_runtime = uses_host_runtime || (linked_executable && uses_c_imports);
     bool links_http_runtime = uses_http_runtime;
     ZToolchainPlan runtime_toolchain = z_plan_toolchain(command ? command->cc : NULL, command ? command->profile : NULL, target);
     const char *runtime_external_toolchain = links_zero_runtime ? public_compiler_label(&runtime_toolchain) : "none";
+    const char *toolchain_source = uses_host_runtime && uses_c_imports
+      ? "direct-backend-runtime-and-c-import-link-plan"
+      : (uses_c_imports ? "direct-backend-c-import-link-plan" : (uses_host_runtime ? "direct-backend-runtime-link-plan" : "direct-backend"));
+    const char *relocations = uses_c_imports && uses_host_runtime
+      ? "patched-runtime-and-external-c-relocations"
+      : (uses_c_imports ? "patched-external-c-call-relocations" : (uses_host_runtime ? "patched-runtime-import-relocations" : NULL));
     zbuf_append(buf, "{\"internalIr\":{\"typeRepresentation\":\"MIR primitive value types\",\"controlFlowRepresentation\":\"MIR instruction stream lowered to target machine/module code\",\"callRepresentation\":\"same-object direct calls for supported direct subsets\",\"functionIdentity\":\"module-qualified-stable-sorted\",\"debugRepresentation\":\"source spans retained on MIR nodes\"}");
     bool direct_has_data = input && input->direct_readonly_data_bytes > 0;
     direct_symbol_count += input ? input->direct_runtime_helper_count : 0;
+    direct_symbol_count += input ? input->direct_c_import_call_count : 0;
     direct_symbol_count += z_direct_backend_symbol_overhead(direct.backend, direct_has_data);
     zbuf_appendf(buf, ",\"objectEmission\":{\"path\":\"%s\",\"functions\":true,\"dataSections\":%s,\"symbols\":%s,\"relocations\":\"%s\",\"symbolCount\":%zu,\"internalHelperCount\":%zu}",
                  direct.artifact_path,
                  direct_has_data ? "true" : "false",
                  "true",
-                 uses_zero_runtime ? "patched-runtime-import-relocations" : (direct_has_data ? "patched-internal-calls-and-data-relocations" : "patched-internal-calls-or-none-in-mvp"),
+                 relocations ? relocations : (direct_has_data ? "patched-internal-calls-and-data-relocations" : "patched-internal-calls-or-none-in-mvp"),
                  direct_symbol_count,
                  input && input->direct_function_count > input->direct_export_count ? input->direct_function_count - input->direct_export_count : 0);
     zbuf_append(buf, ",\"linking\":{\"linkerFlavor\":");
@@ -5634,36 +5746,19 @@ static void append_object_backend_json(ZBuf *buf, const SourceInput *input, cons
     zbuf_append(buf, ",\"objectFormat\":");
     append_json_string(buf, object_format);
     zbuf_append(buf, ",\"targetLibraries\":");
-    append_json_string(buf, links_http_runtime ? "zero-runtime,curl" : (uses_zero_runtime ? "zero-runtime" : "none"));
+    append_target_libraries_label_json(buf, links_zero_runtime, links_http_runtime, uses_c_imports);
     zbuf_append(buf, ",\"symbolMap\":");
     append_json_string(buf, "object-symbol-table");
     zbuf_append(buf, ",\"externalToolchain\":");
     append_json_string(buf, runtime_external_toolchain);
     zbuf_append(buf, ",\"toolchainSource\":");
-    append_json_string(buf, uses_zero_runtime ? "direct-backend-runtime-link-plan" : "direct-backend");
+    append_json_string(buf, toolchain_source);
     zbuf_append(buf, ",\"stripArtifacts\":false}");
     if (links_http_runtime) {
       zbuf_append(buf, ",\"httpRuntime\":");
       z_append_http_runtime_json(buf, target);
     }
-    zbuf_append(buf, ",\"linkerPlan\":{\"format\":");
-    append_json_string(buf, object_format);
-    zbuf_append(buf, ",\"flavor\":");
-    append_json_string(buf, direct.linker_flavor);
-    zbuf_append(buf, ",\"archives\":[],\"staticLibraries\":");
-    zbuf_append(buf, links_http_runtime ? "[\"zero_runtime.o\",\"zero_http_curl.o\"]" : (links_zero_runtime ? "[\"zero_runtime.o\"]" : "[]"));
-    zbuf_append(buf, ",\"importLibraries\":[],\"systemLibraries\":");
-    zbuf_append(buf, links_http_runtime ? "[\"curl\"]" : "[]");
-    zbuf_append(buf, ",\"rpaths\":[],\"loadPaths\":[],\"visibility\":\"exported-c-and-main-only\",\"crossLinking\":true,\"externalToolchain\":");
-    append_json_string(buf, runtime_external_toolchain);
-    zbuf_append(buf, ",\"reproducible\":true,\"libcMode\":");
-    append_json_string(buf, links_zero_runtime ? runtime_toolchain.libc_mode : "none");
-    zbuf_append(buf, ",\"targetLibcMode\":");
-    append_json_string(buf, z_target_libc_mode(target));
-    zbuf_appendf(buf, ",\"requiresSysroot\":false,\"targetRequiresSysroot\":%s,\"sysrootStatus\":",
-                 z_target_requires_sysroot(target) ? "true" : "false");
-    append_json_string(buf, z_target_requires_sysroot(target) ? "not-used-by-direct-artifact" : "not-required");
-    zbuf_append(buf, "}");
+    append_object_linker_plan_json(buf, input, target, &direct, &runtime_toolchain, object_format, runtime_external_toolchain, links_zero_runtime, links_http_runtime, uses_c_imports);
     zbuf_append(buf, ",\"targetFacts\":{\"directAvailable\":true,\"status\":");
     append_json_string(buf, z_direct_backend_status(target));
     zbuf_append(buf, ",\"selectedEmitter\":");
@@ -5977,7 +6072,8 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   printf(",\n  \"warnings\": []");
   printf(",\n  \"compiler\": ");
   ZToolchainPlan direct_plan;
-  bool direct_toolchain = z_direct_backend_toolchain_plan_for_emit_kind(target, emit_kind, command ? command->backend : NULL, &direct_plan);
+  bool linked_executable = source_uses_linked_executable_path(input, emit_kind);
+  bool direct_toolchain = !linked_executable && z_direct_backend_toolchain_plan_for_emit_kind(target, emit_kind, command ? command->backend : NULL, &direct_plan);
   if (direct_toolchain) print_json_string(direct_plan.driver_kind);
   else print_json_string(build_compiler_label(command, target));
   printf(",\n  \"toolchain\": ");
@@ -8753,75 +8849,35 @@ static const char *last_ident_start_before(const char *start, const char *end) {
   return ident_end > cursor ? cursor : NULL;
 }
 
-static void append_c_params_json(ZBuf *buf, const char *start, const char *end) {
+static void append_c_import_function_model_json(ZBuf *buf, const ZCImportFunction *function) {
+  zbuf_append(buf, "{\"name\":");
+  append_json_string(buf, function ? function->name : "");
+  zbuf_append(buf, ",\"returnType\":");
+  append_json_string(buf, function ? function->return_c_type : "");
+  zbuf_append(buf, ",\"params\":");
   zbuf_append(buf, "[");
-  bool wrote = false;
-  const char *cursor = start;
-  while (cursor && cursor < end) {
-    const char *comma = cursor;
-    while (comma < end && *comma != ',') comma++;
-    char *param_text = trim_span_copy(cursor, comma);
-    if (param_text[0] && strcmp(param_text, "void") != 0) {
-      const char *param_end = param_text + strlen(param_text);
-      const char *name_start = last_ident_start_before(param_text, param_end);
-      if (name_start) {
-        const char *name_end = name_start;
-        while (*name_end && c_ident_char(*name_end)) name_end++;
-        char *name = z_strndup(name_start, (size_t)(name_end - name_start));
-        char *type = trim_span_copy(param_text, name_start);
-        if (wrote) zbuf_append(buf, ",");
-        wrote = true;
-        zbuf_append(buf, "{\"name\":");
-        append_json_string(buf, name);
-        zbuf_append(buf, ",\"type\":");
-        append_json_string(buf, type);
-        zbuf_append(buf, "}");
-        free(name);
-        free(type);
-      }
-    }
-    free(param_text);
-    cursor = comma < end ? comma + 1 : end;
+  for (size_t i = 0; function && i < function->param_len; i++) {
+    if (i > 0) zbuf_append(buf, ",");
+    zbuf_append(buf, "{\"name\":");
+    append_json_string(buf, function->params[i].name);
+    zbuf_append(buf, ",\"type\":");
+    append_json_string(buf, function->params[i].c_type);
+    zbuf_append(buf, "}");
   }
   zbuf_append(buf, "]");
-}
-
-static void append_c_function_model_json(ZBuf *buf, const char *line) {
-  const char *paren = strchr(line, '(');
-  const char *close = paren ? strstr(paren, ");") : NULL;
-  const char *name_start = paren ? last_ident_start_before(line, paren) : NULL;
-  const char *name_end = name_start;
-  while (name_end && *name_end && c_ident_char(*name_end)) name_end++;
-  char *name = name_start ? z_strndup(name_start, (size_t)(name_end - name_start)) : z_strdup("");
-  char *return_type = name_start ? trim_span_copy(line, name_start) : z_strdup("");
-  zbuf_append(buf, "{\"name\":");
-  append_json_string(buf, name);
-  zbuf_append(buf, ",\"returnType\":");
-  append_json_string(buf, return_type);
-  zbuf_append(buf, ",\"params\":");
-  append_c_params_json(buf, paren ? paren + 1 : line, close ? close : line);
   zbuf_append(buf, "}");
-  free(name);
-  free(return_type);
 }
 
 static void append_c_header_functions_json(ZBuf *buf, const char *header) {
+  ZCImportFunctionVec functions = {0};
+  z_c_header_parse_functions(header, &functions);
   zbuf_append(buf, "[");
-  bool wrote = false;
-  const char *cursor = header ? header : "";
-  while (*cursor) {
-    const char *line_end = strchr(cursor, '\n');
-    if (!line_end) line_end = cursor + strlen(cursor);
-    char *line = trim_span_copy(cursor, line_end);
-    if (line[0] && line[0] != '#' && !strstr(line, "typedef") && strchr(line, '(') && strstr(line, ");")) {
-      if (wrote) zbuf_append(buf, ",");
-      wrote = true;
-      append_c_function_model_json(buf, line);
-    }
-    free(line);
-    cursor = *line_end ? line_end + 1 : line_end;
+  for (size_t i = 0; i < functions.len; i++) {
+    if (i > 0) zbuf_append(buf, ",");
+    append_c_import_function_model_json(buf, &functions.items[i]);
   }
   zbuf_append(buf, "]");
+  z_c_import_function_vec_free(&functions);
 }
 
 static void append_c_header_constants_json(ZBuf *buf, const char *header) {

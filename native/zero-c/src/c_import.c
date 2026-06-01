@@ -145,9 +145,26 @@ static void c_import_parse_params(ZCImportFunction *function, const char *start,
   }
 }
 
+static const char *c_import_function_decl_close(const char *paren) {
+  if (!paren) return NULL;
+  int depth = 0;
+  for (const char *cursor = paren; *cursor; cursor++) {
+    if (*cursor == '(') depth++;
+    else if (*cursor == ')' && depth > 0) {
+      depth--;
+      if (depth == 0) {
+        const char *after = cursor + 1;
+        while (isspace((unsigned char)*after)) after++;
+        if (*after == ';') return cursor;
+      }
+    }
+  }
+  return NULL;
+}
+
 static bool c_import_parse_function_line(const char *line, ZCImportFunction *out) {
   const char *paren = strchr(line, '(');
-  const char *close = paren ? strstr(paren, ");") : NULL;
+  const char *close = c_import_function_decl_close(paren);
   const char *name_start = paren ? last_ident_start_before(line, paren) : NULL;
   if (!paren || !close || !name_start || strstr(line, "typedef")) return false;
   const char *name_end = name_start;
@@ -165,20 +182,43 @@ static bool c_import_parse_function_line(const char *line, ZCImportFunction *out
   return true;
 }
 
+static void c_import_append_declaration_fragment(ZBuf *decl, const char *line) {
+  if (!decl || !line) return;
+  const char *cursor = line;
+  bool wrote_space = decl->len > 0;
+  while (*cursor) {
+    while (isspace((unsigned char)*cursor)) cursor++;
+    if (!*cursor) break;
+    const char *start = cursor;
+    while (*cursor && !isspace((unsigned char)*cursor)) cursor++;
+    if (wrote_space) zbuf_append_char(decl, ' ');
+    char *word = z_strndup(start, (size_t)(cursor - start));
+    zbuf_append(decl, word);
+    free(word);
+    wrote_space = true;
+  }
+}
+
 bool z_c_header_parse_functions(const char *header, ZCImportFunctionVec *out) {
   if (!out) return false;
   const char *cursor = header ? header : "";
+  ZBuf declaration;
+  zbuf_init(&declaration);
   while (*cursor) {
     const char *line_end = strchr(cursor, '\n');
     if (!line_end) line_end = cursor + strlen(cursor);
     char *line = trim_span_copy(cursor, line_end);
-    if (line[0] && line[0] != '#' && strchr(line, '(') && strstr(line, ");")) {
+    if (line[0] && line[0] != '#') c_import_append_declaration_fragment(&declaration, line);
+    if (strchr(line, ';')) {
       ZCImportFunction function = {0};
-      if (c_import_parse_function_line(line, &function)) c_import_function_vec_push(out, function);
+      if (declaration.data && strchr(declaration.data, '(') && c_import_parse_function_line(declaration.data, &function)) c_import_function_vec_push(out, function);
+      zbuf_free(&declaration);
+      zbuf_init(&declaration);
     }
     free(line);
     cursor = *line_end ? line_end + 1 : line_end;
   }
+  zbuf_free(&declaration);
   return true;
 }
 

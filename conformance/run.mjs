@@ -3505,11 +3505,20 @@ assert.equal(cImportLaterLocalReadinessBody.targetReadiness.buildable, true);
 assert.equal(cImportLaterLocalReadinessBody.targetReadiness.diagnostics.length, 0);
 
 const externCallRoot = `/tmp/zero-extern-c-call-${process.pid}`;
+const externCallShadowRoot = `/tmp/zero-extern-c-shadow-${process.pid}`;
 await rm(externCallRoot, { recursive: true, force: true });
+await rm(externCallShadowRoot, { recursive: true, force: true });
 await mkdir(`${externCallRoot}/src`, { recursive: true });
 await mkdir(`${externCallRoot}/vendor/include`, { recursive: true });
 await mkdir(`${externCallRoot}/vendor/lib`, { recursive: true });
-await writeFile(`${externCallRoot}/vendor/include/zero_ext.h`, "int zero_ext_add(int, int);\n");
+await mkdir(`${externCallShadowRoot}/vendor/include`, { recursive: true });
+await writeFile(`${externCallRoot}/vendor/include/zero_ext.h`, `int
+zero_ext_add(
+    int left,
+    int right
+);
+`);
+await writeFile(`${externCallShadowRoot}/vendor/include/zero_ext.h`, "int zero_ext_wrong(int, int);\n");
 await writeFile(`${externCallRoot}/vendor/lib/zero_ext.c`, '#include "zero_ext.h"\nint zero_ext_add(int a, int b) { return a + b; }\n');
 await execFileAsync("cc", ["-I", `${externCallRoot}/vendor/include`, "-c", `${externCallRoot}/vendor/lib/zero_ext.c`, "-o", `${externCallRoot}/vendor/lib/zero_ext.o`]);
 await writeFile(`${externCallRoot}/zero.json`, JSON.stringify({
@@ -3528,9 +3537,29 @@ pub fn main(world: World) -> Void raises {
     }
 }
 `);
+const externCallShadowCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
+const externCallShadowCheckBody = JSON.parse(externCallShadowCheck.stdout);
+assert.equal(externCallShadowCheckBody.ok, true);
+const externCallGraph = await execFileAsync(zero, ["graph", "--json", externCallRoot]);
+const externCallGraphBody = JSON.parse(externCallGraph.stdout);
+const externCallImport = externCallGraphBody.cImports.find((item) => item.header === "vendor/include/zero_ext.h");
+assert(externCallImport);
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_add" && item.params.length === 2));
+const externCallBuildOut = `${externCallRoot}/extern-call`;
+const externCallBuild = await execFileAsync(zero, ["build", "--json", externCallRoot, "--out", externCallBuildOut]);
+const externCallBuildBody = JSON.parse(externCallBuild.stdout);
+assert.equal(externCallBuildBody.emit, "exe");
+assert.notEqual(externCallBuildBody.objectBackend.objectEmission.path, "none");
+assert.notEqual(externCallBuildBody.objectBackend.linking.externalToolchain, "none");
+assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /zero-runtime/);
+assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /c-imports/);
+assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/zero_ext.o")));
+assert.equal(externCallBuildBody.releaseTargetContract.selectedEmitter, externCallBuildBody.releaseTargetContract.directObjectEmitter);
+assert.equal(externCallBuildBody.releaseTargetContract.libc.artifactMode, externCallBuildBody.releaseTargetContract.libc.targetMode);
 const externCallRun = await execFileAsync(zero, ["run", externCallRoot]);
 assert.equal(externCallRun.stdout, "extern c call ok\n");
 await rm(externCallRoot, { recursive: true, force: true });
+await rm(externCallShadowRoot, { recursive: true, force: true });
 
 const cInteropGraph = await execFileAsync(zero, ["graph", "--json", "examples/c-interop"]);
 const cInteropGraphBody = JSON.parse(cInteropGraph.stdout);
