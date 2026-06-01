@@ -12,7 +12,7 @@ pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()
     if seed_input(fs) {
         var buf: [4]u8 = [0, 0, 0, 0]
-        if std.fs.copyFile(fs, ".zero/file-copy-input.txt", ".zero/file-copy-output.txt", buf) {
+        if std.fs.copyFile(".zero/file-copy-input.txt", ".zero/file-copy-output.txt", buf) {
             check world.out.write("file copy ok\n")
         }
     }

@@ -345,7 +345,7 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.fs.close", "Void", 1, {"mutref<File>"}, {NULL}, "fs", "host", "closes owned file handle", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.readFile", "Maybe<usize>", 3, {"Fs", "String", "MutSpan<u8>"}, {NULL}, "fs", "host", "reads full file into caller buffer through explicit Fs; null when too large", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.writeFile", "Bool", 3, {"Fs", "String", "Span<u8>"}, {NULL}, "fs", "host", "writes bytes through explicit Fs", true, Z_STD_HELPER_KIND_TABLE},
-  {"std.fs.copyFile", "Bool", 4, {"Fs", "String", "String", "MutSpan<u8>"}, {NULL}, "fs", "host", "copies through caller buffer and explicit Fs", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.fs.copyFile", "Bool", 3, {"String", "String", "MutSpan<u8>"}, {NULL}, "fs", "host", "copies through caller buffer", true, Z_STD_HELPER_KIND_TABLE},
   {NULL, NULL, 0, {NULL}, {NULL}, NULL, NULL, NULL, false, Z_STD_HELPER_KIND_TABLE},
 };
 

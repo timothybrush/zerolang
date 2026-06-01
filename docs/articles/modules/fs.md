@@ -32,7 +32,7 @@ Runnable today:
 | `std.fs.close(&mut file)` | `Void` | Closes an owned file handle explicitly; remaining owned files are cleaned up deterministically. |
 | `std.fs.readFile(fs, path, buffer)` | `Maybe<usize>` | Opens, reads the full file into caller storage, and closes through explicit `Fs`; returns `null` when unavailable or too large. |
 | `std.fs.writeFile(fs, path, bytes)` | `Bool` | Creates, writes all bytes, and closes through explicit `Fs`. |
-| `std.fs.copyFile(fs, from, to, buffer)` | `Bool` | Copies a file through caller-provided scratch storage and explicit `Fs`. |
+| `std.fs.copyFile(from, to, buffer)` | `Bool` | Copies a hosted file through caller-provided scratch storage. |
 
 Current limits:
 

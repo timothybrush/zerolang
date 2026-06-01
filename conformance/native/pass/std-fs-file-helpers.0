@@ -8,7 +8,7 @@ pub fn main(world: World) -> Void raises {
     if std.fs.writeFile(fs, source, "zero file helpers\n") {
         let read: Maybe<usize> = std.fs.readFile(fs, source, read_buf)
         if read.has && std.mem.eql(read_buf[..read.value], "zero file helpers\n") {
-            if std.fs.copyFile(fs, source, copied, copy_buf) {
+            if std.fs.copyFile(source, copied, copy_buf) {
                 let verified: Maybe<usize> = std.fs.readFile(fs, copied, verify_buf)
                 if verified.has && std.mem.eql(verify_buf[..verified.value], "zero file helpers\n") {
                     check world.out.write("std fs file helpers ok\n")
