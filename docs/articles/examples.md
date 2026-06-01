@@ -69,6 +69,7 @@ Core examples:
 - `examples/ownership-cleanup.0`: `owned<T>` cleanup, canonical `drop`, and `defer` at lexical scope exit.
 - `examples/std-math.0`: pure fixed-width integer helpers and number-theory routines.
 - `examples/std-path-io.0`: fixed-buffer `std.path` helpers and caller-owned `std.io` buffers.
+- `examples/grep-scan.0`: line-oriented scanning over byte spans with `std.io` and `std.str`.
 - `examples/std-str.0`: allocation-free byte-string helpers over spans and caller-owned storage.
 - `examples/std-text-format-parse.0`: ASCII helpers, runtime parsing, caller-buffer formatting, and UTF-8 validation.
 - `examples/std-data-formats.0`: codec encode/decode, JSON lookup/writing, and URL query helpers over caller-owned buffers.
@@ -78,7 +79,8 @@ Core examples:
 - `examples/std-http-headers.0`: hosted HTTP request envelope, response buffer, and header-value lookup.
 - `examples/std-platform.0`: `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers.
 - `examples/cli-file.0`: args, env, file writes, stdout, and stderr.
-- `examples/file-copy.0`: `Fs`, `owned<File>`, read/write resource capabilities, and automatic close.
+- `examples/cli-config.0`: option parsing, environment fallback, and JSON output checks.
+- `examples/file-copy.0`: `Fs`, explicit scratch storage, and hosted file copy.
 - `examples/zero-hash/`: file checksum CLI with args fallback, fixed buffers, hosted reads, and CRC-32 over bytes.
 - `examples/readall-cli/`: fixed-buffer allocator use and owned byte-buffer reads.
 - `examples/resource-cli/`: package-local modules, resource cleanup, and hosted filesystem capability use.

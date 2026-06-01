@@ -30,6 +30,9 @@ Runnable today:
 | `std.fs.tempName(buffer, prefix)` | `Maybe<String>` | Writes a temporary path into caller storage. |
 | `std.fs.atomicWrite(path, temp, bytes)` | `Bool` | Writes through a caller-provided temporary path and renames. |
 | `std.fs.close(&mut file)` | `Void` | Closes an owned file handle explicitly; remaining owned files are cleaned up deterministically. |
+| `std.fs.readFile(fs, path, buffer)` | `Maybe<usize>` | Opens, reads the full file into caller storage, and closes through explicit `Fs`; returns `null` when unavailable or too large. |
+| `std.fs.writeFile(fs, path, bytes)` | `Bool` | Creates, writes all bytes, and closes through explicit `Fs`. |
+| `std.fs.copyFile(from, to, buffer)` | `Bool` | Copies a hosted file through caller-provided scratch storage. |
 
 Current limits:
 
@@ -42,11 +45,7 @@ Current limits:
 ```zero
 pub fn main(world: World) -> Void raises [NotFound, TooLarge, Io] {
     let fs: Fs = std.fs.host()
-    var file: owned<File> = check std.fs.createOrRaise(fs, ".zero/out/example.txt")
-    check std.fs.writeAllOrRaise(&mut file, std.mem.span("hello\n"))
-    let len: usize = check std.fs.fileLenOrRaise(&mut file)
-    std.fs.close(&mut file)
-    if len == 6 && std.fs.exists(".zero/out/example.txt") {
+    if std.fs.writeFile(fs, ".zero/out/example.txt", "hello\n") {
         if std.fs.rename(".zero/out/example.txt", ".zero/out/example-renamed.txt") {
             if std.fs.remove(".zero/out/example-renamed.txt") {
                 check world.out.write("fs ok\n")

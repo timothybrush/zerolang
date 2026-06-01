@@ -202,6 +202,14 @@ export const docs: Doc[] = [
     section: "Modules",
   },
   {
+    slug: "module-cli",
+    title: "std.cli",
+    description: "Hosted flag and option helpers for command-line programs.",
+    path: "/modules/cli",
+    sourcePath: "/articles/modules/cli.md",
+    section: "Modules",
+  },
+  {
     slug: "module-fmt",
     title: "std.fmt",
     description: "Caller-buffer formatting for booleans and integer text.",

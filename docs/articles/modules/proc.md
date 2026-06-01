@@ -6,6 +6,8 @@ Runnable today:
 | --- | --- | --- |
 | `std.proc.spawn(command)` | `ProcStatus` | Creates a process status through the explicit proc capability surface. |
 | `std.proc.exitCode(status)` | `i32` | Reads the process status code. |
+| `std.proc.succeeded(status)` | `Bool` | Reports whether the status exit code is `0`. |
+| `std.proc.failed(status)` | `Bool` | Reports whether the status exit code is nonzero. |
 
 Metadata labels:
 
@@ -21,7 +23,7 @@ Metadata labels:
 ```zero
 pub fn main(world: World) -> Void raises {
     let status: ProcStatus = std.proc.spawn("zero-noop")
-    if std.proc.exitCode(status) == 0 {
+    if std.proc.succeeded(status) {
         check world.out.write("proc ok\n")
     }
 }
@@ -33,3 +35,6 @@ pub fn main(world: World) -> Void raises {
 process helpers before code generation.
 
 They should not compile a placeholder process implementation.
+
+Process command builders with cwd, environment override, stdin, stdout, and
+stderr plumbing are not exposed yet.

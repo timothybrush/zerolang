@@ -9,13 +9,20 @@ Runnable today:
 | `std.io.readerCapacity(&reader)` | `usize` | Reports reader storage capacity. |
 | `std.io.writerCapacity(&writer)` | `usize` | Reports writer storage capacity. |
 | `std.io.copy(dst, src)` | `usize` | Copies bytes into caller-owned mutable storage. |
+| `std.io.writeByte(buffer, offset, byte)` | `Maybe<usize>` | Writes one byte at an explicit cursor and returns the next cursor. |
+| `std.io.writeSpan(buffer, offset, bytes)` | `Maybe<usize>` | Writes bytes at an explicit cursor and returns the next cursor. |
+| `std.io.written(buffer, len)` | `Span<u8>` | Borrows the written prefix, clamping to buffer length. |
+| `std.io.remaining(buffer, offset)` | `usize` | Reports remaining byte capacity from an explicit cursor. |
+| `std.io.nextLine(bytes, start)` | `Maybe<Span<u8>>` | Borrows the next line without `\n` or trailing `\r`. |
+| `std.io.nextLineStart(bytes, start)` | `usize` | Advances to the next line start or the end of input. |
+| `std.io.countLines(bytes)` | `usize` | Counts lines using the same next-line rules. |
 
 Metadata labels:
 
 - effects: memory
 - allocation behavior: uses caller buffer; no hidden heap
 - target support: target-neutral
-- error behavior: infallible for capacity helpers; copy returns the copied byte count
+- error behavior: cursor writes return `Maybe.none` on overflow; copy returns the copied byte count
 - ownership notes: borrows or writes caller-owned storage
 - example: `examples/std-path-io.0`
 
@@ -27,7 +34,8 @@ pub fn main(world: World) -> Void raises {
     var reader_buf: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0]
     let reader: BufferedReader = std.io.bufferedReader(reader_buf)
     let copied: usize = std.io.copy(copy_dst, std.mem.span("abcd"))
-    if std.io.readerCapacity(&reader) == 8 && copied == 4 {
+    let line: Maybe<Span<u8>> = std.io.nextLine("one\ntwo", 0)
+    if std.io.readerCapacity(&reader) == 8 && copied == 4 && line.has {
         check world.out.write("io ok\n")
     }
 }

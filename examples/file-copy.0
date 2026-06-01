@@ -11,18 +11,9 @@ fn seed_input(fs: Fs) -> Bool {
 pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()
     if seed_input(fs) {
-        let input: Maybe<owned<File>> = std.fs.open(fs, ".zero/file-copy-input.txt")
-        let output: Maybe<owned<File>> = std.fs.create(fs, ".zero/file-copy-output.txt")
-        if input.has && output.has {
-            var src: owned<File> = input.value
-            var dst: owned<File> = output.value
-            var buf: [15]u8 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            let read: Maybe<usize> = std.fs.read(&mut src, buf)
-            if read.has && read.value == 15 {
-                if std.fs.writeAll(&mut dst, buf) {
-                    check world.out.write("file copy ok\n")
-                }
-            }
+        var buf: [4]u8 = [0, 0, 0, 0]
+        if std.fs.copyFile(".zero/file-copy-input.txt", ".zero/file-copy-output.txt", buf) {
+            check world.out.write("file copy ok\n")
         }
     }
 }

@@ -186,6 +186,8 @@ describe("docs registry", () => {
       "examples/allocator-collections.0",
       "examples/compile-time-v1.0",
       "examples/cli-file.0",
+      "examples/cli-config.0",
+      "examples/grep-scan.0",
       "examples/std-path-io.0",
       "examples/std-data-formats.0",
       "examples/std-platform.0",

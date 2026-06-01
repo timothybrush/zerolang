@@ -14,10 +14,11 @@ Runnable modules:
 - `std.ascii`: byte predicates, ASCII case conversion, and digit value helpers.
 - `std.fmt`: caller-buffer formatting for booleans and integer text.
 - `std.text`: byte-backed ASCII and UTF-8 validation and counting.
-- `std.io`: buffered reader/writer metadata and byte copy helpers over caller-owned storage.
-- `std.args`: hosted process argument count and indexed lookup.
-- `std.env`: hosted environment variable lookup.
-- `std.fs`: hosted file lifecycle helpers, owned file handles, byte reads/writes, remove, rename, and close.
+- `std.io`: buffered reader/writer metadata, cursor writes, line scanning, and byte copy helpers over caller-owned storage.
+- `std.args`: hosted process argument count, lookup, option search, fallback, and typed `u32` parsing.
+- `std.cli`: hosted flag and option helpers for command-line programs.
+- `std.env`: hosted environment lookup, fallback, and typed bool/`u32` parsing.
+- `std.fs`: hosted file lifecycle helpers, owned file handles, byte reads/writes, explicit file copy, remove, rename, and close.
 - `std.math`: fixed-width integer min/max/clamp, checked and saturating arithmetic, and small number-theory routines.
 - `std.path`: fixed-buffer lexical path helpers.
 - `std.str`: allocation-free byte-string helpers over spans and caller-owned storage.

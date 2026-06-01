@@ -6,11 +6,15 @@ Runnable today:
 | --- | --- | --- |
 | `std.args.len()` | `usize` | Returns the process argument count. |
 | `std.args.get(index)` | `Maybe<String>` | Returns the argument at `index` when present. |
+| `std.args.has(index)` | `Bool` | Reports whether `index` has an argument. |
+| `std.args.getOr(index, fallback)` | `String` | Returns the argument or a caller-provided fallback. |
+| `std.args.find(name)` | `Maybe<usize>` | Finds the first exact argument match after the executable path. |
+| `std.args.valueAfter(name)` | `Maybe<String>` | Returns the argument immediately after a matched option name. |
+| `std.args.parseU32(index)` | `Maybe<u32>` | Parses an indexed argument as `u32`. |
 
 Current limits:
 
 - Iterator-style argument APIs.
-- Typed decoding helpers.
 - Target diagnostics for platforms without process arguments.
 
 ## Example
@@ -18,9 +22,10 @@ Current limits:
 ```zero
 pub fn main(world: World) -> Void raises {
     let count: usize = std.args.len()
-    let first: Maybe<String> = std.args.get(1)
-    if count > 1 && first.has {
-        check world.out.write(first.value)
+    let first: String = std.args.getOr(1, "default")
+    let maybe_count: Maybe<u32> = std.args.parseU32(2)
+    if count > 2 && maybe_count.has {
+        check world.out.write(first)
         check world.out.write("\n")
     }
 }

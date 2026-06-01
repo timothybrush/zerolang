@@ -75,6 +75,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `codec-varint.0` | `use std.codec`, varint length, CRC-32 | `bin/zero check examples/codec-varint.0` |
 | `parse-cursor.0` | `use std.parse`, scanner predicates | `bin/zero check examples/parse-cursor.0` |
 | `std-path-io.0` | `std.path` fixed-buffer path helpers and `std.io` caller-owned buffers | `bin/zero check examples/std-path-io.0` |
+| `grep-scan.0` | Line-oriented scanning with `std.io` and `std.str` | `bin/zero check examples/grep-scan.0` |
 | `std-str.0` | allocation-free byte-string helpers over spans and caller-owned storage | `bin/zero check examples/std-str.0` |
 | `std-text-format-parse.0` | ASCII helpers, runtime parsing, caller-buffer formatting, and UTF-8 validation | `bin/zero check examples/std-text-format-parse.0` |
 | `std-data-formats.0` | codec encode/decode, JSON lookup/writing, and URL query helpers over caller-owned buffers | `bin/zero check examples/std-data-formats.0` |
@@ -84,7 +85,8 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `std-http-headers.0` | hosted HTTP request envelope, response buffer, and header-value lookup | `bin/zero check examples/std-http-headers.0` |
 | `std-platform.0` | `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers | `bin/zero check examples/std-platform.0` |
 | `cli-file.0` | `std.args`, `std.env`, byte-span file writes, stderr/stdout | `bin/zero check examples/cli-file.0` |
-| `file-copy.0` | `Fs`, `owned<File>`, read/write resource capabilities, automatic close | `bin/zero check examples/file-copy.0` |
+| `cli-config.0` | `std.cli`, `std.env`, and JSON output checks | `bin/zero check examples/cli-config.0` |
+| `file-copy.0` | `Fs`, explicit scratch storage, and hosted file copy | `bin/zero check examples/file-copy.0` |
 | `zero-hash/` | File checksum CLI with args, fixed buffers, `readAll`, and CRC-32 bytes | `bin/zero check examples/zero-hash` |
 
 ## Native Workflow Coverage

@@ -36,7 +36,7 @@ Call functions with their module path, such as `std.mem.len(value)`.
 - `std.json`: explicit-buffer JSON validation, structured status codes, shallow field lookup, typed scalar decode, parsing, and string/object writing helpers.
 - `std.url`: target-neutral URL splitting, percent/query encoding and decoding, query lookup, and query append helpers.
 - `std.str`: byte-span string helpers, including non-overlapping reverse, prefix/suffix, substring, trim, and word counts.
-- `std.io`: buffered reader/writer surfaces over caller-owned storage.
+- `std.io`: buffered reader/writer surfaces, cursor writes, line scanning, and byte copy over caller-owned storage.
 
 Prefer `Maybe<T>` return checks over assuming an operation succeeded.
 
@@ -45,6 +45,7 @@ Prefer `Maybe<T>` return checks over assuming an operation succeeded.
 These modules depend on host or runtime capabilities:
 
 - `std.args`: process arguments
+- `std.cli`: command-line flag and option helpers over process arguments
 - `std.env`: process environment
 - `std.fs`: hosted filesystem and explicit `Fs` or `owned<File>` handles
 - `std.net`: bootstrap network handles
@@ -210,6 +211,19 @@ pub fn main(world: World) -> Void raises {
 }
 ```
 
+Use the CLI helpers for exact flag and option conventions before writing a
+custom argument loop:
+
+```zero
+pub fn main(world: World) -> Void raises {
+    let name: String = std.cli.optionValueOr("--name", "zero")
+    let count: Maybe<u32> = std.cli.optionU32("--count")
+    if std.cli.hasFlag("--json") && count.has {
+        check world.out.write(name)
+    }
+}
+```
+
 Use `check maybeValue` only when absence should propagate as a failure in a fallible function.
 Read `maybeValue.value` only inside a visible `if maybeValue.has { ... }` guard.
 
@@ -218,10 +232,11 @@ Read `maybeValue.value` only inside a visible `if maybeValue.has { ... }` guard.
 Hosted file APIs can use explicit handles:
 
 ```zero
-pub fn main() -> Void raises {
+pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()
-    var file: owned<File> = check std.fs.createOrRaise(fs, ".zero/out/log.txt")
-    check std.fs.writeAllOrRaise(&mut file, std.mem.span("hello\n"))
+    if std.fs.writeFile(fs, ".zero/out/log.txt", "hello\n") {
+        check world.out.write("wrote\n")
+    }
 }
 ```
 
