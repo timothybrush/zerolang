@@ -3206,6 +3206,9 @@ writeFileSync(directStdMathSource, `export c fn main() -> u8 {
     if std.math.modPowU32(4, 13, 497) != 445 {
         ok = false
     }
+    if std.math.modPowU32(65536_u32, 2_u32, 4294967295_u32) != 1_u32 {
+        ok = false
+    }
     if std.math.modPowU32(9, 0, 1) != 0 {
         ok = false
     }
@@ -3308,6 +3311,13 @@ writeFileSync(directStdTimeRandSource, `export c fn main() -> u8 {
     let bit: Bool = std.rand.nextBool(&mut rng)
     let third: u32 = std.rand.nextU32(&mut rng)
     if first != 1025555898_u32 || !bit || third != 2630631676_u32 {
+        ok = false
+    }
+    var bool_rng: RandSource = std.rand.seed(7_u32)
+    let bit_one: Bool = std.rand.nextBool(&mut bool_rng)
+    let bit_two: Bool = std.rand.nextBool(&mut bool_rng)
+    let bit_three: Bool = std.rand.nextBool(&mut bool_rng)
+    if bit_one || !bit_two || !bit_three {
         ok = false
     }
     if ok {

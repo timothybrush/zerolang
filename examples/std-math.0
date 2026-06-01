@@ -198,6 +198,9 @@ pub fn main(world: World) -> Void raises {
     if std.math.modPowU32(4, 13, 497) != 445 {
         ok = false
     }
+    if std.math.modPowU32(65536_u32, 2_u32, 4294967295_u32) != 1_u32 {
+        ok = false
+    }
     if !std.math.isPrimeU32(31) {
         ok = false
     }

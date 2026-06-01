@@ -1963,8 +1963,7 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         }
         IrValue *next = ir_new_value(ir, IR_VALUE_RAND_NEXT_U32, IR_TYPE_U32, expr->line, expr->column);
         next->local_index = rng->index;
-        IrValue *mod = ir_new_binary_value(ir, IR_BIN_MOD, IR_TYPE_U32, next, ir_new_integer_literal_value(ir, IR_TYPE_U32, 2u, expr->line, expr->column), expr->line, expr->column);
-        IrValue *value = ir_new_compare_value(ir, IR_CMP_EQ, mod, ir_new_integer_literal_value(ir, IR_TYPE_U32, 1u, expr->line, expr->column), expr->line, expr->column);
+        IrValue *value = ir_new_compare_value(ir, IR_CMP_GE, next, ir_new_integer_literal_value(ir, IR_TYPE_U32, 2147483648u, expr->line, expr->column), expr->line, expr->column);
         free(callee_name);
         *out = value;
         return true;

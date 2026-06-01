@@ -376,17 +376,18 @@ fn __zero_std_math_mod_pow_u32(base: u32, exponent: u32, modulus: u32) -> u32 {
     if modulus == 0 {
         return 0
     }
-    var result: u32 = 1 % modulus
-    var current: u32 = base % modulus
+    let wide_modulus: u64 = modulus as u64
+    var result: u64 = 1_u64 % wide_modulus
+    var current: u64 = (base as u64) % wide_modulus
     var exp: u32 = exponent
     while exp > 0 {
         if exp % 2 == 1 {
-            result = result * current % modulus
+            result = result * current % wide_modulus
         }
-        current = current * current % modulus
+        current = current * current % wide_modulus
         exp = exp / 2
     }
-    return result
+    return result as u32
 }
 
 fn __zero_std_math_is_prime_u32(value: u32) -> Bool {

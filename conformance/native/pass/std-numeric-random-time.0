@@ -41,6 +41,13 @@ pub fn main(world: World) -> Void raises {
     if first != 1025555898_u32 || !bit || third != 2630631676_u32 {
         ok = false
     }
+    var bool_rng: RandSource = std.rand.seed(7_u32)
+    let bit_one: Bool = std.rand.nextBool(&mut bool_rng)
+    let bit_two: Bool = std.rand.nextBool(&mut bool_rng)
+    let bit_three: Bool = std.rand.nextBool(&mut bool_rng)
+    if bit_one || !bit_two || !bit_three {
+        ok = false
+    }
     let factorial: Maybe<u32> = std.math.factorialU32(5_u32)
     if factorial.has {
         if factorial.value != 120_u32 {
