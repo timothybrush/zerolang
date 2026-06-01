@@ -455,6 +455,7 @@ for (const fixture of [
   "conformance/native/pass/const-arithmetic.0",
   "conformance/native/pass/type-alias-basic.0",
   "conformance/native/pass/static-method-namespace.0",
+  "conformance/native/pass/c-import-type-shadowing.0",
   "conformance/native/pass/match-fallback.0",
   "conformance/native/pass/memory-types.0",
   "conformance/native/pass/owned-transfer.0",
@@ -3489,6 +3490,12 @@ assert(simpleHeaderImport.typedModel.structs.some((item) => item.name === "zero_
 assert(simpleHeaderImport.typedModel.enums.some((item) => item.name === "zero_c_color" && item.cases.some((entry) => entry.name === "ZERO_C_BLUE")));
 assert(simpleHeaderImport.typedModel.typedefs.some((item) => item.name === "zero_c_int" && item.target === "int"));
 assert.equal(typeof simpleHeaderImport.cache.target, "string");
+
+const cImportTypeShadowReadiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "conformance/native/pass/c-import-type-shadowing.0"]);
+const cImportTypeShadowReadinessBody = JSON.parse(cImportTypeShadowReadiness.stdout);
+assert.equal(cImportTypeShadowReadinessBody.ok, true);
+assert.equal(cImportTypeShadowReadinessBody.targetReadiness.buildable, false);
+assert.equal(cImportTypeShadowReadinessBody.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "Counter.zero_c_add");
 
 const externCallRoot = `/tmp/zero-extern-c-call-${process.pid}`;
 await rm(externCallRoot, { recursive: true, force: true });

@@ -1419,6 +1419,29 @@ static char *ir_specialized_function_name(const Function *fun, const TypeArgVec 
 
 static char *ir_specialize_type_text(const char *type, const Function *fun, const TypeArgVec *type_args);
 
+static bool ir_program_scope_name_shadows_c_import_alias(const Program *program, const char *alias) {
+  if (!program || !alias) return false;
+  for (size_t i = 0; i < program->consts.len; i++) {
+    if (program->consts.items[i].name && strcmp(program->consts.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->shapes.len; i++) {
+    if (program->shapes.items[i].name && strcmp(program->shapes.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->interfaces.len; i++) {
+    if (program->interfaces.items[i].name && strcmp(program->interfaces.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->enums.len; i++) {
+    if (program->enums.items[i].name && strcmp(program->enums.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->choices.len; i++) {
+    if (program->choices.items[i].name && strcmp(program->choices.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->aliases.len; i++) {
+    if (program->aliases.items[i].name && strcmp(program->aliases.items[i].name, alias) == 0) return true;
+  }
+  return false;
+}
+
 static bool ir_lower_c_import_call(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER ||
       !expr->left->left || expr->left->left->kind != EXPR_IDENT) {
@@ -1427,6 +1450,7 @@ static bool ir_lower_c_import_call(const Program *program, IrProgram *ir, const 
   const char *alias = expr->left->left->text;
   const char *symbol = expr->left->text;
   if (ir_function_find_local(fun, alias)) return false;
+  if (ir_program_scope_name_shadows_c_import_alias(program, alias)) return false;
   if (!z_c_import_alias_exists(program, alias)) return false;
   ZCImportFunction function = {0};
   if (!z_c_import_find_function(program, alias, symbol, &function, NULL)) {
