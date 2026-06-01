@@ -39,6 +39,9 @@ where they will run.
 - Keep examples runnable and docs copyable.
 - Prefer small, direct changes over broad refactors.
 - Use direct emitters for compiler output.
+- Before ending any agent turn that changes the repository, run
+  `pnpm run conformance`; if it cannot complete, report the blocker and the
+  failing command.
 
 ## Useful Checks
 
