@@ -895,6 +895,7 @@ bool z_emit_coff_aarch64_object_from_ir(const IrProgram *program, ZBuf *out, ZDi
 bool z_emit_coff_aarch64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_direct_object_from_ir(ZDirectBackend backend, const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_direct_executable_from_ir(ZDirectBackend backend, const IrProgram *program, ZBuf *out, ZDiag *diag);
+bool z_emit_llvm_ir_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 
 const char *z_host_target(void);
 size_t z_target_count(void);

@@ -39,6 +39,45 @@ function execFileAsync(file, args = [], options = {}) {
   });
 }
 
+function assertLlvmPhiPredecessors(ir) {
+  const predecessors = new Map();
+  const phiEdges = [];
+  let functionIndex = -1;
+  let current = "-1:entry";
+  const scoped = (label) => `${functionIndex}:${label}`;
+  for (const line of ir.split("\n")) {
+    if (line.startsWith("define ")) {
+      functionIndex++;
+      current = scoped("entry");
+      continue;
+    }
+    const label = line.match(/^(L[0-9]+):$/);
+    if (label) {
+      current = scoped(label[1]);
+      continue;
+    }
+    const branch = line.match(/^  br (?:label %(L[0-9]+)|i1 [^,]+, label %(L[0-9]+), label %(L[0-9]+))$/);
+    if (branch) {
+      for (const target of branch.slice(1).filter(Boolean)) {
+        const key = scoped(target);
+        if (!predecessors.has(key)) predecessors.set(key, new Set());
+        predecessors.get(key).add(current);
+      }
+      continue;
+    }
+    if (!line.includes(" = phi ")) continue;
+    for (const match of line.matchAll(/\[[^\]]+, %(L[0-9]+)\]/g)) {
+      phiEdges.push({ block: current, predecessor: scoped(match[1]) });
+    }
+  }
+  for (const edge of phiEdges) {
+    assert(
+      predecessors.get(edge.block)?.has(edge.predecessor),
+      `LLVM phi predecessor ${edge.predecessor} must branch to ${edge.block}`,
+    );
+  }
+}
+
 async function assertBoundsTrap(fixture, name) {
   const out = `${outDir}/${name}`;
   const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", fixture, "--out", out]).catch((error) => error);
@@ -894,6 +933,189 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
   assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0][key], directCallReadinessDiag[key]);
 }
 assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+
+const llvmLoopIrPath = `${outDir}/llvm-direct-while-sum.ll`;
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  "examples/direct-while-sum.0",
+  "--out",
+  llvmLoopIrPath,
+]);
+const llvmLoopIr = await readFile(llvmLoopIrPath, "utf8");
+assert.match(llvmLoopIr, /^; zero llvm-ir v1\n/);
+assert.match(llvmLoopIr, /target triple = "/);
+assert.match(llvmLoopIr, /define i32 @main\(\) \{/);
+assert.match(llvmLoopIr, /br label %L0\nL0:\n/);
+assert.match(llvmLoopIr, /icmp slt i32 %v[0-9]+, 5/);
+assert.match(llvmLoopIr, /add i32 %v[0-9]+, %v[0-9]+/);
+assert.match(llvmLoopIr, /ret i32 %v[0-9]+/);
+
+const llvmShortCircuitSourcePath = `${outDir}/llvm-short-circuit.0`;
+const llvmShortCircuitIrPath = `${outDir}/llvm-short-circuit.ll`;
+await writeFile(llvmShortCircuitSourcePath, `fn rhsAnd() -> Bool {
+    return true
+}
+
+fn rhsOr() -> Bool {
+    return false
+}
+
+export c fn main() -> i32 {
+    if false && rhsAnd() {
+        return 1
+    }
+    if true || rhsOr() {
+        return 2
+    }
+    if true && (false && rhsAnd()) {
+        return 3
+    }
+    if false || (true || rhsOr()) {
+        return 4
+    }
+    return 0
+}
+`);
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmShortCircuitSourcePath,
+  "--out",
+  llvmShortCircuitIrPath,
+]);
+const llvmShortCircuitIr = await readFile(llvmShortCircuitIrPath, "utf8");
+assertLlvmPhiPredecessors(llvmShortCircuitIr);
+assert.match(llvmShortCircuitIr, /br i1 0, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @\.zero\.fn\.[0-9]+\.rhsAnd\(\)/);
+assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[0, %L[0-9]+\]/);
+assert.match(llvmShortCircuitIr, /br i1 1, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @\.zero\.fn\.[0-9]+\.rhsOr\(\)/);
+assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[1, %L[0-9]+\]/);
+
+const llvmAddIrPath = `${outDir}/llvm-add.ll`;
+const llvmAddBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  "examples/add.0",
+  "--out",
+  llvmAddIrPath,
+]);
+const llvmAddBuildBody = JSON.parse(llvmAddBuild.stdout);
+assert.equal(llvmAddBuildBody.objectBackend.linking.targetLibraries, "zero-runtime");
+assert.equal(llvmAddBuildBody.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
+assert.deepEqual(llvmAddBuildBody.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+const llvmAddIr = await readFile(llvmAddIrPath, "utf8");
+assert.match(llvmAddIr, /@\.zero\.data\.0 = private unnamed_addr constant \[12 x i8\] c"math works\\0A\\00", align 1/);
+assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i32\)/);
+assert.match(llvmAddIr, /declare void @llvm\.trap\(\)/);
+assert.match(llvmAddIr, /define i32 @\.zero\.fn\.[0-9]+\.answer\(\) \{/);
+assert.match(llvmAddIr, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)/);
+assert.match(llvmAddIr, /%v[0-9]+ = call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)\n  %v[0-9]+ = icmp eq i32 %v[0-9]+, 0\n  br i1 %v[0-9]+, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  call void @llvm\.trap\(\)\n  unreachable\nL[0-9]+:/);
+
+const llvmSymbolCollisionSourcePath = `${outDir}/llvm-symbol-collision.0`;
+const llvmSymbolCollisionIrPath = `${outDir}/llvm-symbol-collision.ll`;
+await writeFile(llvmSymbolCollisionSourcePath, `fn foo() -> i32 {
+    return 1
+}
+
+export c fn z_fn_0_foo() -> i32 {
+    return 2
+}
+
+export c fn main() -> i32 {
+    return foo() + z_fn_0_foo()
+}
+`);
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmSymbolCollisionSourcePath,
+  "--out",
+  llvmSymbolCollisionIrPath,
+]);
+const llvmSymbolCollisionIr = await readFile(llvmSymbolCollisionIrPath, "utf8");
+assert.match(llvmSymbolCollisionIr, /define i32 @\.zero\.fn\.[0-9]+\.foo\(\) \{/);
+assert.match(llvmSymbolCollisionIr, /define i32 @z_fn_0_foo\(\) \{/);
+assert.match(llvmSymbolCollisionIr, /call i32 @\.zero\.fn\.[0-9]+\.foo\(\)/);
+assert.equal((llvmSymbolCollisionIr.match(/define i32 @z_fn_0_foo\(\) \{/g) || []).length, 1);
+
+const llvmRuntimeCollisionSourcePath = `${outDir}/llvm-runtime-symbol-collision.0`;
+await writeFile(llvmRuntimeCollisionSourcePath, `export c fn zero_world_write() -> i32 {
+    return 7
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello\\n")
+}
+`);
+const llvmRuntimeCollisionReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmRuntimeCollisionSourcePath,
+]);
+const llvmRuntimeCollisionReadinessBody = JSON.parse(llvmRuntimeCollisionReadiness.stdout);
+assert.equal(llvmRuntimeCollisionReadinessBody.ok, true);
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.ok, false);
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].actual, "zero_world_write");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmRuntimeCollisionReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "lower");
+const llvmRuntimeCollisionBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmRuntimeCollisionSourcePath,
+  "--out",
+  `${outDir}/llvm-runtime-symbol-collision.ll`,
+]).catch((error) => error);
+assert.notEqual(llvmRuntimeCollisionBuild.code, 0);
+const llvmRuntimeCollisionBuildBody = JSON.parse(llvmRuntimeCollisionBuild.stdout);
+assert.equal(llvmRuntimeCollisionBuildBody.diagnostics[0].actual, "zero_world_write");
+assert.equal(llvmRuntimeCollisionBuildBody.diagnostics[0].backendBlocker.backend, "llvm");
+
+const llvmLongExportName = `llvm_export_${"a".repeat(200)}`;
+const llvmLongExportSourcePath = `${outDir}/llvm-long-export.0`;
+const llvmLongExportIrPath = `${outDir}/llvm-long-export.ll`;
+await writeFile(llvmLongExportSourcePath, `export c fn ${llvmLongExportName}() -> i32 {
+    return 7
+}
+
+export c fn main() -> i32 {
+    return ${llvmLongExportName}()
+}
+`);
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmLongExportSourcePath,
+  "--out",
+  llvmLongExportIrPath,
+]);
+const llvmLongExportIr = await readFile(llvmLongExportIrPath, "utf8");
+assert(llvmLongExportIr.includes(`define i32 @${llvmLongExportName}() {`));
+assert(llvmLongExportIr.includes(`call i32 @${llvmLongExportName}()`));
 
 const directStringMachOExe = await execFileAsync(zero, [
   "build",

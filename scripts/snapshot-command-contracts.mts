@@ -3691,28 +3691,87 @@ const llvmReadiness = json(["check", "--json", "--backend", "llvm", "examples/ad
 assert.equal(llvmReadiness.ok, true);
 assert.equal(llvmReadiness.targetReadiness.ok, false);
 assert.equal(llvmReadiness.targetReadiness.backend, "llvm");
-assert.equal(llvmReadiness.targetReadiness.stage, "backend-selection");
+assert.equal(llvmReadiness.targetReadiness.stage, "buildability");
 assert.equal(llvmReadiness.targetReadiness.diagnostics[0].code, "BLD004");
 assert.deepEqual(llvmReadiness.targetReadiness.diagnostics[0].backendBlocker, {
   target: version.host,
   objectFormat: version.host.startsWith("win32") ? "coff" : (version.host.startsWith("linux") ? "elf" : "macho"),
   backend: "llvm",
-  stage: "backend-selection",
-  unsupportedFeature: "llvm backend unavailable",
+  stage: "buildability",
+  unsupportedFeature: "llvm native artifact",
+});
+const llvmIrReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"]).body;
+assert.equal(llvmIrReadiness.ok, true);
+assert.equal(llvmIrReadiness.targetReadiness.ok, true);
+assert.equal(llvmIrReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmIrReadiness.targetReadiness.emit, "llvm-ir");
+assert.equal(llvmIrReadiness.targetReadiness.stage, "ready");
+assert.equal(llvmIrReadiness.targetReadiness.diagnostics.length, 0);
+const llvmIrLoweringBlockedReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]).body;
+assert.equal(llvmIrLoweringBlockedReadiness.ok, true);
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.ok, false);
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.stage, "lower");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.match(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].help, /--backend llvm --emit llvm-ir/);
+assert.deepEqual(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker, {
+  target: version.host,
+  objectFormat: version.host.startsWith("win32") ? "coff" : (version.host.startsWith("linux") ? "elf" : "macho"),
+  backend: "llvm",
+  stage: "lower",
+  unsupportedFeature: "owned<Tracked>",
 });
 const llvmBuild = json(["build", "--json", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-llvm")], { allowFailure: true });
 assert.notEqual(llvmBuild.code, 0);
 assert.equal(llvmBuild.body.diagnostics[0].code, "BLD004");
 assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.stage, "backend-selection");
+assert.equal(llvmBuild.body.diagnostics[0].backendBlocker.stage, "buildability");
 const llvmIrBuild = json(["build", "--json", "--emit", "llvm-ir", "examples/add.0", "--out", join(outDir, "add.ll")], { allowFailure: true });
 assert.notEqual(llvmIrBuild.code, 0);
 assert.equal(llvmIrBuild.body.diagnostics[0].code, "BLD004");
 assert.equal(llvmIrBuild.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
-const explicitLlvmIrBuild = json(["build", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-explicit.ll")], { allowFailure: true });
-assert.notEqual(explicitLlvmIrBuild.code, 0);
-assert.equal(explicitLlvmIrBuild.body.diagnostics[0].code, "BLD004");
-assert.equal(explicitLlvmIrBuild.body.diagnostics[0].actual, "backend=llvm emit=llvm-ir");
+const explicitLlvmIrBuild = json(["build", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-explicit.ll")]);
+assert.equal(explicitLlvmIrBuild.code, 0);
+assert.equal(explicitLlvmIrBuild.body.emit, "llvm-ir");
+assert.equal(explicitLlvmIrBuild.body.compiler, "zero-c-llvm-ir");
+assert.equal(explicitLlvmIrBuild.body.generatedCBytes, 0);
+assert.equal(explicitLlvmIrBuild.body.toolchain.driverKind, "none");
+assert.equal(explicitLlvmIrBuild.body.toolchain.selectionSource, "not-required");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.backendFamily, "llvm");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.artifactKind, "llvm-ir");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.selectedEmitter, "llvm-ir");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.linkerFlavor, "none");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.targetLinker, "none");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.fallbackPolicy, "none");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.libc.artifactMode, "none");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.sysroot.requiredByArtifact, false);
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.readiness.status, "supported");
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.readiness.directArtifact, false);
+assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.readiness.llvmArtifact, true);
+assert.equal(explicitLlvmIrBuild.body.objectBackend.backendFamily, "llvm");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.targetFacts.status, "ir-only");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.targetLibraries, "zero-runtime");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.externalToolchain, "none");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
+assert.deepEqual(explicitLlvmIrBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+assert.equal(explicitLlvmIrBuild.body.artifactPath, join(outDir, "add-explicit.ll"));
+assert(explicitLlvmIrBuild.body.artifactBytes > 0);
+const explicitLlvmIrText = readFileSync(explicitLlvmIrBuild.body.artifactPath, "utf8");
+assert.match(explicitLlvmIrText, /^; zero llvm-ir v1\n/);
+assert.match(explicitLlvmIrText, /target triple = "/);
+assert.match(explicitLlvmIrText, /define i32 @main\(\)/);
+assert.match(explicitLlvmIrText, /declare i32 @zero_world_write\(i32, ptr, i32\)/);
+assert.match(explicitLlvmIrText, /declare void @llvm\.trap\(\)/);
+assert.match(explicitLlvmIrText, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)/);
+assert.match(explicitLlvmIrText, /%v[0-9]+ = call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i32 11\)\n  %v[0-9]+ = icmp eq i32 %v[0-9]+, 0\n  br i1 %v[0-9]+, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  call void @llvm\.trap\(\)\n  unreachable\nL[0-9]+:/);
+const llvmIrLoweringBlockedBuild = json(["build", "--json", "--emit", "llvm-ir", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0", "--out", join(outDir, "owned-drop.ll")], { allowFailure: true });
+assert.notEqual(llvmIrLoweringBlockedBuild.code, 0);
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.stage, "lower");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "owned<Tracked>");
 const directLlvmIrReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"]).body;
 assert.equal(directLlvmIrReadiness.ok, true);
 assert.equal(directLlvmIrReadiness.targetReadiness.ok, false);
@@ -3726,6 +3785,12 @@ const llvmGraphCheck = json(["graph", "check", "--json", "--backend", "llvm", "e
 assert.equal(llvmGraphCheck.ok, true);
 assert.equal(llvmGraphCheck.targetReadiness.ok, false);
 assert.equal(llvmGraphCheck.targetReadiness.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmGraphCheck.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+const llvmIrGraphCheck = json(["graph", "check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"]).body;
+assert.equal(llvmIrGraphCheck.ok, true);
+assert.equal(llvmIrGraphCheck.targetReadiness.ok, true);
+assert.equal(llvmIrGraphCheck.targetReadiness.backend, "llvm");
+assert.equal(llvmIrGraphCheck.targetReadiness.stage, "ready");
 const directLlvmIrGraphCheck = json(["graph", "check", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"]).body;
 assert.equal(directLlvmIrGraphCheck.ok, true);
 assert.equal(directLlvmIrGraphCheck.targetReadiness.ok, false);
@@ -3733,7 +3798,18 @@ assert.equal(directLlvmIrGraphCheck.targetReadiness.diagnostics[0].backendBlocke
 const llvmSize = json(["size", "--json", "--backend", "llvm", "examples/add.0"], { allowFailure: true });
 assert.notEqual(llvmSize.code, 0);
 assert.equal(llvmSize.body.diagnostics[0].code, "BLD004");
-assert.equal(llvmSize.body.diagnostics[0].backendBlocker.stage, "backend-selection");
+assert.equal(llvmSize.body.diagnostics[0].backendBlocker.stage, "buildability");
+const llvmIrSize = json(["size", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"], { allowFailure: true });
+assert.notEqual(llvmIrSize.code, 0);
+assert.equal(llvmIrSize.body.diagnostics[0].code, "BLD004");
+assert.match(llvmIrSize.body.diagnostics[0].message, /writes artifacts only through zero build/);
+assert.equal(llvmIrSize.body.diagnostics[0].actual, "size --backend llvm --emit llvm-ir");
+assert.equal(llvmIrSize.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm-ir command");
+const llvmIrGraphSize = json(["graph", "size", "--json", "--emit", "llvm-ir", "--backend", "llvm", graphDumpPath], { allowFailure: true });
+assert.notEqual(llvmIrGraphSize.code, 0);
+assert.equal(llvmIrGraphSize.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrGraphSize.body.diagnostics[0].actual, "graph size --backend llvm --emit llvm-ir");
+assert.equal(llvmIrGraphSize.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm-ir command");
 const directLlvmIrSize = json(["size", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"], { allowFailure: true });
 assert.notEqual(directLlvmIrSize.code, 0);
 assert.equal(directLlvmIrSize.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
@@ -3741,15 +3817,37 @@ const llvmMem = json(["mem", "--json", "--backend", "llvm", "examples/add.0"], {
 assert.notEqual(llvmMem.code, 0);
 assert.equal(llvmMem.body.diagnostics[0].code, "BLD004");
 assert.equal(llvmMem.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmMem.body.diagnostics[0].backendBlocker.stage, "backend-selection");
+assert.equal(llvmMem.body.diagnostics[0].backendBlocker.stage, "buildability");
+const llvmIrMem = json(["mem", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"], { allowFailure: true });
+assert.notEqual(llvmIrMem.code, 0);
+assert.equal(llvmIrMem.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrMem.body.diagnostics[0].actual, "mem --backend llvm --emit llvm-ir");
+assert.equal(llvmIrMem.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm-ir command");
 const directLlvmIrMem = json(["mem", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"], { allowFailure: true });
 assert.notEqual(directLlvmIrMem.code, 0);
 assert.equal(directLlvmIrMem.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
+const llvmIrRun = zero(["run", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"], { allowFailure: true });
+assert.notEqual(llvmIrRun.code, 0);
+assert.match(llvmIrRun.stderr, /BLD004: LLVM IR emission writes artifacts only through zero build/);
+assert.match(llvmIrRun.stderr, /actual: run --backend llvm --emit llvm-ir/);
+const directLlvmIrRun = zero(["run", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"], { allowFailure: true });
+assert.notEqual(directLlvmIrRun.code, 0);
+assert.match(directLlvmIrRun.stderr, /BLD004: direct backend does not support --emit llvm-ir/);
+assert.match(directLlvmIrRun.stderr, /actual: backend=direct emit=llvm-ir/);
+const llvmIrGraphRun = zero(["graph", "run", "--emit", "llvm-ir", "--backend", "llvm", graphDumpPath], { allowFailure: true });
+assert.notEqual(llvmIrGraphRun.code, 0);
+assert.match(llvmIrGraphRun.stderr, /BLD004: LLVM IR emission writes artifacts only through zero build/);
+assert.match(llvmIrGraphRun.stderr, /actual: graph run --backend llvm --emit llvm-ir/);
 const llvmTest = json(["test", "--json", "--backend", "llvm", "conformance/native/pass/test-blocks.0"], { allowFailure: true });
 assert.notEqual(llvmTest.code, 0);
 assert.equal(llvmTest.body.diagnostics[0].code, "BLD004");
 assert.equal(llvmTest.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmTest.body.diagnostics[0].backendBlocker.stage, "backend-selection");
+assert.equal(llvmTest.body.diagnostics[0].backendBlocker.stage, "buildability");
+const llvmIrTest = json(["test", "--json", "--emit", "llvm-ir", "--backend", "llvm", "conformance/native/pass/test-blocks.0"], { allowFailure: true });
+assert.notEqual(llvmIrTest.code, 0);
+assert.equal(llvmIrTest.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrTest.body.diagnostics[0].actual, "test --backend llvm --emit llvm-ir");
+assert.equal(llvmIrTest.body.diagnostics[0].backendBlocker.unsupportedFeature, "llvm-ir command");
 const directLlvmIrTest = json(["test", "--json", "--emit", "llvm-ir", "--backend", "direct", "conformance/native/pass/test-blocks.0"], { allowFailure: true });
 assert.notEqual(directLlvmIrTest.code, 0);
 assert.equal(directLlvmIrTest.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
@@ -3777,7 +3875,7 @@ const llvmGraphTest = json(["graph", "test", "--json", "--backend", "llvm", grap
 assert.notEqual(llvmGraphTest.code, 0);
 assert.equal(llvmGraphTest.body.diagnostics[0].code, "BLD004");
 assert.equal(llvmGraphTest.body.diagnostics[0].backendBlocker.backend, "llvm");
-assert.equal(llvmGraphTest.body.diagnostics[0].backendBlocker.stage, "backend-selection");
+assert.equal(llvmGraphTest.body.diagnostics[0].backendBlocker.stage, "buildability");
 const directLlvmIrGraphTest = json(["graph", "test", "--json", "--emit", "llvm-ir", "--backend", "direct", graphTestDumpPath], { allowFailure: true });
 assert.notEqual(directLlvmIrGraphTest.code, 0);
 assert.equal(directLlvmIrGraphTest.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
@@ -4236,11 +4334,12 @@ assert.match(linuxArm64Target.directBackend.reason, /direct object and executabl
 for (const target of targets.targets) {
   assert.equal(target.backendFamilies.default, "direct");
   assert.deepEqual(target.backendFamilies.known, ["direct", "llvm"]);
-  assert.deepEqual(target.backendFamilies.available, ["direct"]);
+  assert.deepEqual(target.backendFamilies.available, ["direct", "llvm"]);
   assert.equal(target.backendFamilies.fallbackPolicy, "none");
-  assert.equal(target.backendFamilies.llvm.status, "unavailable");
+  assert.equal(target.backendFamilies.llvm.status, "ir-only");
   assert.equal(target.backendFamilies.llvm.buildable, false);
   assert.deepEqual(target.backendFamilies.llvm.emit, ["llvm-ir"]);
+  assert.match(target.backendFamilies.llvm.reason, /LLVM textual IR emission is available/);
 }
 
 const cAbiExport = zero(["check", "conformance/native/pass/c-abi-export.0"]);

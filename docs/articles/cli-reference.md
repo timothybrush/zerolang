@@ -175,10 +175,12 @@ valid ProgramGraph patch text.
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
 
-`direct` is the default backend family. `llvm` is a recognized backend family
-and `llvm-ir` is a recognized emit kind, but LLVM output is not available yet.
-Explicit LLVM requests report `BLD004` with `backendBlocker.backend: "llvm"`;
-they do not fall back to direct emitters.
+`direct` is the default backend family. `llvm` is an explicit backend family
+for textual LLVM IR: use `--backend llvm --emit llvm-ir` to write a `.ll`
+artifact. Native LLVM object and executable outputs are not wired yet; those
+requests report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall
+back to direct emitters. If the `.ll` artifact references Zero runtime helpers,
+the JSON build report lists the required runtime object in `objectBackend`.
 
 ## Tests
 
