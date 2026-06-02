@@ -1750,7 +1750,7 @@ assert.equal(graphUncheckedInline.body.view, null);
 assert.doesNotMatch(JSON.stringify(graphUncheckedInline.body), /<generated-graph-view>|zero-graph-check/);
 assert.equal(zero(["graph", "dump", "--out", graphBorrowDumpPath, "conformance/native/pass/borrow-field-independent-assignment.0"]).stdout, "");
 const graphBorrowDumpJson = json(["graph", "dump", "--json", "conformance/native/pass/borrow-field-independent-assignment.0"]).body;
-assert.equal(graphBorrowDumpJson.graphHash, "graph:e87c854aff30a69c");
+assert.equal(graphBorrowDumpJson.graphHash, "graph:19c2ad49cfb0ed1d");
 const graphBorrowRightFieldAccess = graphBorrowDumpJson.nodes.filter((node) => node.kind === "FieldAccess" && node.name === "right").at(-1);
 assert(graphBorrowRightFieldAccess);
 writeFileSync(graphBorrowConflictPatchPath, [

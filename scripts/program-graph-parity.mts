@@ -269,6 +269,76 @@ function findCheckForStringLiteral(graph, value) {
   return { check, literal };
 }
 
+function findNodeByKindAndName(graph, kind, name) {
+  const node = graph.nodes.find((item) => item.kind === kind && item.name === name);
+  assert(node, `missing ${kind} node ${name}`);
+  return node;
+}
+
+async function assertDeclarationSiblingIdentity() {
+  const declarationFixture = `${outDir}/identity-declarations.0`;
+  const declarations = [
+    "type Point {",
+    "    x: i32,",
+    "}",
+    "",
+    "type Other {",
+    "    y: i32,",
+    "}",
+    "",
+    "pub fn main() -> Void {",
+    "    let point: Point = Point { x: 1 }",
+    "    expect point.x == 1",
+    "}",
+    "",
+  ].join("\n");
+  await writeFile(declarationFixture, declarations);
+  const beforeDeclarations = await zeroJson(["graph", "dump", "--json", declarationFixture]);
+  const beforePoint = findNodeByKindAndName(beforeDeclarations, "Shape", "Point");
+  const beforeOther = findNodeByKindAndName(beforeDeclarations, "Shape", "Other");
+
+  await writeFile(declarationFixture, declarations.replace("type Point", "type Added {\n    z: i32,\n}\n\ntype Point"));
+  const prependedDeclarations = await zeroJson(["graph", "dump", "--json", declarationFixture]);
+  assert.equal(findNodeByKindAndName(prependedDeclarations, "Shape", "Point").id, beforePoint.id, "prepending a declaration should not churn existing shape IDs");
+  assert.equal(findNodeByKindAndName(prependedDeclarations, "Shape", "Other").id, beforeOther.id, "prepending a declaration should not churn later shape IDs");
+
+  const methodFixture = `${outDir}/identity-methods.0`;
+  const methods = [
+    "type Counter {",
+    "    value: i32,",
+    "    fn read(self: ref<Self>) -> i32 {",
+    "        return self.value",
+    "    }",
+    "    fn done(self: ref<Self>) -> Bool {",
+    "        return true",
+    "    }",
+    "}",
+    "",
+    "pub fn main() -> Void {",
+    "    let counter: Counter = Counter { value: 42 }",
+    "    expect Counter.read(&counter) == 42",
+    "}",
+    "",
+  ].join("\n");
+  await writeFile(methodFixture, methods);
+  const beforeMethods = await zeroJson(["graph", "dump", "--json", methodFixture]);
+  const beforeRead = findNodeByKindAndName(beforeMethods, "Function", "read");
+  const beforeDone = findNodeByKindAndName(beforeMethods, "Function", "done");
+
+  await writeFile(methodFixture, methods.replace("    fn read", "    fn zero(self: ref<Self>) -> u32 {\n        return 0_u32\n    }\n    fn read"));
+  const prependedMethods = await zeroJson(["graph", "dump", "--json", methodFixture]);
+  assert.equal(findNodeByKindAndName(prependedMethods, "Function", "read").id, beforeRead.id, "prepending a distinct method should not churn existing method IDs");
+  assert.equal(findNodeByKindAndName(prependedMethods, "Function", "done").id, beforeDone.id, "prepending a distinct method should not churn later method IDs");
+
+  await writeFile(methodFixture, methods.replace("    fn read", "    fn count(self: ref<Self>) -> i32 {\n        return 1\n    }\n    fn read"));
+  const sameShapeMethods = await zeroJson(["graph", "dump", "--json", methodFixture]);
+  const sameShapeRead = findNodeByKindAndName(sameShapeMethods, "Function", "read");
+  const countMethod = findNodeByKindAndName(sameShapeMethods, "Function", "count");
+  assert.notEqual(sameShapeRead.id, beforeRead.id, "same-shape method collision should retire the old ambiguous method ID");
+  assert.notEqual(countMethod.id, beforeRead.id, "prepended same-shape method should not steal the old method ID");
+  assertMissingNodeId(sameShapeMethods, beforeRead.id, "old ambiguous method ID should not target any same-shape method");
+}
+
 async function assertSourceEditIdentityBaseline() {
   const fixture = `${outDir}/identity-edit.0`;
   const original = [
@@ -390,6 +460,7 @@ try {
   await assertGraphPatchPreservesNodeIds();
 
   await assertSourceEditIdentityBaseline();
+  await assertDeclarationSiblingIdentity();
   console.log("program graph parity ok");
 } finally {
   await rm(outDir, { force: true, recursive: true });

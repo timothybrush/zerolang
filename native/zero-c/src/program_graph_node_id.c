@@ -95,9 +95,17 @@ static const char *graph_node_id_domain(const ZProgramGraphNode *node) {
   }
 }
 
+static bool graph_edge_kind_is_declaration(const char *kind) {
+  return graph_text_eq(kind, "import") || graph_text_eq(kind, "cImport") ||
+         graph_text_eq(kind, "const") || graph_text_eq(kind, "alias") ||
+         graph_text_eq(kind, "shape") || graph_text_eq(kind, "interface") ||
+         graph_text_eq(kind, "enum") || graph_text_eq(kind, "choice") || graph_text_eq(kind, "function") ||
+         graph_text_eq(kind, "method");
+}
+
 static bool graph_edge_order_participates(const ZProgramGraphNode *node, const ZProgramGraphEdge *edge) {
   if (!edge) return false;
-  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_FUNCTION && graph_text_eq(edge->kind, "function")) return false;
+  if (node && graph_edge_kind_is_declaration(edge->kind)) return false;
   if (graph_text_eq(edge->kind, "statement")) return false;
   return true;
 }
@@ -161,8 +169,6 @@ static uint64_t graph_collision_hash_value(const ZProgramGraphNode *node) {
   hash = graph_hash_text(hash, node->type);
   hash = graph_hash_text(hash, node->value);
   hash = graph_hash_text(hash, node->path);
-  hash = graph_hash_u64(hash, (uint64_t)(node->line > 0 ? node->line : 0));
-  hash = graph_hash_u64(hash, (uint64_t)(node->column > 0 ? node->column : 0));
   hash = graph_hash_u64(hash, node->is_public ? 1 : 0);
   hash = graph_hash_u64(hash, node->is_mutable ? 1 : 0);
   hash = graph_hash_u64(hash, node->is_static ? 1 : 0);
@@ -171,7 +177,7 @@ static uint64_t graph_collision_hash_value(const ZProgramGraphNode *node) {
   return hash;
 }
 
-static char *graph_source_node_collision_id(const ZProgramGraphNode *node, const char *base_id, char **ids, size_t id_len, size_t rank, bool force_suffix) {
+static char *graph_source_node_collision_id(const ZProgramGraphNode *node, const char *base_id, char **ids, size_t id_len, bool force_suffix) {
   ZBuf base;
   zbuf_init(&base);
   zbuf_append(&base, base_id);
@@ -181,8 +187,8 @@ static char *graph_source_node_collision_id(const ZProgramGraphNode *node, const
     ZBuf unique;
     zbuf_init(&unique);
     zbuf_append(&unique, base.data);
-    if (attempt == 0 && rank == 0) zbuf_appendf(&unique, "-%04llx", (unsigned long long)(collision & 0xffffull));
-    else zbuf_appendf(&unique, "-%04llx-%zu", (unsigned long long)(collision & 0xffffull), attempt + rank);
+    if (attempt == 0) zbuf_appendf(&unique, "-%04llx", (unsigned long long)(collision & 0xffffull));
+    else zbuf_appendf(&unique, "-%04llx-%zu", (unsigned long long)(collision & 0xffffull), attempt);
     if (graph_id_is_used(ids, id_len, unique.data)) {
       zbuf_free(&unique);
       continue;
@@ -277,7 +283,7 @@ void z_program_graph_assign_source_node_ids(ZProgramGraph *graph) {
       graph_sort_collision_group(graph, group, group_len);
       for (size_t j = 0; j < group_len; j++) {
         size_t index = group[j];
-        new_ids[index] = graph_source_node_collision_id(&graph->nodes[index], base_ids[index], new_ids, graph->node_len, j, group_len > 1);
+        new_ids[index] = graph_source_node_collision_id(&graph->nodes[index], base_ids[index], new_ids, graph->node_len, group_len > 1);
         assigned[index] = true;
         assigned_count++;
       }
