@@ -61,6 +61,10 @@ External C calls require target library audit facts. `zero graph --json` reports
 each `cLibraries[].linkPlan` with include paths, library paths, sysroot status,
 target ABI, and host discovery status.
 
+Executable builds with direct extern C calls require package link metadata in
+`zero.json`. Missing `c.libs.*.lib` / `c.libs.*.link` entries, or unsafe system
+library names in `link`, report `CIMP005` before the linker runs.
+
 Cross builds must use package-relative vendored headers/libraries or an
 explicit target sysroot. They cannot silently reuse host include or library
 paths.

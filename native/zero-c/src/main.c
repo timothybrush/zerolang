@@ -181,6 +181,7 @@ static const char *diag_code(int code) {
     case 8002: return "CIMP002";
     case 8003: return "CIMP003";
     case 8004: return "CIMP004";
+    case 8005: return "CIMP005";
     case 9001: return "PKG001";
     case 9002: return "PKG002";
     case 9003: return "PKG003";
@@ -714,6 +715,34 @@ static bool json_array_next_string(const char **cursor, char *out, size_t out_le
   return true;
 }
 
+static void append_shell_single_quoted(ZBuf *buf, const char *value) {
+  zbuf_append_char(buf, '\'');
+  for (size_t i = 0; value && value[i]; i++) {
+    if (value[i] == '\'') zbuf_append(buf, "'\\''");
+    else zbuf_append_char(buf, value[i]);
+  }
+  zbuf_append_char(buf, '\'');
+}
+
+static bool c_link_name_is_safe(const char *name) {
+  if (!name || !name[0]) return false;
+  for (size_t i = 0; name[i]; i++) {
+    unsigned char ch = (unsigned char)name[i];
+    if (isalnum(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '+') continue;
+    return false;
+  }
+  return true;
+}
+
+static bool c_link_path_is_safe(const char *path) {
+  if (!path || !path[0]) return false;
+  for (size_t i = 0; path[i]; i++) {
+    unsigned char ch = (unsigned char)path[i];
+    if (ch < 0x20 || ch == 0x7f) return false;
+  }
+  return true;
+}
+
 static bool runtime_path_is_absolute(const char *path) {
   if (!path || !path[0]) return false;
   return path[0] == '/' || (strlen(path) > 2 && path[1] == ':');
@@ -724,7 +753,8 @@ static void append_c_link_file_flags(ZBuf *flags, const char *package_root, cons
   char item[512];
   while (json_array_next_string(&cursor, item, sizeof(item))) {
     char *path = runtime_path_is_absolute(item) ? z_strdup(item) : runtime_join_path(package_root && package_root[0] ? package_root : ".", item);
-    zbuf_appendf(flags, " '%s'", path);
+    zbuf_append_char(flags, ' ');
+    append_shell_single_quoted(flags, path);
     free(path);
   }
 }
@@ -733,7 +763,7 @@ static void append_c_link_name_flags(ZBuf *flags, const char *link_json) {
   const char *cursor = link_json ? link_json : "";
   char item[256];
   while (json_array_next_string(&cursor, item, sizeof(item))) {
-    zbuf_appendf(flags, " -l%s", item);
+    if (c_link_name_is_safe(item)) zbuf_appendf(flags, " -l%s", item);
   }
 }
 
@@ -2706,6 +2736,7 @@ static const char *diag_fix_safety(int code) {
     case 6002:
     case 8003:
     case 8004:
+    case 8005:
     case 9001:
     case 9002:
     case 9003:
@@ -2793,6 +2824,7 @@ static const char *diag_repair_id(int code) {
     case 6002: return "choose-target-with-required-capability";
     case 8003: return "configure-target-c-dependency";
     case 8004: return "fix-c-import-call";
+    case 8005: return "configure-c-link-plan";
     case 9001: return "fix-package-dependency-path";
     case 9002: return "break-package-dependency-cycle";
     case 9003: return "choose-one-package-version";
@@ -2847,6 +2879,7 @@ static const char *diag_repair_summary(int code) {
     case 6002: return "Build for a target that provides the required capability, or move that capability behind a target-specific entry point.";
     case 8003: return "Use package-relative vendored headers/libraries or set the target sysroot instead of relying on host include, lib, or pkg-config discovery.";
     case 8004: return "Call a function declared by the imported C header, or wrap unsupported C ABI types behind a scalar C shim.";
+    case 8005: return "Add package-relative C libraries or safe system library names to zero.json for extern C calls.";
     case 9001: return "Create the local dependency package or update the path in zero.json.";
     case 9002: return "Remove the package cycle or move shared code into an acyclic dependency.";
     case 9003: return "Resolve the graph to one version of each package name.";
@@ -3183,6 +3216,16 @@ static const ExplainInfo explain_infos[] = {
     "let vec: FixedVec<u8, 4> = FixedVec { len: 0, items: [0, 0, 0, 0] }\ncheck vec.push(1_u8)",
     "var vec: FixedVec<u8, 4> = FixedVec { len: 0, items: [0, 0, 0, 0] }\ncheck vec.push(1_u8)",
   },
+  {
+    "CIMP005",
+    "c-import",
+    "C import link plan missing or unsafe",
+    "An extern C call needs package manifest link metadata, or the manifest contains a system library name that is unsafe to pass to the linker.",
+    "Zero reports C dependency audit facts before linking so agents can inspect and repair native C surfaces deterministically.",
+    "Add package-relative `c.libs.*.lib` entries or safe `c.libs.*.link` names using only letters, digits, `_`, `-`, `.`, and `+`.",
+    "extern c \"vendor/include/ext.h\" as c\nlet value: i32 = c.ext_add(1, 2)",
+    "\"c\": {\"libs\": {\"ext\": {\"headers\": [\"vendor/include/ext.h\"], \"include\": [\"vendor/include\"], \"lib\": [\"vendor/lib/ext.o\"], \"link\": []}}}",
+  },
   {"BLD004", "build", "Direct backend target not buildable", "The selected direct backend cannot build this source, target, object format, architecture, or artifact kind.", "Target-aware buildability runs before object or executable emission and reports ordinary direct-backend limitations with structured blocker facts.", "Choose a target whose `zero targets --json` directBackend facts advertise the requested artifact, or simplify the program to the backend-supported subset.", "zero check --json --emit obj --target linux-arm64 examples/direct-call-add.0", "zero check --json --emit obj --target linux-x64 examples/direct-call-add.0"},
   {"CGEN004", "codegen", "Direct code generation invariant failed", "A direct emitter reached an internal code generation invariant after target buildability accepted the program.", "Ordinary unsupported targets and source features should be reported before emission with BLD004.", "Report this compiler bug with the source program and target that produced it.", "zero build --json --emit obj --target linux-musl-x64 examples/direct-call-add.0", "zero build --json --emit obj --target linux-x64 examples/direct-call-add.0"},
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL},
@@ -3239,6 +3282,7 @@ static void print_explain_json(const ExplainInfo *info) {
                                          strcmp(info->code, "ERR002") == 0 ? 1002 :
                                          strcmp(info->code, "ERR003") == 0 ? 1003 :
                                          strcmp(info->code, "STD003") == 0 ? 3012 :
+                                         strcmp(info->code, "CIMP005") == 0 ? 8005 :
                                          strcmp(info->code, "CGEN004") == 0 ? 4004 : 0));
   zbuf_append(&buf, ", \"summary\": ");
   append_json_string(&buf, info->canonical_repair);
@@ -9139,6 +9183,24 @@ static bool c_lib_uses_unsafe_foreign_discovery(const ZManifestCLib *lib, const 
   return uses_pkg_config && (!c_lib_has_vendored_headers(lib) || !c_lib_has_vendored_libraries(lib));
 }
 
+static bool c_import_link_plan_required(const SourceInput *input, const Command *command) {
+  return input && input->direct_c_import_call_count > 0 &&
+         (!command || command->emit == EMIT_EXE);
+}
+
+static void set_c_import_link_plan_diag(ZDiag *diag, const char *manifest_path, const char *message, const char *actual) {
+  if (!diag) return;
+  diag->code = 8005;
+  diag->path = z_strdup(manifest_path ? manifest_path : "zero.json");
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "extern C link plan is not configured");
+  snprintf(diag->expected, sizeof(diag->expected), "package-relative c.libs.*.lib entries or safe c.libs.*.link names");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", actual ? actual : "missing C link metadata");
+  snprintf(diag->help, sizeof(diag->help), "add vendored object/archive paths under c.libs.*.lib or system library names using only letters, digits, _, -, ., and +");
+}
+
 static void manifest_path_for_input(const SourceInput *input, char *manifest_path, size_t manifest_path_len) {
   if (!manifest_path || manifest_path_len == 0) return;
   manifest_path[0] = 0;
@@ -9218,17 +9280,25 @@ static void append_c_libraries_json(ZBuf *buf, const SourceInput *input, const Z
   free(manifest);
 }
 
-static bool validate_c_libraries_for_target(const SourceInput *input, const ZTargetInfo *target, ZDiag *diag) {
+static bool validate_c_libraries_for_target(const SourceInput *input, const ZTargetInfo *target, const Command *command, ZDiag *diag) {
+  bool require_link_plan = c_import_link_plan_required(input, command);
   char manifest_path[512];
   manifest_path_for_input(input, manifest_path, sizeof(manifest_path));
   ZDiag read_diag = {0};
   char *manifest = z_read_file(manifest_path, &read_diag);
-  if (!manifest) return true;
+  if (!manifest) {
+    if (require_link_plan) {
+      set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "zero.json was not found");
+      return false;
+    }
+    return true;
+  }
   ZManifest parsed_manifest = {0};
   if (!z_parse_manifest_json(manifest, &parsed_manifest, &read_diag)) {
     free(manifest);
     return true;
   }
+  bool has_link_inputs = false;
   for (size_t i = 0; i < parsed_manifest.c_lib_count; i++) {
     ZManifestCLib *lib = &parsed_manifest.c_libs[i];
     if (c_lib_uses_unsafe_foreign_discovery(lib, target)) {
@@ -9245,6 +9315,40 @@ static bool validate_c_libraries_for_target(const SourceInput *input, const ZTar
       free(manifest);
       return false;
     }
+    if (require_link_plan) {
+      const char *lib_cursor = lib->lib_json ? lib->lib_json : "";
+      char lib_item[512];
+      while (json_array_next_string(&lib_cursor, lib_item, sizeof(lib_item))) {
+        has_link_inputs = true;
+        if (!c_link_path_is_safe(lib_item)) {
+          char actual[512];
+          snprintf(actual, sizeof(actual), "c.libs.%s.lib contains an empty or control-character path", lib->name ? lib->name : "<unknown>");
+          set_c_import_link_plan_diag(diag, manifest_path, "extern C library path is unsafe", actual);
+          z_free_manifest(&parsed_manifest);
+          free(manifest);
+          return false;
+        }
+      }
+      const char *link_cursor = lib->link_json ? lib->link_json : "";
+      char link_item[256];
+      while (json_array_next_string(&link_cursor, link_item, sizeof(link_item))) {
+        has_link_inputs = true;
+        if (!c_link_name_is_safe(link_item)) {
+          char actual[512];
+          snprintf(actual, sizeof(actual), "c.libs.%s.link contains unsafe library name '%s'", lib->name ? lib->name : "<unknown>", link_item);
+          set_c_import_link_plan_diag(diag, manifest_path, "extern C system library name is unsafe", actual);
+          z_free_manifest(&parsed_manifest);
+          free(manifest);
+          return false;
+        }
+      }
+    }
+  }
+  if (require_link_plan && !has_link_inputs) {
+    set_c_import_link_plan_diag(diag, manifest_path, "extern C calls require C link metadata", "no c.libs.*.lib or c.libs.*.link entries were found");
+    z_free_manifest(&parsed_manifest);
+    free(manifest);
+    return false;
   }
   z_free_manifest(&parsed_manifest);
   free(manifest);
@@ -9454,13 +9558,13 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
   ZDiag diag = {0};
   IrProgram ir = {0};
   bool ready = true;
-  if (!validate_c_libraries_for_target(input, target, &diag)) {
+  long long phase_started = now_ms();
+  ir = z_lower_program_with_source(program, input);
+  if (input) input->lower_ms = now_ms() - phase_started;
+  apply_ir_metrics_to_input(input, &ir, target);
+
+  if (!validate_c_libraries_for_target(input, target, command, &diag)) {
     ready = false;
-  } else {
-    long long phase_started = now_ms();
-    ir = z_lower_program_with_source(program, input);
-    if (input) input->lower_ms = now_ms() - phase_started;
-    apply_ir_metrics_to_input(input, &ir, target);
   }
 
   if (ready) {
@@ -9475,7 +9579,7 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
   }
   if (!ready && input) {
     /* C library validation points at zero.json; source mapping would erase that. */
-    if (diag.code != 8003) z_map_source_diag(input, &diag);
+    if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
   }
 
@@ -10837,7 +10941,7 @@ static int run_graph_patch_command(const Command *command, ZDiag *diag) {
 
 static void graph_check_map_diag_path(const Command *command, const SourceInput *input, ZDiag *diag) {
   if (!diag) return;
-  if (diag->code != 8003 && input && input->source_file) z_map_source_diag(input, diag);
+  if (diag->code != 8003 && diag->code != 8005 && input && input->source_file) z_map_source_diag(input, diag);
   if (!diag->path) diag->path = graph_check_diagnostic_path(command);
 }
 
@@ -11623,7 +11727,7 @@ int main(int argc, char **argv) {
   }
 
   if ((strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "ship") == 0) &&
-      !validate_c_libraries_for_target(&input, target, &diag)) {
+      !validate_c_libraries_for_target(&input, target, &command, &diag)) {
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
     z_free_program(&program);
@@ -11804,6 +11908,15 @@ int main(int argc, char **argv) {
   bool run_command = strcmp(command.command, "run") == 0;
   bool ship_command = strcmp(command.command, "ship") == 0;
   bool artifact_command = build_command || run_command || ship_command;
+  if (artifact_command && command.emit == EMIT_EXE &&
+      !validate_c_libraries_for_target(&input, target, &command, &diag)) {
+    if (command.json) print_diag_json(diag.path ? diag.path : input.source_file, &diag);
+    else print_diag(diag.path ? diag.path : input.source_file, &diag);
+    z_free_ir_program(&ir);
+    z_free_program(&program);
+    z_free_source(&input);
+    return 1;
+  }
   bool needs_zero_runtime = artifact_command && command.emit == EMIT_EXE && ir_needs_zero_runtime_object(&ir);
   if (needs_zero_runtime) {
     RuntimeImportAudit runtime_audit = runtime_import_audit_from_ir(&ir);
