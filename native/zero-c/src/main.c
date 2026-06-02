@@ -11699,14 +11699,17 @@ int main(int argc, char **argv) {
       return 1;
     }
     if (command.emit != EMIT_EXE) {
+      if (command.emit == EMIT_LLVM_IR) {
+        if (z_backend_request_is_llvm(command.backend, "llvm-ir")) init_llvm_ir_build_only_diag(&diag, &command, target, command.input);
+        else init_direct_llvm_ir_unavailable_diag(&diag, &command, target, command.input);
+        print_diag(command.input, &diag); return 1;
+      }
       diag.code = 2002;
-      diag.line = 1;
-      diag.column = 1;
-      diag.length = 1;
+      diag.line = 1; diag.column = 1; diag.length = 1;
       snprintf(diag.message, sizeof(diag.message), "%s only supports executable output", graph_run_command ? "zero graph run" : "zero run");
       snprintf(diag.expected, sizeof(diag.expected), "%s <input>", graph_run_command ? "zero graph run" : "zero run");
-      snprintf(diag.actual, sizeof(diag.actual), "--emit obj");
-      snprintf(diag.help, sizeof(diag.help), "use %s --emit obj when you need a non-executable artifact", graph_run_command ? "zero graph build" : "zero build");
+      snprintf(diag.actual, sizeof(diag.actual), "--emit %s", emit_kind_name(command.emit));
+      snprintf(diag.help, sizeof(diag.help), "use %s --emit %s when you need a non-executable artifact", graph_run_command ? "zero graph build" : "zero build", emit_kind_name(command.emit));
       print_diag(command.input, &diag);
       return 1;
     }

@@ -3799,6 +3799,18 @@ assert.equal(llvmIrMem.body.diagnostics[0].backendBlocker.unsupportedFeature, "l
 const directLlvmIrMem = json(["mem", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"], { allowFailure: true });
 assert.notEqual(directLlvmIrMem.code, 0);
 assert.equal(directLlvmIrMem.body.diagnostics[0].actual, "backend=direct emit=llvm-ir");
+const llvmIrRun = zero(["run", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"], { allowFailure: true });
+assert.notEqual(llvmIrRun.code, 0);
+assert.match(llvmIrRun.stderr, /BLD004: LLVM IR emission writes artifacts only through zero build/);
+assert.match(llvmIrRun.stderr, /actual: run --backend llvm --emit llvm-ir/);
+const directLlvmIrRun = zero(["run", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"], { allowFailure: true });
+assert.notEqual(directLlvmIrRun.code, 0);
+assert.match(directLlvmIrRun.stderr, /BLD004: direct backend does not support --emit llvm-ir/);
+assert.match(directLlvmIrRun.stderr, /actual: backend=direct emit=llvm-ir/);
+const llvmIrGraphRun = zero(["graph", "run", "--emit", "llvm-ir", "--backend", "llvm", graphDumpPath], { allowFailure: true });
+assert.notEqual(llvmIrGraphRun.code, 0);
+assert.match(llvmIrGraphRun.stderr, /BLD004: LLVM IR emission writes artifacts only through zero build/);
+assert.match(llvmIrGraphRun.stderr, /actual: graph run --backend llvm --emit llvm-ir/);
 const llvmTest = json(["test", "--json", "--backend", "llvm", "conformance/native/pass/test-blocks.0"], { allowFailure: true });
 assert.notEqual(llvmTest.code, 0);
 assert.equal(llvmTest.body.diagnostics[0].code, "BLD004");
