@@ -3707,6 +3707,21 @@ assert.equal(llvmIrReadiness.targetReadiness.backend, "llvm");
 assert.equal(llvmIrReadiness.targetReadiness.emit, "llvm-ir");
 assert.equal(llvmIrReadiness.targetReadiness.stage, "ready");
 assert.equal(llvmIrReadiness.targetReadiness.diagnostics.length, 0);
+const llvmIrLoweringBlockedReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]).body;
+assert.equal(llvmIrLoweringBlockedReadiness.ok, true);
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.ok, false);
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.stage, "lower");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.match(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].help, /--backend llvm --emit llvm-ir/);
+assert.deepEqual(llvmIrLoweringBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker, {
+  target: version.host,
+  objectFormat: version.host.startsWith("win32") ? "coff" : (version.host.startsWith("linux") ? "elf" : "macho"),
+  backend: "llvm",
+  stage: "lower",
+  unsupportedFeature: "owned<Tracked>",
+});
 const llvmBuild = json(["build", "--json", "--backend", "llvm", "examples/add.0", "--out", join(outDir, "add-llvm")], { allowFailure: true });
 assert.notEqual(llvmBuild.code, 0);
 assert.equal(llvmBuild.body.diagnostics[0].code, "BLD004");
@@ -3745,6 +3760,13 @@ assert.match(explicitLlvmIrText, /target triple = "/);
 assert.match(explicitLlvmIrText, /define i32 @main\(\)/);
 assert.match(explicitLlvmIrText, /declare i32 @zero_world_write\(i32, ptr, i64\)/);
 assert.match(explicitLlvmIrText, /call i32 @zero_world_write\(i32 1, ptr %v[0-9]+, i64 11\)/);
+const llvmIrLoweringBlockedBuild = json(["build", "--json", "--emit", "llvm-ir", "--backend", "llvm", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0", "--out", join(outDir, "owned-drop.ll")], { allowFailure: true });
+assert.notEqual(llvmIrLoweringBlockedBuild.code, 0);
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].code, "BLD004");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].expected, "LLVM IR scalar MIR subset");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.backend, "llvm");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.stage, "lower");
+assert.equal(llvmIrLoweringBlockedBuild.body.diagnostics[0].backendBlocker.unsupportedFeature, "owned<Tracked>");
 const directLlvmIrReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "direct", "examples/add.0"]).body;
 assert.equal(directLlvmIrReadiness.ok, true);
 assert.equal(directLlvmIrReadiness.targetReadiness.ok, false);
