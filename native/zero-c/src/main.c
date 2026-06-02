@@ -5732,7 +5732,7 @@ static void append_object_backend_json(ZBuf *buf, const SourceInput *input, cons
     zbuf_append(buf, "{\"internalIr\":{\"typeRepresentation\":\"MIR primitive value types\",\"controlFlowRepresentation\":\"MIR instruction stream lowered to target machine/module code\",\"callRepresentation\":\"same-object direct calls for supported direct subsets\",\"functionIdentity\":\"module-qualified-stable-sorted\",\"debugRepresentation\":\"source spans retained on MIR nodes\"}");
     bool direct_has_data = input && input->direct_readonly_data_bytes > 0;
     direct_symbol_count += input ? input->direct_runtime_helper_count : 0;
-    direct_symbol_count += input ? input->direct_c_import_call_count : 0;
+    direct_symbol_count += input ? input->direct_c_import_symbol_count : 0;
     direct_symbol_count += z_direct_backend_symbol_overhead(direct.backend, direct_has_data);
     zbuf_appendf(buf, ",\"objectEmission\":{\"path\":\"%s\",\"functions\":true,\"dataSections\":%s,\"symbols\":%s,\"relocations\":\"%s\",\"symbolCount\":%zu,\"internalHelperCount\":%zu}",
                  direct.artifact_path,
@@ -9351,6 +9351,7 @@ static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, c
   input->direct_host_runtime_import_count = ir->direct_host_runtime_import_count;
   input->direct_http_runtime_import_count = ir->direct_http_runtime_import_count;
   input->direct_c_import_call_count = ir->direct_c_import_call_count;
+  input->direct_c_import_symbol_count = ir->external_function_len;
 }
 
 static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const Command *command, const IrProgram *ir) {

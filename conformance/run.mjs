@@ -3530,12 +3530,23 @@ ${externCallSymbolPrefix}zero_ext_dirty_u8:
     ret
 `;
 }
-await writeFile(`${externCallRoot}/vendor/include/zero_ext.h`, `int
+await writeFile(`${externCallRoot}/vendor/include/zero_ext.h`, `#ifdef __cplusplus
+extern "C" {
+#endif
+
+int
 zero_ext_add(
     int left,
     int right
 );
+#if 0
+int zero_ext_disabled(int value);
+#endif
 unsigned char zero_ext_dirty_u8(void);
+
+#ifdef __cplusplus
+}
+#endif
 `);
 await writeFile(`${externCallShadowRoot}/vendor/include/zero_ext.h`, "int zero_ext_wrong(int, int);\n");
 await writeFile(`${externCallRoot}/vendor/lib/zero_ext.c`, '#include "zero_ext.h"\nint zero_ext_add(int a, int b) { return a + b; }\n');
@@ -3552,7 +3563,7 @@ await writeFile(`${externCallRoot}/zero.json`, JSON.stringify({
 await writeFile(`${externCallRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
 
 pub fn main(world: World) -> Void raises {
-    let total: i32 = c.zero_ext_add(20, 22)
+    let total: i32 = c.zero_ext_add(20, 20) + c.zero_ext_add(1, 1)
     if total == 42${externCallDirtyAsm ? " && c.zero_ext_dirty_u8() == 1_u8" : ""} {
         check world.out.write("extern c call ok\\n")
     } else {
@@ -3560,15 +3571,26 @@ pub fn main(world: World) -> Void raises {
     }
 }
 `);
+await writeFile(`${externCallRoot}/src/disabled.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main() -> i32 {
+    return c.zero_ext_disabled(1)
+}
+`);
 const externCallShadowCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
 const externCallShadowCheckBody = JSON.parse(externCallShadowCheck.stdout);
 assert.equal(externCallShadowCheckBody.ok, true);
+const externCallDisabledCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
+assert.notEqual(externCallDisabledCheck.code, 0);
+const externCallDisabledCheckBody = JSON.parse(externCallDisabledCheck.stdout);
+assert.equal(externCallDisabledCheckBody.diagnostics[0].code, "CIMP004");
 const externCallGraph = await execFileAsync(zero, ["graph", "--json", externCallRoot]);
 const externCallGraphBody = JSON.parse(externCallGraph.stdout);
 const externCallImport = externCallGraphBody.cImports.find((item) => item.header === "vendor/include/zero_ext.h");
 assert(externCallImport);
-assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_add" && item.params.length === 2));
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_add" && item.returnType === "int" && item.params.length === 2));
 assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_dirty_u8" && item.returnType === "unsigned char" && item.params.length === 0));
+assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_disabled"));
 const externCallBuildOut = `${externCallRoot}/extern-call`;
 const externCallBuild = await execFileAsync(zero, ["build", "--json", externCallRoot, "--out", externCallBuildOut]);
 const externCallBuildBody = JSON.parse(externCallBuild.stdout);
@@ -3579,6 +3601,17 @@ assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /zero-ru
 assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /c-imports/);
 assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/zero_ext.o")));
 if (externCallDirtyAsm) assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/zero_ext_dirty.o")));
+const externCallObjectOverhead = externCallBuildBody.objectBackend.linking.objectFormat === "coff"
+  ? (externCallBuildBody.objectBackend.objectEmission.dataSections ? 2 : 1)
+  : (externCallBuildBody.objectBackend.objectEmission.dataSections ? 1 : 0);
+const externCallExpectedExternalSymbols = externCallDirtyAsm ? 2 : 1;
+assert.equal(
+  externCallBuildBody.objectBackend.objectEmission.symbolCount,
+  externCallBuildBody.objectBackend.directFacts.functionCount +
+    externCallBuildBody.objectBackend.directFacts.runtimeHelperCount +
+    externCallExpectedExternalSymbols +
+    externCallObjectOverhead
+);
 assert.equal(externCallBuildBody.releaseTargetContract.selectedEmitter, externCallBuildBody.releaseTargetContract.directObjectEmitter);
 assert.equal(externCallBuildBody.releaseTargetContract.libc.artifactMode, externCallBuildBody.releaseTargetContract.libc.targetMode);
 const externCallRun = await execFileAsync(zero, ["run", externCallRoot]);
