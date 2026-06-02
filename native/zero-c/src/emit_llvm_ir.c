@@ -15,6 +15,7 @@ typedef struct {
   ZBuf *out;
   unsigned temp_index;
   unsigned label_index;
+  unsigned current_label;
 } LlvmEmit;
 
 static bool llvm_type_supported(IrTypeKind type) {
@@ -82,6 +83,11 @@ static void llvm_temp(LlvmEmit *emit, LlvmValue *value, IrTypeKind type) {
 
 static unsigned llvm_label(LlvmEmit *emit) {
   return emit->label_index++;
+}
+
+static void llvm_emit_label(LlvmEmit *emit, unsigned label) {
+  zbuf_appendf(emit->out, "L%u:\n", label);
+  emit->current_label = label;
 }
 
 static bool llvm_name_is_ident(const char *name) {
@@ -216,6 +222,35 @@ static bool llvm_emit_call(LlvmEmit *emit, const IrValue *value, LlvmValue *out,
   return true;
 }
 
+static bool llvm_emit_short_circuit_binary(LlvmEmit *emit, const IrValue *value, LlvmValue *out, ZDiag *diag) {
+  bool is_and = value->binary_op == IR_BIN_AND;
+  LlvmValue left;
+  if (!llvm_emit_value(emit, value->left, &left, diag)) return false;
+  if (left.type != IR_TYPE_BOOL) {
+    llvm_set_diag(diag, emit->program, value->line, value->column, "LLVM IR backend Boolean operator left operand must be Bool", "non-Bool short-circuit operand", "lower");
+    return false;
+  }
+  unsigned rhs_label = llvm_label(emit);
+  unsigned const_label = llvm_label(emit);
+  unsigned end_label = llvm_label(emit);
+  zbuf_appendf(emit->out, "  br i1 %s, label %%L%u, label %%L%u\n", left.text, is_and ? rhs_label : const_label, is_and ? const_label : rhs_label);
+  llvm_emit_label(emit, rhs_label);
+  LlvmValue right;
+  if (!llvm_emit_value(emit, value->right, &right, diag)) return false;
+  if (right.type != IR_TYPE_BOOL) {
+    llvm_set_diag(diag, emit->program, value->line, value->column, "LLVM IR backend Boolean operator right operand must be Bool", "non-Bool short-circuit operand", "lower");
+    return false;
+  }
+  unsigned rhs_end_label = emit->current_label;
+  zbuf_appendf(emit->out, "  br label %%L%u\n", end_label);
+  llvm_emit_label(emit, const_label);
+  zbuf_appendf(emit->out, "  br label %%L%u\n", end_label);
+  llvm_emit_label(emit, end_label);
+  llvm_temp(emit, out, IR_TYPE_BOOL);
+  zbuf_appendf(emit->out, "  %s = phi i1 [%s, %%L%u], [%u, %%L%u]\n", out->text, right.text, rhs_end_label, is_and ? 0u : 1u, const_label);
+  return true;
+}
+
 static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out, ZDiag *diag) {
   if (!value) {
     llvm_set_diag(diag, emit->program, 1, 1, "LLVM IR backend value is missing", "missing value", "emit");
@@ -251,6 +286,7 @@ static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out
     }
     case IR_VALUE_BINARY: {
       LlvmValue left, right;
+      if (value->binary_op == IR_BIN_AND || value->binary_op == IR_BIN_OR) return llvm_emit_short_circuit_binary(emit, value, out, diag);
       if (!llvm_emit_value(emit, value->left, &left, diag)) return false;
       if (!llvm_emit_value(emit, value->right, &right, diag)) return false;
       if (left.type != right.type) {
@@ -264,8 +300,8 @@ static bool llvm_emit_value(LlvmEmit *emit, const IrValue *value, LlvmValue *out
         case IR_BIN_MUL: op = "mul"; break;
         case IR_BIN_DIV: op = llvm_type_signed(left.type) ? "sdiv" : "udiv"; break;
         case IR_BIN_MOD: op = llvm_type_signed(left.type) ? "srem" : "urem"; break;
-        case IR_BIN_AND: op = "and"; break;
-        case IR_BIN_OR: op = "or"; break;
+        case IR_BIN_AND:
+        case IR_BIN_OR: break;
       }
       llvm_temp(emit, out, value->type);
       zbuf_appendf(emit->out, "  %s = %s %s %s, %s\n", out->text, op, llvm_type_name(left.type), left.text, right.text);
@@ -368,15 +404,15 @@ static bool llvm_emit_instr(LlvmEmit *emit, const IrInstr *instr, bool *terminat
       unsigned else_label = llvm_label(emit);
       unsigned end_label = llvm_label(emit);
       zbuf_appendf(emit->out, "  br i1 %s, label %%L%u, label %%L%u\n", cond.text, then_label, else_label);
-      zbuf_appendf(emit->out, "L%u:\n", then_label);
+      llvm_emit_label(emit, then_label);
       bool then_term = false;
       if (!llvm_emit_instrs(emit, instr->then_instrs, instr->then_len, &then_term, diag)) return false;
       if (!then_term) zbuf_appendf(emit->out, "  br label %%L%u\n", end_label);
-      zbuf_appendf(emit->out, "L%u:\n", else_label);
+      llvm_emit_label(emit, else_label);
       bool else_term = false;
       if (!llvm_emit_instrs(emit, instr->else_instrs, instr->else_len, &else_term, diag)) return false;
       if (!else_term) zbuf_appendf(emit->out, "  br label %%L%u\n", end_label);
-      if (!then_term || !else_term) zbuf_appendf(emit->out, "L%u:\n", end_label);
+      if (!then_term || !else_term) llvm_emit_label(emit, end_label);
       *terminated = then_term && else_term;
       return true;
     }
@@ -385,7 +421,7 @@ static bool llvm_emit_instr(LlvmEmit *emit, const IrInstr *instr, bool *terminat
       unsigned body_label = llvm_label(emit);
       unsigned end_label = llvm_label(emit);
       zbuf_appendf(emit->out, "  br label %%L%u\n", cond_label);
-      zbuf_appendf(emit->out, "L%u:\n", cond_label);
+      llvm_emit_label(emit, cond_label);
       LlvmValue cond;
       if (!llvm_emit_value(emit, instr->value, &cond, diag)) return false;
       if (cond.type != IR_TYPE_BOOL) {
@@ -393,11 +429,11 @@ static bool llvm_emit_instr(LlvmEmit *emit, const IrInstr *instr, bool *terminat
         return false;
       }
       zbuf_appendf(emit->out, "  br i1 %s, label %%L%u, label %%L%u\n", cond.text, body_label, end_label);
-      zbuf_appendf(emit->out, "L%u:\n", body_label);
+      llvm_emit_label(emit, body_label);
       bool body_term = false;
       if (!llvm_emit_instrs(emit, instr->then_instrs, instr->then_len, &body_term, diag)) return false;
       if (!body_term) zbuf_appendf(emit->out, "  br label %%L%u\n", cond_label);
-      zbuf_appendf(emit->out, "L%u:\n", end_label);
+      llvm_emit_label(emit, end_label);
       return true;
     }
     case IR_INSTR_WORLD_WRITE:

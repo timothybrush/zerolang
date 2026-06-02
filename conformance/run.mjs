@@ -39,6 +39,45 @@ function execFileAsync(file, args = [], options = {}) {
   });
 }
 
+function assertLlvmPhiPredecessors(ir) {
+  const predecessors = new Map();
+  const phiEdges = [];
+  let functionIndex = -1;
+  let current = "-1:entry";
+  const scoped = (label) => `${functionIndex}:${label}`;
+  for (const line of ir.split("\n")) {
+    if (line.startsWith("define ")) {
+      functionIndex++;
+      current = scoped("entry");
+      continue;
+    }
+    const label = line.match(/^(L[0-9]+):$/);
+    if (label) {
+      current = scoped(label[1]);
+      continue;
+    }
+    const branch = line.match(/^  br (?:label %(L[0-9]+)|i1 [^,]+, label %(L[0-9]+), label %(L[0-9]+))$/);
+    if (branch) {
+      for (const target of branch.slice(1).filter(Boolean)) {
+        const key = scoped(target);
+        if (!predecessors.has(key)) predecessors.set(key, new Set());
+        predecessors.get(key).add(current);
+      }
+      continue;
+    }
+    if (!line.includes(" = phi ")) continue;
+    for (const match of line.matchAll(/\[[^\]]+, %(L[0-9]+)\]/g)) {
+      phiEdges.push({ block: current, predecessor: scoped(match[1]) });
+    }
+  }
+  for (const edge of phiEdges) {
+    assert(
+      predecessors.get(edge.block)?.has(edge.predecessor),
+      `LLVM phi predecessor ${edge.predecessor} must branch to ${edge.block}`,
+    );
+  }
+}
+
 async function assertBoundsTrap(fixture, name) {
   const out = `${outDir}/${name}`;
   const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", "linux-musl-x64", fixture, "--out", out]).catch((error) => error);
@@ -914,6 +953,49 @@ assert.match(llvmLoopIr, /br label %L0\nL0:\n/);
 assert.match(llvmLoopIr, /icmp slt i32 %v[0-9]+, 5/);
 assert.match(llvmLoopIr, /add i32 %v[0-9]+, %v[0-9]+/);
 assert.match(llvmLoopIr, /ret i32 %v[0-9]+/);
+
+const llvmShortCircuitSourcePath = `${outDir}/llvm-short-circuit.0`;
+const llvmShortCircuitIrPath = `${outDir}/llvm-short-circuit.ll`;
+await writeFile(llvmShortCircuitSourcePath, `fn rhsAnd() -> Bool {
+    return true
+}
+
+fn rhsOr() -> Bool {
+    return false
+}
+
+export c fn main() -> i32 {
+    if false && rhsAnd() {
+        return 1
+    }
+    if true || rhsOr() {
+        return 2
+    }
+    if true && (false && rhsAnd()) {
+        return 3
+    }
+    if false || (true || rhsOr()) {
+        return 4
+    }
+    return 0
+}
+`);
+await execFileAsync(zero, [
+  "build",
+  "--emit",
+  "llvm-ir",
+  "--backend",
+  "llvm",
+  llvmShortCircuitSourcePath,
+  "--out",
+  llvmShortCircuitIrPath,
+]);
+const llvmShortCircuitIr = await readFile(llvmShortCircuitIrPath, "utf8");
+assertLlvmPhiPredecessors(llvmShortCircuitIr);
+assert.match(llvmShortCircuitIr, /br i1 0, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @z_fn_[0-9]+_rhsAnd\(\)/);
+assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[0, %L[0-9]+\]/);
+assert.match(llvmShortCircuitIr, /br i1 1, label %L[0-9]+, label %L[0-9]+\nL[0-9]+:\n  %v[0-9]+ = call i1 @z_fn_[0-9]+_rhsOr\(\)/);
+assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[1, %L[0-9]+\]/);
 
 const llvmAddIrPath = `${outDir}/llvm-add.ll`;
 await execFileAsync(zero, [
