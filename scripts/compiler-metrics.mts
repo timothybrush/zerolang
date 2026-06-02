@@ -27,7 +27,7 @@ const fileBudgets = {
   "native/zero-c/src/buildability_context.c": { maxLines: 185, maxStrcmpCalls: 1 },
   "native/zero-c/src/buildability_targets.c": { maxLines: 190, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_value_targets.c": { maxLines: 371, maxStrcmpCalls: 0 },
-  "native/zero-c/src/c_import.c": { maxLines: 457, maxStrcmpCalls: 48 },
+  "native/zero-c/src/c_import.c": { maxLines: 478, maxStrcmpCalls: 48 },
   "native/zero-c/src/c_import.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },

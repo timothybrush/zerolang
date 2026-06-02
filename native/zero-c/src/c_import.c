@@ -247,6 +247,32 @@ static void c_import_append_declaration_fragment(ZBuf *decl, const char *line) {
   }
 }
 
+static void c_import_consume_complete_declarations(ZBuf *decl, ZCImportFunctionVec *out) {
+  if (!decl || !decl->data || !out) return;
+  const char *start = decl->data;
+  const char *cursor = decl->data;
+  bool consumed = false;
+  while (*cursor) {
+    if (*cursor == ';') {
+      char *text = trim_span_copy(start, cursor + 1);
+      if (text[0] && strchr(text, '(')) {
+        ZCImportFunction function = {0};
+        if (c_import_parse_function_line(text, &function)) c_import_function_vec_push(out, function);
+      }
+      free(text);
+      start = cursor + 1;
+      consumed = true;
+    }
+    cursor++;
+  }
+  if (!consumed) return;
+  char *tail = trim_span_copy(start, decl->data + strlen(decl->data));
+  zbuf_free(decl);
+  zbuf_init(decl);
+  if (tail[0]) zbuf_append(decl, tail);
+  free(tail);
+}
+
 typedef struct {
   bool parent_active;
   bool active;
@@ -363,12 +389,7 @@ bool z_c_header_parse_functions(const char *header, ZCImportFunctionVec *out) {
       c_import_handle_preprocessor_line(line, &frames, &preproc_depth, &preproc_cap);
     } else if (c_import_preproc_active(frames, preproc_depth) && !wrapper_line) {
       if (line[0]) c_import_append_declaration_fragment(&declaration, line);
-      if (strchr(line, ';')) {
-        ZCImportFunction function = {0};
-        if (declaration.data && strchr(declaration.data, '(') && c_import_parse_function_line(declaration.data, &function)) c_import_function_vec_push(out, function);
-        zbuf_free(&declaration);
-        zbuf_init(&declaration);
-      }
+      c_import_consume_complete_declarations(&declaration, out);
     } else if (!c_import_preproc_active(frames, preproc_depth)) {
       zbuf_free(&declaration);
       zbuf_init(&declaration);

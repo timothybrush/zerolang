@@ -3559,6 +3559,7 @@ int zero_ext_block_commented(int value);
 #if 0
 int zero_ext_disabled(int value);
 #endif
+int zero_ext_inline_left(int value); int zero_ext_inline_right(int value);
 unsigned char zero_ext_dirty_u8(void);
 
 #ifdef __cplusplus
@@ -3566,7 +3567,7 @@ unsigned char zero_ext_dirty_u8(void);
 #endif
 `);
 await writeFile(`${externCallShadowRoot}/vendor/include/zero_ext.h`, "int zero_ext_wrong(int, int);\n");
-await writeFile(`${externCallRoot}/vendor/lib/zero_ext.c`, '#include "zero_ext.h"\nint zero_ext_add(int a, int b) { return a + b; }\n');
+await writeFile(`${externCallRoot}/vendor/lib/zero_ext.c`, '#include "zero_ext.h"\nint zero_ext_add(int a, int b) { return a + b; }\nint zero_ext_inline_left(int value) { return value + 1; }\nint zero_ext_inline_right(int value) { return value + 2; }\n');
 await execFileAsync("cc", ["-I", `${externCallRoot}/vendor/include`, "-c", `${externCallRoot}/vendor/lib/zero_ext.c`, "-o", `${externCallRoot}/${externCallObjectRel}`]);
 if (externCallDirtyAsm) {
   await writeFile(`${externCallRoot}/vendor/lib/zero_ext_dirty.S`, externCallDirtyAsm);
@@ -3588,7 +3589,7 @@ await writeFile(`${externCallScalarRoot}/zero.json`, JSON.stringify({
 await writeFile(`${externCallRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
 
 pub fn main(world: World) -> Void raises {
-    let total: i32 = c.zero_ext_add(20, 20) + c.zero_ext_add(1, 1)
+    let total: i32 = c.zero_ext_add(20, 20) + c.zero_ext_inline_right(0)
     if total == 42${externCallDirtyAsm ? " && c.zero_ext_dirty_u8() == 1_u8" : ""} {
         check world.out.write("extern c call ok\\n")
     } else {
@@ -3637,6 +3638,7 @@ const externCallGraphBody = JSON.parse(externCallGraph.stdout);
 const externCallImport = externCallGraphBody.cImports.find((item) => item.header === "vendor/include/zero_ext.h");
 assert(externCallImport);
 assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_add" && item.returnType === "int" && item.params.length === 2));
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_inline_right" && item.returnType === "int" && item.params.length === 1));
 assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_dirty_u8" && item.returnType === "unsigned char" && item.params.length === 0));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_commented"));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_block_commented"));
@@ -3662,7 +3664,7 @@ assert(!externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item)
 const externCallObjectOverhead = externCallBuildBody.objectBackend.linking.objectFormat === "coff"
   ? (externCallBuildBody.objectBackend.objectEmission.dataSections ? 2 : 1)
   : (externCallBuildBody.objectBackend.objectEmission.dataSections ? 1 : 0);
-const externCallExpectedExternalSymbols = externCallDirtyAsm ? 2 : 1;
+const externCallExpectedExternalSymbols = externCallDirtyAsm ? 3 : 2;
 assert.equal(
   externCallBuildBody.objectBackend.objectEmission.symbolCount,
   externCallBuildBody.objectBackend.directFacts.functionCount +
