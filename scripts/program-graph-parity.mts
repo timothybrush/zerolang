@@ -209,6 +209,36 @@ async function assertSourceBackedPatchParity() {
   assert.equal(graph, source, "patched graph artifact run output should match source");
 }
 
+async function assertGraphPatchPreservesNodeIds() {
+  const artifact = await dumpGraphArtifact("examples/hello.0", "patch-preserves-id");
+  const patchedArtifact = `${outDir}/patch-preserves-id.patched.program-graph`;
+  const beforeGraph = await zeroJson(["graph", "dump", "--json", "examples/hello.0"]);
+  const beforeLiteral = findStringLiteral(beforeGraph, "hello from zero\n");
+  const beforeMain = beforeGraph.nodes.find((node) => node.kind === "Function" && node.name === "main");
+  assert(beforeMain, "missing main function");
+
+  const patch = await zeroJson([
+    "graph",
+    "patch",
+    "--json",
+    "--out",
+    patchedArtifact,
+    artifact,
+    "--expect-graph-hash",
+    beforeGraph.graphHash,
+    "--op",
+    `replace node="${beforeLiteral.id}" expect="${beforeLiteral.nodeHash}" kind="Literal" type="String" value="hello preserved\\n"`,
+  ]);
+  assert.equal(patch.ok, true, "graph artifact patch should succeed");
+  assert.equal(patch.operations[0].node, beforeLiteral.id, "graph patch should target the inspected literal ID");
+  assert.notEqual(patch.patchedGraphHash, beforeGraph.graphHash, "graph patch should update graphHash");
+
+  const patchedText = await readFile(patchedArtifact, "utf8");
+  assert.match(patchedText, new RegExp(`node ${beforeLiteral.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} Literal[^\\n]*value:"hello preserved\\\\n"`), "graph patch should preserve literal node ID");
+  assert.match(patchedText, new RegExp(`node ${beforeMain.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} Function[^\\n]*name:"main"`), "graph patch should not churn unrelated function ID");
+  assert.equal(await zeroText(["graph", "check", patchedArtifact]), "program graph check ok\n", "patched graph artifact should check");
+}
+
 function findStringLiteral(graph, value) {
   const literal = graph.nodes.find((node) => node.kind === "Literal" && node.type === "String" && node.value === value);
   assert(literal, `missing string literal ${JSON.stringify(value)}`);
@@ -217,11 +247,24 @@ function findStringLiteral(graph, value) {
 
 async function assertSourceEditIdentityBaseline() {
   const fixture = `${outDir}/identity-edit.0`;
-  const original = await readFile("examples/hello.0", "utf8");
+  const original = [
+    "fn helper() -> i32 {",
+    "    return 1",
+    "}",
+    "",
+    "pub fn main(world: World) -> Void raises {",
+    "    check world.out.write(\"hello from zero\\n\")",
+    "}",
+    "",
+  ].join("\n");
   await writeFile(fixture, original);
 
   const beforeGraph = await zeroJson(["graph", "dump", "--json", fixture]);
   const before = findStringLiteral(beforeGraph, "hello from zero\n");
+  const beforeHelper = beforeGraph.nodes.find((node) => node.kind === "Function" && node.name === "helper");
+  const beforeCheck = beforeGraph.nodes.find((node) => node.kind === "Check");
+  assert(beforeHelper, "missing helper function before rename");
+  assert(beforeCheck, "missing check statement before insertion");
 
   await writeFile(fixture, original.replace("hello from zero\\n", "hello from graph\\n"));
   const afterGraph = await zeroJson(["graph", "dump", "--json", fixture]);
@@ -229,11 +272,23 @@ async function assertSourceEditIdentityBaseline() {
 
   assert.notEqual(after.nodeHash, before.nodeHash, "editing literal content should change nodeHash");
   assert.notEqual(afterGraph.graphHash, beforeGraph.graphHash, "editing literal content should change graphHash");
-  if (requireStableNodeIds) {
-    assert.equal(after.id, before.id, "source-imported node id should survive a local content edit");
-  } else {
-    assert.notEqual(after.id, before.id, "current source-imported node ids are content-derived");
-  }
+  assert.equal(after.id, before.id, "source-imported node id should survive a local content edit");
+
+  await writeFile(fixture, original.replace("fn helper", "fn renamedHelper"));
+  const renamedGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  const renamedHelper = renamedGraph.nodes.find((node) => node.kind === "Function" && node.name === "renamedHelper");
+  assert(renamedHelper, "missing renamed function");
+  assert.equal(renamedHelper.id, beforeHelper.id, "source-imported declaration id should survive a rename");
+  assert.notEqual(renamedHelper.nodeHash, beforeHelper.nodeHash, "renaming a declaration should change nodeHash");
+  assert.notEqual(renamedHelper.symbolId, beforeHelper.symbolId, "renaming a declaration should change symbolId");
+  if (requireStableNodeIds) assert.equal(renamedHelper.id, beforeHelper.id, "strict stable node id check");
+
+  await writeFile(fixture, original.replace("    check world.out.write", "    let marker: i32 = 1\n    check world.out.write"));
+  const insertedGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  const insertedCheck = insertedGraph.nodes.find((node) => node.kind === "Check");
+  const insertedLiteral = findStringLiteral(insertedGraph, "hello from zero\n");
+  assert.equal(insertedCheck?.id, beforeCheck.id, "inserting before a statement should not churn the existing statement ID");
+  assert.equal(insertedLiteral.id, before.id, "inserting before a statement should not churn nested expression IDs");
 }
 
 try {
@@ -266,6 +321,7 @@ try {
   await assertRunParity("conformance/native/pass/std-args.0", "std-args", ["alpha", "beta"]);
   await assertTestParity("conformance/native/pass/test-blocks.0", "test-blocks");
   await assertSourceBackedPatchParity();
+  await assertGraphPatchPreservesNodeIds();
 
   await assertSourceEditIdentityBaseline();
   console.log("program graph parity ok");

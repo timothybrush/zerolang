@@ -93,6 +93,7 @@ bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidatio
   if (!graph->module_identity || !graph->module_identity[0]) return graph_validation_fail(validation, "GRF009", "program graph is missing module identity", NULL, NULL, NULL, NULL);
   for (size_t i = 0; i < graph->node_len; i++) {
     if (!graph->nodes[i].id || !graph->nodes[i].id[0]) return graph_validation_fail(validation, "GRF002", "node is missing required identity", graph->nodes[i].id, NULL, NULL, NULL);
+    if (!z_program_graph_node_id_valid(graph->nodes[i].id)) return graph_validation_fail(validation, "GRF010", "node identity is malformed", graph->nodes[i].id, NULL, NULL, NULL);
     if (!graph->nodes[i].node_hash) return graph_validation_fail(validation, "GRF007", "node is missing content hash", graph->nodes[i].id, NULL, NULL, NULL);
     for (size_t j = i + 1; j < graph->node_len; j++) {
       if (graph->nodes[j].id && strcmp(graph->nodes[i].id, graph->nodes[j].id) == 0) return graph_validation_fail(validation, "GRF003", "duplicate node id", graph->nodes[i].id, NULL, NULL, NULL);

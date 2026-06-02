@@ -78,17 +78,17 @@ const CODE_EXAMPLE = `<span class="hl-keyword">fn</span> <span class="hl-variabl
 const GRAPH_EXAMPLE = `zero-graph v1
 origin source-text
 module "hello"
-hash "graph:b8a019041020df03"
+hash "graph:a7f7e6899a73f3b4"
 
-node #ea5ea1ca Function name:"main" type:"Void" public:true fallible:true
-node #f9ce8b3e Param name:"world" type:"World"
-node #421a4d4b MethodCall name:"write" type:"Void"
-node #610c78bf Literal type:"String" value:"hello from zero\\n"
-edge #421a4d4b arg #610c78bf order:0`;
+node #decl_ad8d9028 Function name:"main" type:"Void" public:true fallible:true
+node #param_4610ae76 Param name:"world" type:"World"
+node #expr_c403020c MethodCall name:"write" type:"Void"
+node #expr_653eeb6e Literal type:"String" value:"hello from zero\\n"
+edge #expr_c403020c arg #expr_653eeb6e order:0`;
 
 const PATCH_EXAMPLE = `zero graph patch examples/hello.0 \\
-  --expect-graph-hash graph:b8a019041020df03 \\
-  --op 'set node="#610c78bf" field="value" expect="hello from zero\\n" value="hello graph\\n"'`;
+  --expect-graph-hash graph:a7f7e6899a73f3b4 \\
+  --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\\n" value="hello graph\\n"'`;
 
 function CodeWindow({ title, html, children }: { title: string; html?: string; children?: ReactNode }) {
   return (

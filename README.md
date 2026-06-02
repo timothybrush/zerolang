@@ -31,7 +31,7 @@ Agents can edit source text, but source text is a lossy interface for program un
 
 The ProgramGraph is zerolang's compiler-owned structure for that work. It is meant to give agents a map they can navigate in slices: start from a symbol, diagnostic, call, capability, module, or node ID, then ask for the surrounding semantic facts instead of loading unrelated source. That keeps context gathering focused while leaving source code as the durable artifact humans review.
 
-The edit loop is also different. A graph edit can target `node #610c78bf` instead of a line range, require the inspected `graphHash`, require an expected field value, and let the compiler validate, lower, write, format, reparse, and check the result as one path. Refactors can be expressed as semantic operations such as renaming a function node or replacing a resolved callee, rather than search-and-replace over text followed by separate cleanup commands.
+The edit loop is also different. A graph edit can target `node #expr_653eeb6e` instead of a line range, require the inspected `graphHash`, require an expected field value, and let the compiler validate, lower, write, format, reparse, and check the result as one path. Refactors can be expressed as semantic operations such as renaming a function node or replacing a resolved callee, rather than search-and-replace over text followed by separate cleanup commands.
 
 ## Source Text
 
@@ -67,14 +67,14 @@ Example output:
 zero-graph v1
 origin source-text
 module "hello"
-hash "graph:b8a019041020df03"
+hash "graph:a7f7e6899a73f3b4"
 
-node #ea5ea1ca Function name:"main" type:"Void" public:true fallible:true
-node #f9ce8b3e Param name:"world" type:"World"
-node #421a4d4b MethodCall name:"write" type:"Void"
-node #610c78bf Literal type:"String" value:"hello from zero\n"
-edge #421a4d4b arg #610c78bf order:0
-edge #ea5ea1ca body #6c48dda8
+node #decl_ad8d9028 Function name:"main" type:"Void" public:true fallible:true
+node #param_4610ae76 Param name:"world" type:"World"
+node #expr_c403020c MethodCall name:"write" type:"Void"
+node #expr_653eeb6e Literal type:"String" value:"hello from zero\n"
+edge #expr_c403020c arg #expr_653eeb6e order:0
+edge #decl_ad8d9028 body #block_29d1811d
 ```
 
 The graph gives agents explicit handles such as node IDs, graph hashes, resolved types, effects, ownership facts, capability facts, helper use, and module edges. The hash is a stale-context check; node IDs are edit targets for the graph that was inspected.
@@ -85,8 +85,8 @@ For supported canonical `.0` source, `zero graph patch` applies checked edits to
 
 ```bash
 zero graph patch examples/hello.0 \
-  --expect-graph-hash graph:b8a019041020df03 \
-  --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello graph\n"'
+  --expect-graph-hash graph:a7f7e6899a73f3b4 \
+  --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello graph\n"'
 ```
 
 This is different from a source-text patch. The operation targets a checked semantic node and field. The graph hash rejects stale context, and `expect` rejects the edit if the current field value is different from what the agent inspected.

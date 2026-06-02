@@ -21,6 +21,7 @@ try {
     "native/zero-c/src/program_graph_identity.c",
     "native/zero-c/src/program_graph_import.c",
     "native/zero-c/src/program_graph_lower.c",
+    "native/zero-c/src/program_graph_node_id.c",
     "native/zero-c/src/program_graph_format.c",
     "native/zero-c/src/std_source.c",
     "native/zero-c/src/ast.c",

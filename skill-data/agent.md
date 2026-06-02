@@ -40,7 +40,7 @@ zero graph dump --json <file-or-package>
 4. For precise mechanical edits on canonical `.0`, prefer a checked graph patch that rewrites the source after validation:
 
 ```sh
-zero graph patch <file.0> --expect-graph-hash graph:f76987e99677f1b3 --op 'rename node="#ea5ea1ca" expect="main" value="start"'
+zero graph patch <file.0> --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'rename node="#decl_ad8d9028" expect="main" value="start"'
 zero graph check <file.0>
 zero check <file.0>
 ```

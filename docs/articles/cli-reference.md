@@ -46,7 +46,7 @@ zero graph size --json .zero/out/hello.program-graph
 zero graph build --json --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph
 zero graph run .zero/out/hello.program-graph
 zero graph test --json .zero/out/hello.program-graph
-zero graph patch .zero/out/hello.view.0 --expect-graph-hash graph:f76987e99677f1b3 --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello patched\n"'
+zero graph patch examples/hello.0 --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
 zero graph roundtrip examples/hello.0
 zero graph roundtrip .zero/out/hello.program-graph
 zero size --json examples/point.0
@@ -120,26 +120,24 @@ debug and interchange files.
 
 `zero graph patch` applies checked edits to a graph. When the input is
 canonical `.0` source without comments, the command rewrites that source after
-lowering, formatting, re-parsing, and semantic graph comparison succeeds. Row
-syntax sources such as `examples/hello.0` should be rendered to a canonical view
-or patched as ProgramGraph artifacts. For small edits, pass one or more
-operations inline:
+lowering, formatting, re-parsing, and semantic graph comparison succeeds. For
+small edits, pass one or more operations inline:
 
 ```sh
 zero graph patch \
-  .zero/out/hello.view.0 \
-  --expect-graph-hash graph:f76987e99677f1b3 \
-  --op 'set node="#610c78bf" field="value" expect="hello from zero\n" value="hello patched\n"'
+  examples/hello.0 \
+  --expect-graph-hash graph:a7f7e6899a73f3b4 \
+  --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
 ```
 
 For larger edits, patch files are line-oriented text:
 
 ```text
 zero-program-graph-patch v1
-expect graphHash "graph:f76987e99677f1b3"
-set node="#610c78bf" field="value" expect="hello from zero\n" value="hello patched\n"
-insert node="#patch001" kind="Literal" parent="#421a4d4b" edge="arg" order="1" type="String" value="again\n"
-rename node="#ea5ea1ca" expect="main" value="start"
+expect graphHash "graph:a7f7e6899a73f3b4"
+set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"
+insert node="#patch001" kind="Literal" parent="#expr_c403020c" edge="arg" order="1" type="String" value="again\n"
+rename node="#decl_ad8d9028" expect="main" value="start"
 delete node="#patch001"
 ```
 

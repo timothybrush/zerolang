@@ -124,7 +124,9 @@ typedef struct {
 const char *z_program_graph_node_kind_name(ZProgramGraphNodeKind kind);
 const char *z_program_graph_edge_target_name(ZProgramGraphEdgeTarget target);
 const char *z_program_graph_validation_state_name(ZProgramGraphValidationState state);
+void z_program_graph_assign_source_node_ids(ZProgramGraph *graph);
 void z_program_graph_finalize_identities(ZProgramGraph *graph);
+bool z_program_graph_node_id_valid(const char *id);
 void z_program_graph_init(ZProgramGraph *graph);
 void z_program_graph_free(ZProgramGraph *graph);
 bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidation *validation);

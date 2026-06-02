@@ -3300,8 +3300,8 @@ assert.doesNotMatch(programGraphDump, /moduleIdentity/);
 assert.doesNotMatch(programGraphDump, /graphHash/);
 assert.doesNotMatch(programGraphDump, /counts nodes=/);
 assert.doesNotMatch(programGraphDump, /node id=/);
-assert.match(programGraphDump, /node #[0-9a-f]{8} Module name:"hello"/);
-assert.match(programGraphDump, /edge #[0-9a-f]{8} function #[0-9a-f]{8} order:0/);
+assert.match(programGraphDump, /node #mod_[0-9a-f]{8} Module name:"hello"/);
+assert.match(programGraphDump, /edge #mod_[0-9a-f]{8} function #decl_[0-9a-f]{8} order:0/);
 assert.match(programGraphView, /^pub fn main\(world: World\) -> Void raises \{\n/);
 assert.match(programGraphView, /check world\.out\.write\("hello from zero\\n"\)/);
 assert.match(programGraphRichView, /bytesTail\(bytesSpan\)\[1\]/);
@@ -3312,7 +3312,7 @@ assert.equal(programGraphBody.validation.ok, true);
 assert.equal(programGraphBody.validation.state, "shape-valid");
 assert(programGraphBody.counts.nodes > 0);
 assert(programGraphBody.counts.edges > 0);
-assert(programGraphBody.nodes.every((item) => /^#[0-9a-f]{8}(-[0-9a-f]{4}(-[0-9]+)?)?$/.test(item.id) && /^nodehash:[0-9a-f]{16}$/.test(item.nodeHash)));
+assert(programGraphBody.nodes.every((item) => /^#[a-z][a-z0-9]*_[0-9a-f]{8}(-[0-9a-f]{4}(-[0-9]+)?)?$/.test(item.id) && /^nodehash:[0-9a-f]{16}$/.test(item.nodeHash)));
 assert(programGraphBody.edges.every((item) => item.target === "node"));
 assert(programGraphBody.nodes.some((item) => item.kind === "Module" && item.name === "hello" && item.symbolId === "symbol:hello::module"));
 assert(programGraphBody.nodes.some((item) => item.kind === "Function" && item.name === "main" && item.public === true && item.fallible === true && item.symbolId === "symbol:hello::value.main" && /^type:[0-9a-f]{16}$/.test(item.typeId)));
@@ -3360,7 +3360,7 @@ assert.equal((await execFileAsync(zero, ["graph", "validate", programGraphDuplic
 const programGraphDuplicateIdText = await readFile(programGraphDuplicateIdPath, "utf8");
 const programGraphDuplicateIds = [...programGraphDuplicateIdText.matchAll(/^node (#[^ ]+)/gm)].map((match) => match[1]);
 assert.equal(new Set(programGraphDuplicateIds).size, programGraphDuplicateIds.length);
-assert(programGraphDuplicateIds.some((id) => /^#[0-9a-f]{8}-[0-9a-f]{4}-[0-9]+$/.test(id)));
+assert(programGraphDuplicateIds.some((id) => /^#[a-z][a-z0-9]*_[0-9a-f]{8}-[0-9a-f]{4}(-[0-9]+)?$/.test(id)));
 
 const programGraphControlFixture = `${outDir}/program-graph-control.0`;
 await writeFile(programGraphControlFixture, "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"\\x01 ok\\n\")\n}\n");

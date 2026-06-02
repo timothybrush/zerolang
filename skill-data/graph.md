@@ -43,7 +43,7 @@ Use JSON when you need exact node IDs, graph hashes, spans, or operation fields:
 ```sh
 zero graph dump --json <file-or-package>
 zero graph inspect --json <file-or-package>
-zero graph patch --json <file.0> --expect-graph-hash graph:f76987e99677f1b3 --op 'rename node="#ea5ea1ca" expect="main" value="start"'
+zero graph patch --json <file.0> --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'rename node="#decl_ad8d9028" expect="main" value="start"'
 ```
 
 ## Patches
@@ -53,17 +53,17 @@ Graph patches are checked against the input graph hash and node facts:
 ```sh
 zero graph patch \
   <file.0> \
-  --expect-graph-hash graph:f76987e99677f1b3 \
-  --op 'set node="#610c78bf" field="value" expect="hello\n" value="hello agent\n"'
+  --expect-graph-hash graph:a7f7e6899a73f3b4 \
+  --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello agent\n"'
 ```
 
 For larger edits, use a patch file:
 
 ```text
 zero-program-graph-patch v1
-expect graphHash "graph:f76987e99677f1b3"
-set node="#610c78bf" field="value" expect="hello\n" value="hello agent\n"
-rename node="#ea5ea1ca" expect="main" value="start"
+expect graphHash "graph:a7f7e6899a73f3b4"
+set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello agent\n"
+rename node="#decl_ad8d9028" expect="main" value="start"
 delete node="#patch001"
 ```
 
