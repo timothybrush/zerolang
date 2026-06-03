@@ -6,6 +6,7 @@
 typedef struct {
   bool ok;
   bool patch_available;
+  bool module_identity_changed;
   size_t unchanged;
   size_t edited;
   size_t inserted;

@@ -11147,7 +11147,11 @@ static int run_graph_reconcile_command(const Command *command, const ZTargetInfo
   } else if (summary.ok) {
     printf("program graph reconcile ok\n");
   } else {
-    fprintf(stderr, "program graph reconcile failed: %zu ambiguous, %zu identity changed\n", summary.ambiguous, summary.identity_changed);
+    fprintf(stderr,
+            "program graph reconcile failed: %zu ambiguous, %zu identity changed%s\n",
+            summary.ambiguous,
+            summary.identity_changed,
+            summary.module_identity_changed ? ", module identity changed" : "");
   }
 
   z_free_program(&edited_program);

@@ -11,6 +11,10 @@ static bool reconcile_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
 }
 
+static bool reconcile_module_identity_changed(const ZProgramGraph *base, const ZProgramGraph *edited) {
+  return !reconcile_text_eq(base ? base->module_identity : NULL, edited ? edited->module_identity : NULL);
+}
+
 static void reconcile_json_string(ZBuf *buf, const char *value) {
   zbuf_append_char(buf, '"');
   for (const unsigned char *cursor = (const unsigned char *)(value ? value : ""); *cursor; cursor++) {
@@ -172,6 +176,7 @@ static bool reconcile_append_patch_text(ZBuf *buf, const ZProgramGraph *base, co
 void z_program_graph_reconcile_summary(const ZProgramGraph *base, const ZProgramGraph *edited, ZProgramGraphReconcileSummary *out) {
   if (!out) return;
   *out = (ZProgramGraphReconcileSummary){.ok = true};
+  out->module_identity_changed = reconcile_module_identity_changed(base, edited);
   for (size_t i = 0; base && i < base->node_len; i++) {
     const ZProgramGraphNode *before = &base->nodes[i];
     const ZProgramGraphNode *after = reconcile_find_node(edited, before->id);
@@ -190,7 +195,7 @@ void z_program_graph_reconcile_summary(const ZProgramGraph *base, const ZProgram
   for (size_t i = 0; edited && i < edited->node_len; i++) {
     if (!reconcile_find_node(base, edited->nodes[i].id) && !reconcile_is_candidate_for_missing_base(base, edited, &edited->nodes[i])) out->inserted++;
   }
-  out->ok = out->ambiguous == 0 && out->identity_changed == 0;
+  out->ok = !out->module_identity_changed && out->ambiguous == 0 && out->identity_changed == 0;
   if (out->ok && out->deleted == 0 && out->inserted == 0 && out->edited > 0) {
     ZBuf patch;
     zbuf_init(&patch);
@@ -241,9 +246,21 @@ static void reconcile_append_diagnostic_json(ZBuf *buf, const char *code, const 
   zbuf_append(buf, "}");
 }
 
+static void reconcile_append_module_diagnostic_json(ZBuf *buf, const ZProgramGraph *base, const ZProgramGraph *edited) {
+  zbuf_append(buf, "{\"code\":\"GRC003\",\"message\":\"edited source has a different module identity\",\"node\":\"\",\"expected\":");
+  reconcile_json_string(buf, base ? base->module_identity : "");
+  zbuf_append(buf, ",\"actual\":");
+  reconcile_json_string(buf, edited ? edited->module_identity : "");
+  zbuf_append(buf, ",\"help\":\"reconcile the original source or package path, or capture a new base graph for the edited module\"}");
+}
+
 static void reconcile_append_diagnostics_json(ZBuf *buf, const ZProgramGraph *base, const ZProgramGraph *edited) {
   bool wrote = false;
   zbuf_append(buf, "[");
+  if (reconcile_module_identity_changed(base, edited)) {
+    reconcile_append_module_diagnostic_json(buf, base, edited);
+    wrote = true;
+  }
   for (size_t i = 0; base && i < base->node_len; i++) {
     const ZProgramGraphNode *before = &base->nodes[i];
     if (reconcile_find_node(edited, before->id)) continue;
@@ -318,13 +335,14 @@ void z_program_graph_append_reconcile_json(ZBuf *buf,
   reconcile_json_string(buf, edited ? edited->module_identity : "");
   zbuf_append(buf, "},\n  \"identity\": {");
   zbuf_appendf(buf,
-               "\"unchanged\": %zu, \"edited\": %zu, \"inserted\": %zu, \"deleted\": %zu, \"ambiguous\": %zu, \"identityChanged\": %zu",
+               "\"unchanged\": %zu, \"edited\": %zu, \"inserted\": %zu, \"deleted\": %zu, \"ambiguous\": %zu, \"identityChanged\": %zu, \"moduleIdentityChanged\": %s",
                summary->unchanged,
                summary->edited,
                summary->inserted,
                summary->deleted,
                summary->ambiguous,
-               summary->identity_changed);
+               summary->identity_changed,
+               summary->module_identity_changed ? "true" : "false");
   zbuf_append(buf, "},\n  \"graphPatch\": {\"available\": ");
   zbuf_append(buf, patch_available ? "true" : "false");
   zbuf_append(buf, ", \"text\": ");

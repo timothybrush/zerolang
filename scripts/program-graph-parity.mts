@@ -530,6 +530,13 @@ async function assertSourceEditReconcile() {
   assert.equal(ambiguous.ok, false, "reconcile should reject ambiguous same-shape declaration edits");
   assert.equal(ambiguous.identity.ambiguous > 0, true, "reconcile should count ambiguous identities");
   assert.equal(ambiguous.diagnostics[0].code, "GRC001", "reconcile should explain ambiguous identity");
+
+  const copiedFixture = `${outDir}/identity-reconcile-copy.0`;
+  await writeFile(copiedFixture, original);
+  const moduleMismatch = await zeroJsonFailure(["graph", "reconcile", "--json", baseArtifact, "--source", copiedFixture]);
+  assert.equal(moduleMismatch.ok, false, "reconcile should reject different module identities");
+  assert.equal(moduleMismatch.identity.moduleIdentityChanged, true, "reconcile should flag module identity changes");
+  assert.equal(moduleMismatch.diagnostics[0].code, "GRC003", "reconcile should explain module identity mismatch");
 }
 
 try {
