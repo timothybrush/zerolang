@@ -567,6 +567,25 @@ static bool graph_semantics_graph_declares_type_name(const ZProgramGraph *graph,
   return false;
 }
 
+static bool graph_semantics_type_id_resolves_to_user_type_name(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type_id, const char *name) {
+  if (!graph_semantics_text_present(type_id) || !graph_semantics_text_present(name)) return false;
+  for (size_t i = 0; resolution && i < resolution->reference_len; i++) {
+    const ZProgramGraphResolutionReference *ref = &resolution->references[i];
+    if (!ref->resolved || !graph_semantics_text_eq(ref->kind, "type") || !graph_semantics_text_eq(ref->name, name)) continue;
+    const ZProgramGraphNode *type_ref = graph_semantics_node_by_id(graph, ref->node_id);
+    if (!type_ref || !graph_semantics_text_eq(type_ref->type_id, type_id)) continue;
+    const ZProgramGraphNode *target = graph_semantics_node_by_id(graph, ref->target_node);
+    if (graph_semantics_node_is_user_type_decl(target)) return true;
+  }
+  return false;
+}
+
+static bool graph_semantics_resource_name_shadowed(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id, const char *name) {
+  if (!graph_semantics_graph_declares_type_name(graph, name)) return false;
+  if (graph_semantics_type_id_resolves_to_user_type_name(graph, resolution, type_id, name)) return true;
+  return graph_semantics_text_eq(type, name);
+}
+
 static bool graph_semantics_known_resource_type_name(const char *name) {
   static const char *const names[] = {
     "File",
@@ -589,19 +608,19 @@ static bool graph_semantics_known_resource_type_name(const char *name) {
   return false;
 }
 
-static bool graph_semantics_type_has_resource_name(const ZProgramGraph *graph, const char *type, const char *name) {
+static bool graph_semantics_type_has_resource_name(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id, const char *name) {
   for (const char *cursor = type ? type : ""; *cursor;) {
     while (*cursor && !graph_semantics_type_identifier_char((unsigned char)*cursor)) cursor++;
     const char *start = cursor;
     while (*cursor && graph_semantics_type_identifier_char((unsigned char)*cursor)) cursor++;
     if (start == cursor) continue;
     size_t len = (size_t)(cursor - start);
-    if (strlen(name) == len && strncmp(start, name, len) == 0 && !graph_semantics_graph_declares_type_name(graph, name)) return true;
+    if (strlen(name) == len && strncmp(start, name, len) == 0 && !graph_semantics_resource_name_shadowed(graph, resolution, type, type_id, name)) return true;
   }
   return false;
 }
 
-static bool graph_semantics_type_has_known_resource(const ZProgramGraph *graph, const char *type) {
+static bool graph_semantics_type_has_known_resource(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id) {
   for (const char *cursor = type ? type : ""; *cursor;) {
     while (*cursor && !graph_semantics_type_identifier_char((unsigned char)*cursor)) cursor++;
     const char *start = cursor;
@@ -612,44 +631,44 @@ static bool graph_semantics_type_has_known_resource(const ZProgramGraph *graph, 
     if (len >= sizeof(name)) continue;
     memcpy(name, start, len);
     name[len] = 0;
-    if (graph_semantics_known_resource_type_name(name) && !graph_semantics_graph_declares_type_name(graph, name)) return true;
+    if (graph_semantics_known_resource_type_name(name) && !graph_semantics_resource_name_shadowed(graph, resolution, type, type_id, name)) return true;
   }
   return false;
 }
 
-static bool graph_semantics_type_is_resource(const ZProgramGraph *graph, const char *type) {
-  return graph_semantics_type_has_known_resource(graph, type);
+static bool graph_semantics_type_is_resource(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id) {
+  return graph_semantics_type_has_known_resource(graph, resolution, type, type_id);
 }
 
-static bool graph_semantics_type_is_ownership_fact(const ZProgramGraph *graph, const char *type) {
+static bool graph_semantics_type_is_ownership_fact(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id) {
   return graph_semantics_text_contains(type, "owned<") ||
          graph_semantics_type_is_borrow(type) ||
-         graph_semantics_type_is_resource(graph, type);
+         graph_semantics_type_is_resource(graph, resolution, type, type_id);
 }
 
-static const char *graph_semantics_ownership_kind(const ZProgramGraph *graph, const char *type) {
+static const char *graph_semantics_ownership_kind(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id) {
   if (graph_semantics_text_contains(type, "owned<")) return "owned";
   if (graph_semantics_text_starts_with(type, "mutref<") || graph_semantics_text_contains(type, "<mutref<")) return "mut-borrow";
   if (graph_semantics_text_starts_with(type, "ref<") || graph_semantics_text_contains(type, "<ref<")) return "borrow";
   if (graph_semantics_text_starts_with(type, "MutSpan<") || graph_semantics_text_contains(type, "<MutSpan<")) return "mut-view";
   if (graph_semantics_text_starts_with(type, "Span<") || graph_semantics_text_contains(type, "<Span<")) return "view";
-  if (graph_semantics_type_is_resource(graph, type)) return "resource-handle";
+  if (graph_semantics_type_is_resource(graph, resolution, type, type_id)) return "resource-handle";
   return "value";
 }
 
-static const char *graph_semantics_resource_kind(const ZProgramGraph *graph, const char *type, const char *capability) {
-  if (graph_semantics_type_has_resource_name(graph, type, "File")) return "file";
-  if (graph_semantics_type_has_resource_name(graph, type, "ByteBuf")) return "byte-buffer";
-  if (graph_semantics_type_has_resource_name(graph, type, "Alloc") ||
-      graph_semantics_type_has_resource_name(graph, type, "NullAlloc") ||
-      graph_semantics_type_has_resource_name(graph, type, "FixedBufAlloc") ||
-      graph_semantics_type_has_resource_name(graph, type, "PageAlloc") ||
-      graph_semantics_type_has_resource_name(graph, type, "GeneralAlloc")) {
+static const char *graph_semantics_resource_kind(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution, const char *type, const char *type_id, const char *capability) {
+  if (graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "File")) return "file";
+  if (graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "ByteBuf")) return "byte-buffer";
+  if (graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "Alloc") ||
+      graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "NullAlloc") ||
+      graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "FixedBufAlloc") ||
+      graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "PageAlloc") ||
+      graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "GeneralAlloc")) {
     return "allocator";
   }
-  if (graph_semantics_type_has_resource_name(graph, type, "Fs") || graph_semantics_text_eq(capability, "fs")) return "filesystem";
-  if (graph_semantics_type_has_resource_name(graph, type, "World") ||
-      graph_semantics_type_has_resource_name(graph, type, "WorldStream") ||
+  if (graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "Fs") || graph_semantics_text_eq(capability, "fs")) return "filesystem";
+  if (graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "World") ||
+      graph_semantics_type_has_resource_name(graph, resolution, type, type_id, "WorldStream") ||
       graph_semantics_text_eq(capability, "io")) {
     return "world-io";
   }
@@ -665,6 +684,8 @@ static bool graph_semantics_contract_is_resource(const ZGraphSemanticContract *c
   const char *allocation = graph_semantics_contract_allocation(contract);
   bool allocation_resource = allocation && allocation[0] &&
     !graph_semantics_text_eq(allocation, "no allocation") &&
+    !graph_semantics_text_contains(allocation, "no allocation") &&
+    !graph_semantics_text_contains(allocation, "without allocation") &&
     (graph_semantics_text_contains(allocation, "alloc") ||
      graph_semantics_text_contains(allocation, "caller storage") ||
      graph_semantics_text_contains(allocation, "buffer"));
@@ -677,10 +698,10 @@ static bool graph_semantics_contract_is_resource(const ZGraphSemanticContract *c
      allocation_resource);
 }
 
-static size_t graph_semantics_ownership_fact_count(const ZProgramGraph *graph) {
+static size_t graph_semantics_ownership_fact_count(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *resolution) {
   size_t count = 0;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
-    if (graph_semantics_node_has_type_fact(&graph->nodes[i]) && graph_semantics_type_is_ownership_fact(graph, graph->nodes[i].type)) count++;
+    if (graph_semantics_node_has_type_fact(&graph->nodes[i]) && graph_semantics_type_is_ownership_fact(graph, resolution, graph->nodes[i].type, graph->nodes[i].type_id)) count++;
   }
   return count;
 }
@@ -698,7 +719,7 @@ static size_t graph_semantics_resource_fact_count(const ZProgramGraph *graph, co
   size_t count = 0;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
-    if (graph_semantics_node_has_type_fact(node) && graph_semantics_type_is_resource(graph, node->type)) count++;
+    if (graph_semantics_node_has_type_fact(node) && graph_semantics_type_is_resource(graph, resolution, node->type, node->type_id)) count++;
     if (!graph_semantics_node_is_call(node) || !graph_semantics_call_reference(resolution, node)) continue;
     ZGraphSemanticContract contract = graph_semantics_contract(graph, resolution, node);
     if (graph_semantics_contract_is_resource(&contract)) count++;
@@ -878,12 +899,12 @@ static void graph_semantics_append_effects_json(ZBuf *buf, const ZProgramGraph *
   zbuf_append(buf, "]");
 }
 
-static void graph_semantics_append_ownership_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphSourceRangeContext *sources) {
+static void graph_semantics_append_ownership_json(ZBuf *buf, const ZProgramGraph *graph, const ZProgramGraphSourceRangeContext *sources, const ZProgramGraphResolutionFacts *resolution) {
   zbuf_append(buf, "[");
   bool first = true;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
-    if (!graph_semantics_node_has_type_fact(node) || !graph_semantics_type_is_ownership_fact(graph, node->type)) continue;
+    if (!graph_semantics_node_has_type_fact(node) || !graph_semantics_type_is_ownership_fact(graph, resolution, node->type, node->type_id)) continue;
     if (!first) zbuf_append(buf, ",");
     zbuf_append(buf, "{\"node\":");
     graph_semantics_append_quoted(buf, node->id);
@@ -894,8 +915,8 @@ static void graph_semantics_append_ownership_json(ZBuf *buf, const ZProgramGraph
     zbuf_append(buf, ",\"type\":");
     graph_semantics_append_quoted(buf, node->type);
     zbuf_append(buf, ",\"ownership\":");
-    graph_semantics_append_quoted(buf, graph_semantics_ownership_kind(graph, node->type));
-    zbuf_appendf(buf, ",\"mutable\":%s,\"resource\":%s,\"sourceRange\":", node->is_mutable ? "true" : "false", graph_semantics_type_is_resource(graph, node->type) ? "true" : "false");
+    graph_semantics_append_quoted(buf, graph_semantics_ownership_kind(graph, resolution, node->type, node->type_id));
+    zbuf_appendf(buf, ",\"mutable\":%s,\"resource\":%s,\"sourceRange\":", node->is_mutable ? "true" : "false", graph_semantics_type_is_resource(graph, resolution, node->type, node->type_id) ? "true" : "false");
     graph_semantics_append_source_range_json(buf, graph, sources, node);
     zbuf_append(buf, "}");
     first = false;
@@ -918,7 +939,7 @@ static void graph_semantics_append_borrowing_json(ZBuf *buf, const ZProgramGraph
     zbuf_append(buf, ",\"type\":");
     graph_semantics_append_quoted(buf, node->type);
     zbuf_append(buf, ",\"borrowKind\":");
-    graph_semantics_append_quoted(buf, graph_semantics_ownership_kind(graph, node->type));
+    graph_semantics_append_quoted(buf, graph_semantics_ownership_kind(graph, NULL, node->type, node->type_id));
     zbuf_appendf(buf, ",\"mutable\":%s,\"target\":", (node->is_mutable || graph_semantics_text_contains(node->type, "mut")) ? "true" : "false");
     graph_semantics_append_quoted(buf, target ? target->id : "");
     zbuf_append(buf, ",\"sourceRange\":");
@@ -934,12 +955,12 @@ static void graph_semantics_append_resources_json(ZBuf *buf, const ZProgramGraph
   bool first = true;
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
-    if (graph_semantics_node_has_type_fact(node) && graph_semantics_type_is_resource(graph, node->type)) {
+    if (graph_semantics_node_has_type_fact(node) && graph_semantics_type_is_resource(graph, resolution, node->type, node->type_id)) {
       if (!first) zbuf_append(buf, ",");
       zbuf_append(buf, "{\"node\":");
       graph_semantics_append_quoted(buf, node->id);
       zbuf_append(buf, ",\"kind\":\"binding\",\"resourceKind\":");
-      graph_semantics_append_quoted(buf, graph_semantics_resource_kind(graph, node->type, ""));
+      graph_semantics_append_quoted(buf, graph_semantics_resource_kind(graph, resolution, node->type, node->type_id, ""));
       zbuf_append(buf, ",\"type\":");
       graph_semantics_append_quoted(buf, node->type);
       zbuf_append(buf, ",\"sourceRange\":");
@@ -957,7 +978,7 @@ static void graph_semantics_append_resources_json(ZBuf *buf, const ZProgramGraph
       zbuf_append(buf, "{\"node\":");
       graph_semantics_append_quoted(buf, node->id);
       zbuf_append(buf, ",\"kind\":\"capabilityUse\",\"resourceKind\":");
-      graph_semantics_append_quoted(buf, graph_semantics_resource_kind(graph, node->type, capability));
+      graph_semantics_append_quoted(buf, graph_semantics_resource_kind(graph, resolution, node->type, node->type_id, capability));
       zbuf_append(buf, ",\"capability\":");
       graph_semantics_append_quoted(buf, capability);
       zbuf_append(buf, ",\"qualifiedName\":");
@@ -1047,7 +1068,7 @@ void z_program_graph_append_semantics_json(ZBuf *buf, const ZProgramGraph *graph
                fallible_calls,
                graph_semantics_effect_fact_count(graph),
                contracts,
-               graph_semantics_ownership_fact_count(graph),
+               graph_semantics_ownership_fact_count(graph, &resolution),
                graph_semantics_borrowing_fact_count(graph),
                graph_semantics_resource_fact_count(graph, &resolution),
                graph_semantics_target_requirement_count(graph, &resolution),
@@ -1061,7 +1082,7 @@ void z_program_graph_append_semantics_json(ZBuf *buf, const ZProgramGraph *graph
   zbuf_append(buf, ",\"effects\":");
   graph_semantics_append_effects_json(buf, graph, &sources);
   zbuf_append(buf, ",\"ownership\":");
-  graph_semantics_append_ownership_json(buf, graph, &sources);
+  graph_semantics_append_ownership_json(buf, graph, &sources, &resolution);
   zbuf_append(buf, ",\"borrowing\":");
   graph_semantics_append_borrowing_json(buf, graph, &sources);
   zbuf_append(buf, ",\"resources\":");

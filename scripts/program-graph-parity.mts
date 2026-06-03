@@ -552,6 +552,28 @@ async function assertSemanticFacts() {
   assert.equal(userResourceNames.semantics.resources.length, 0, "user-defined type names containing resource words should not emit resource facts");
   assert(!userResourceNames.semantics.ownership.some((item) => item.type === "File" || item.type === "UserFileRecord"), "user-defined type names containing resource words should not emit ownership resource facts");
 
+  const shadowedStdResourceFixture = `${outDir}/semantic-shadowed-stdlib-resource.0`;
+  await writeFile(shadowedStdResourceFixture, [
+    "type File {",
+    "    fd: i32,",
+    "}",
+    "",
+    "pub fn main() -> Void raises [NotFound, TooLarge, Io] {",
+    "    let fs: Fs = std.fs.host()",
+    "    let owned_file: owned<File> = check std.fs.createOrRaise(fs, \".zero/semantic-shadowed-stdlib-resource.txt\")",
+    "    let user_file: File = File { fd: 1 }",
+    "    expect user_file.fd == 1",
+    "}",
+    "",
+  ].join("\n"));
+  const shadowedStdResource = await zeroJson(["graph", "dump", "--json", shadowedStdResourceFixture]);
+  assert(shadowedStdResource.semantics.ownership.some((item) => item.name === "owned_file" && item.type === "owned<File>" && item.ownership === "owned" && item.resource === true), "stdlib File resource facts should survive a user-defined File type");
+  assert(!shadowedStdResource.semantics.ownership.some((item) => item.name === "user_file"), "user-defined File binding should not become an ownership fact");
+  assert(shadowedStdResource.semantics.resources.some((item) => item.kind === "binding" && item.type === "owned<File>" && item.resourceKind === "file"), "stdlib File resource binding should survive a user-defined File type");
+
+  const searchSort = await zeroJson(["graph", "dump", "--json", "conformance/native/pass/std-search-sort-widths.0"]);
+  assert(!searchSort.semantics.resources.some((item) => item.qualifiedName === "std.search.binaryU32" || item.qualifiedName === "std.search.binaryUsize"), "no-allocation search helpers should not emit resource facts");
+
   const callResolution = await zeroJson(["graph", "dump", "--json", "conformance/check/pass/call-resolution-inspection.0"]);
   const resolverCallReferences = callResolution.resolution.references.filter((item) => item.kind === "call");
   assert.equal(callResolution.semantics.calls.length, resolverCallReferences.length, "semantic calls should mirror resolver call references and skip operators");
