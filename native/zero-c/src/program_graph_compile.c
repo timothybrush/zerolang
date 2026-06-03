@@ -78,10 +78,12 @@ bool z_program_graph_prepare_source_mir_input(const char *source_path, const ZTa
   graph_program = (Program){0};
   graph_compile_replace_source_map(input, &graph_input);
   z_free_source(&graph_input);
+  input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
+  input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
   if (source) {
     source->artifact = path;
-    source->graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
-    source->module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
+    source->graph_hash = input->program_graph_hash;
+    source->module_identity = input->program_graph_module_identity;
     source->lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir";
     source->canonical_source = graph.canonical_source;
   }

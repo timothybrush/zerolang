@@ -5,8 +5,8 @@
 
 typedef struct {
   const char *artifact;
-  char *graph_hash;
-  char *module_identity;
+  const char *graph_hash;
+  const char *module_identity;
   const char *lowering;
   bool canonical_source;
 } ZProgramGraphArtifactSource;
