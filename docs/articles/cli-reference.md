@@ -15,7 +15,7 @@ Most commands accept the same input forms:
 | Command | Use it for |
 | --- | --- |
 | `zero check <input>` | Parse, typecheck, and report diagnostics. |
-| `zero run <input>` | Build and run a host executable. |
+| `zero run <input>` | Build and run a host executable with the selected backend. |
 | `zero test <input>` | Run inline `test` blocks. |
 | `zero fmt <input>` | Print formatted source. Add `--check` in CI. |
 | `zero build <input>` | Emit an executable or object file. |
@@ -58,8 +58,9 @@ zero doctor --json
 
 ## Run
 
-`zero run` builds a host executable with the direct backend, runs it, passes
-through program stdout/stderr, and exits with the program status.
+`zero run` builds a host executable, runs it, passes through program
+stdout/stderr, and exits with the program status. Direct output is the default;
+pass `--backend llvm` for explicit LLVM host execution when `clang` is ready.
 
 Pass program arguments after `--`:
 
@@ -235,7 +236,7 @@ zero new cli|lib|package <path>
 zero doctor [--json]
 zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] <input>
 zero dev [--json] [--trace] [--target <target>] <input>
-zero run [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
+zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
 zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input>
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
