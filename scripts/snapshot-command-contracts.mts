@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
@@ -3751,6 +3751,17 @@ assert.equal(llvmMissingToolReadiness.targetReadiness.backend, "llvm");
 assert.equal(llvmMissingToolReadiness.targetReadiness.stage, "toolchain");
 assert.equal(llvmMissingToolReadiness.targetReadiness.diagnostics[0].code, "BLD004");
 assert.equal(llvmMissingToolReadiness.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
+const llvmNonExecutableToolPath = join(outDir, "not-executable-clang");
+writeFileSync(llvmNonExecutableToolPath, "");
+chmodSync(llvmNonExecutableToolPath, 0o644);
+const llvmNonExecutableToolReadiness = json(["check", "--json", "--backend", "llvm", "examples/add.0"], { env: { ZERO_LLVM_CLANG: llvmNonExecutableToolPath } }).body;
+assert.equal(llvmNonExecutableToolReadiness.ok, true);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.ok, false);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.backend, "llvm");
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.stage, "toolchain");
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].code, "BLD004");
+assert.match(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].actual, /not executable or not found/);
+assert.equal(llvmNonExecutableToolReadiness.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "clang");
 const llvmIrReadiness = json(["check", "--json", "--emit", "llvm-ir", "--backend", "llvm", "examples/add.0"]).body;
 assert.equal(llvmIrReadiness.ok, true);
 assert.equal(llvmIrReadiness.targetReadiness.ok, true);
@@ -3785,11 +3796,14 @@ if (llvmHostReady) {
   assert.equal(llvmBuild.body.releaseTargetContract.selectedEmitter, "llvm-clang-exe");
   assert.equal(llvmBuild.body.releaseTargetContract.fallbackPolicy, "none");
   assert.equal(llvmBuild.body.releaseTargetContract.readiness.llvmArtifact, true);
+  assert.equal(llvmBuild.body.releaseTargetContract.determinism.reproducible, false);
+  assert.equal(llvmBuild.body.releaseTargetContract.determinism.repeatBuildHash, "external-toolchain-not-claimed");
   assert.equal(llvmBuild.body.objectBackend.backendFamily, "llvm");
   assert.equal(llvmBuild.body.objectBackend.targetFacts.status, "ready");
   assert.equal(llvmBuild.body.objectBackend.linking.externalToolchain, llvmBuild.body.toolchain.compiler);
   assert.equal(llvmBuild.body.objectBackend.linking.toolchainSource, "llvm-ir-clang-link-plan");
   assert.deepEqual(llvmBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+  assert.equal(llvmBuild.body.objectBackend.linkerPlan.reproducible, false);
   assert.equal(llvmBuild.body.targetSupport.backendFamily, "llvm");
   assert.equal(llvmBuild.body.targetSupport.fallbackPolicy, "none");
   assert(llvmBuild.body.artifactBytes > 0);
@@ -3832,6 +3846,7 @@ assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.targetLibraries, "ze
 assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.externalToolchain, "none");
 assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
 assert.deepEqual(explicitLlvmIrBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
+assert.match(explicitLlvmIrBuild.body.objectBackend.targetFacts.reason, /native host executable output/);
 assert.equal(explicitLlvmIrBuild.body.artifactPath, join(outDir, "add-explicit.ll"));
 assert(explicitLlvmIrBuild.body.artifactBytes > 0);
 const explicitLlvmIrText = readFileSync(explicitLlvmIrBuild.body.artifactPath, "utf8");

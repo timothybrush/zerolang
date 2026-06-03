@@ -5051,7 +5051,7 @@ static void init_llvm_ir_build_only_diag(ZDiag *diag, const Command *command, co
   snprintf(diag->message, sizeof(diag->message), "LLVM IR emission writes artifacts only through zero build");
   snprintf(diag->expected, sizeof(diag->expected), "zero build --backend llvm --emit llvm-ir");
   snprintf(diag->actual, sizeof(diag->actual), "%s --backend llvm --emit llvm-ir", command_name);
-  snprintf(diag->help, sizeof(diag->help), "use zero build for textual LLVM IR; native LLVM run and ship are not wired yet");
+  snprintf(diag->help, sizeof(diag->help), "use zero build for textual LLVM IR, or use zero run --backend llvm --emit exe for native LLVM execution");
   ZBackendBlocker blocker;
   z_backend_blocker_set(&blocker,
                         target && target->name ? target->name : "unknown",
@@ -5897,7 +5897,11 @@ static void append_release_target_contract_json(ZBuf *buf, const SourceInput *in
   zbuf_appendf(buf, ",\"missingSysroot\":%s,\"unsupportedReason\":", missing_sysroot ? "true" : "false");
   append_json_string(buf, release_supported ? "" : (llvm_native_output ? llvm_plan.reason : z_direct_backend_reason(target)));
 #undef APPEND_FIELD
-  zbuf_append(buf, "},\"determinism\":{\"reproducible\":true,\"stableArtifactNames\":true,\"repeatBuildHash\":\"checked-by-command-contracts\"}");
+  zbuf_append(buf, "},\"determinism\":{\"reproducible\":");
+  zbuf_append(buf, llvm_native_output ? "false" : "true");
+  zbuf_append(buf, ",\"stableArtifactNames\":true,\"repeatBuildHash\":");
+  append_json_string(buf, llvm_native_output ? "external-toolchain-not-claimed" : "checked-by-command-contracts");
+  zbuf_append(buf, "}");
   zbuf_appendf(buf, ",\"sourceFileCount\":%zu,\"moduleCount\":%zu}", input ? input->source_file_count : 0, input ? input->module_count : 0);
 }
 

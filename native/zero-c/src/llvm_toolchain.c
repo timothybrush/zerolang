@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 static void llvm_append_json_string(ZBuf *buf, const char *value) {
   zbuf_append_char(buf, '"');
@@ -33,14 +38,19 @@ static void llvm_append_capabilities_json(ZBuf *buf, const ZTargetInfo *target) 
   zbuf_append_char(buf, ']');
 }
 
-static bool llvm_path_is_file(const char *path) {
+static bool llvm_path_is_executable_file(const char *path) {
   struct stat st;
-  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+  if (!path || !path[0] || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
+#if defined(_WIN32)
+  return _access(path, 4) == 0;
+#else
+  return access(path, X_OK) == 0;
+#endif
 }
 
 static bool llvm_command_available(const char *name) {
   if (!name || !name[0]) return false;
-  if (strchr(name, '/')) return llvm_path_is_file(name);
+  if (strchr(name, '/') || strchr(name, '\\')) return llvm_path_is_executable_file(name);
   const char *path = getenv("PATH");
   if (!path || !path[0]) return false;
 #if defined(_WIN32)
@@ -58,7 +68,7 @@ static bool llvm_command_available(const char *name) {
       for (size_t i = 0; i < len; i++) zbuf_append_char(&candidate, cursor[i]);
       zbuf_append_char(&candidate, '/');
       zbuf_append(&candidate, name);
-      bool found = llvm_path_is_file(candidate.data);
+      bool found = llvm_path_is_executable_file(candidate.data);
       zbuf_free(&candidate);
       if (found) return true;
     }
@@ -159,7 +169,7 @@ bool z_llvm_native_executable_ready(const ZTargetInfo *target, const char *path,
     } else {
       snprintf(diag->message, sizeof(diag->message), "LLVM native executable backend requires clang");
       snprintf(diag->expected, sizeof(diag->expected), "clang on PATH or ZERO_LLVM_CLANG");
-      snprintf(diag->actual, sizeof(diag->actual), "%s not found", plan.compiler ? plan.compiler : "clang");
+      snprintf(diag->actual, sizeof(diag->actual), "%s not executable or not found", plan.compiler ? plan.compiler : "clang");
       snprintf(diag->help, sizeof(diag->help), "install clang or set ZERO_LLVM_CLANG to a clang-compatible driver");
       z_backend_blocker_set(&diag->backend_blocker,
                             target && target->name ? target->name : "unknown",
@@ -254,7 +264,7 @@ void z_append_llvm_ir_backend_json(ZBuf *buf, const SourceInput *input, const ZT
   llvm_append_json_string(buf, z_target_libc_mode(target));
   zbuf_append(buf, ",\"requiresSysroot\":false,\"capabilities\":");
   llvm_append_capabilities_json(buf, target);
-  zbuf_append(buf, ",\"fallbackPolicy\":\"none\",\"reason\":\"LLVM textual IR emission is available; native LLVM artifacts are not wired yet\"}");
+  zbuf_append(buf, ",\"fallbackPolicy\":\"none\",\"reason\":\"LLVM textual IR emission is available; native host executable output requires --backend llvm --emit exe on a supported host with clang\"}");
   zbuf_appendf(buf, ",\"moduleCount\":%zu,\"emitKind\":", input ? input->module_count : 0);
   llvm_append_json_string(buf, emit_kind ? emit_kind : "llvm-ir");
   zbuf_append(buf, ",\"backendFamily\":\"llvm\"}");
