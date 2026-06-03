@@ -290,6 +290,7 @@ static bool graph_validate_node_payload(const ZProgramGraphNode *node, ZProgramG
     case Z_PROGRAM_GRAPH_NODE_MATCH_ARM:
     case Z_PROGRAM_GRAPH_NODE_IDENTIFIER:
     case Z_PROGRAM_GRAPH_NODE_FIELD_ACCESS:
+    case Z_PROGRAM_GRAPH_NODE_RESCUE:
     case Z_PROGRAM_GRAPH_NODE_SHAPE_LITERAL:
     case Z_PROGRAM_GRAPH_NODE_FIELD_INIT:
     case Z_PROGRAM_GRAPH_NODE_EFFECT_REF:
@@ -317,6 +318,9 @@ static bool graph_validate_node_payload(const ZProgramGraphNode *node, ZProgramG
   if (node->kind == Z_PROGRAM_GRAPH_NODE_LITERAL && graph_required_text_present(node->name)) {
     return graph_validation_fail(validation, "GRF015", "literal node must not carry a name payload", node->id, NULL, NULL, NULL);
   }
+  if (node->kind == Z_PROGRAM_GRAPH_NODE_CAST && !graph_required_text_present(node->name) && !graph_required_text_present(node->type)) {
+    return graph_validation_fail(validation, "GRF014", "cast node is missing target type", node->id, NULL, NULL, NULL);
+  }
   if (node->kind == Z_PROGRAM_GRAPH_NODE_TYPE_REF && (graph_required_text_present(node->name) || graph_required_value_present(node->value))) {
     return graph_validation_fail(validation, "GRF015", "type reference node has illegal payload", node->id, NULL, NULL, NULL);
   }
@@ -337,6 +341,21 @@ static bool graph_validate_required_edge_count(const ZProgramGraph *graph, const
 
 static bool graph_validate_optional_edge_count(const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *kind, size_t max, ZProgramGraphValidation *validation) {
   return graph_validate_required_edge_count(graph, node, kind, 0, max, validation);
+}
+
+static bool graph_validate_edge_order_range(const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *kind, size_t max_exclusive, ZProgramGraphValidation *validation) {
+  for (size_t i = 0; graph && node && kind && i < graph->edge_len; i++) {
+    const ZProgramGraphEdge *edge = &graph->edges[i];
+    if (edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE &&
+        graph_text_eq(edge->from, node->id) &&
+        graph_text_eq(edge->kind, kind) &&
+        edge->order >= max_exclusive) {
+      char message[160];
+      snprintf(message, sizeof(message), "node has invalid %s edge order", kind);
+      return graph_validation_fail(validation, "GRF016", message, node->id, edge->from, edge->to, "node");
+    }
+  }
+  return true;
 }
 
 static bool graph_validate_edge_order(const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *kind, size_t order, ZProgramGraphValidation *validation) {
@@ -426,7 +445,8 @@ static bool graph_validate_required_edges(const ZProgramGraph *graph, const ZPro
              graph_validate_required_edge_at_order(graph, node, "right", 1, validation);
     case Z_PROGRAM_GRAPH_NODE_SLICE:
       return graph_validate_required_edge_at_order(graph, node, "left", 0, validation) &&
-             graph_validate_optional_edge_count(graph, node, "arg", 2, validation);
+             graph_validate_optional_edge_count(graph, node, "arg", 2, validation) &&
+             graph_validate_edge_order_range(graph, node, "arg", 2, validation);
     case Z_PROGRAM_GRAPH_NODE_CALL:
     case Z_PROGRAM_GRAPH_NODE_METHOD_CALL:
       if (!graph_validate_optional_edge_at_order(graph, node, "left", 0, validation) ||
