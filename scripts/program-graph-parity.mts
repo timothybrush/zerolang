@@ -207,6 +207,38 @@ async function assertResolutionFacts() {
   assert.match(cCall.symbolId, /^symbol:c-import-alias-later-local::c-import\.c$/, "C import call symbol");
   const localC = findResolutionReference(cImport, (item) => item.kind === "identifier" && item.name === "c" && item.targetKind === "local", "later local should shadow C import after declaration");
   assert.match(localC.symbolId, /local\.c@/, "local shadow symbol");
+
+  const staticInterface = await zeroJson(["graph", "dump", "--json", "examples/static-interface.0"]);
+  assert.equal(staticInterface.resolution.ok, true, "static interface graph resolution");
+  const interfaceCall = findResolutionReference(staticInterface, (item) => item.kind === "call" && item.qualifiedName === "T.read", "constrained interface method call should resolve");
+  assert.equal(interfaceCall.targetKind, "interfaceMethod", "constrained interface call target kind");
+  assert.equal(interfaceCall.symbolId, "symbol:static-interface::type.Readable/method.read", "constrained interface call target symbol");
+
+  const systemsPackage = await zeroJson(["graph", "dump", "--json", "examples/systems-package"]);
+  assert.equal(systemsPackage.resolution.ok, true, "package-local module graph resolution");
+  const statusType = findResolutionReference(systemsPackage, (item) => item.kind === "type" && item.name === "Status" && item.symbolId === "symbol:systems-package@0.1.0/types::type.Status", "package-local type should resolve across loaded modules");
+  assert.equal(statusType.targetKind, "type", "package-local type target kind");
+  const statusVariant = findResolutionReference(systemsPackage, (item) => item.kind === "identifier" && item.name === "Status" && item.symbolId === "symbol:systems-package@0.1.0/types::type.Status", "package-local enum namespace should resolve across loaded modules");
+  assert.equal(statusVariant.targetKind, "enum", "package-local enum namespace target kind");
+
+  const hostedTypes = await zeroJson(["graph", "dump", "--json", "examples/readall-cli"]);
+  assert.equal(hostedTypes.resolution.ok, true, "hosted std-backed type graph resolution");
+
+  const stdShadowFixture = `${outDir}/std-shadow.0`;
+  await writeFile(stdShadowFixture, [
+    "pub fn main(world: World) -> Void raises {",
+    "    let std: i32 = 1",
+    "    if std == 1 {",
+    "        check world.out.write(\"std shadow ok\\n\")",
+    "    }",
+    "}",
+    "",
+  ].join("\n"));
+  const stdShadow = await zeroJson(["graph", "dump", "--json", stdShadowFixture]);
+  assert.equal(stdShadow.resolution.ok, true, "local std shadow graph resolution");
+  const stdRef = findResolutionReference(stdShadow, (item) => item.kind === "identifier" && item.name === "std", "local std identifier should be present");
+  assert.equal(stdRef.targetKind, "local", "local std should shadow the stdlib namespace");
+  assert.match(stdRef.symbolId, /local\.std@/, "local std shadow symbol");
 }
 
 async function assertUnconstrainedGenericTypeParams() {
