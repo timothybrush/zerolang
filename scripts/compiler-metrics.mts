@@ -851,6 +851,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
     });
   }
   if (!programGraph.sourceCommandGraphMirPrep ||
+      !programGraph.sourceCommandGraphProgramPrep ||
       !programGraph.sourceCommandGraphMirPredicate) {
     violations.push({
       kind: "program-graph-source-command-compiler-path",
@@ -1531,6 +1532,8 @@ const programGraph = {
     /\bz_write_file\s*\(\s*command->out\s*,\s*graph\.data/g,
   ),
   sourceCommandGraphMirPrep: /z_program_graph_prepare_source_mir_input\s*\(/.test(cCodeText(cBlock(main, "int main(int argc, char **argv)"))),
+  sourceCommandGraphProgramPrep: /z_program_graph_lower_to_program_with_source\s*\(/.test(programGraphCompileSource) &&
+    /\*\s*program\s*=\s*graph_program\s*;/.test(programGraphCompileSource),
   sourceCommandGraphMirPredicate: /z_program_graph_source_command_uses_graph_mir\s*\(/.test(programGraphCompileSource),
 };
 const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats, programGraph);
