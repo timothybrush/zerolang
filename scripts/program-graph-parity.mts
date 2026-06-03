@@ -181,9 +181,17 @@ async function assertCommandStateContracts() {
 
   const size = await zeroJson(["graph", "size", "--json", "--target", "linux-musl-x64", artifact]);
   assert.equal(size.graph.canonicalSource, false, "graph size should report artifact input");
-  assert.equal(size.graph.lowering, "direct-program-graph", "graph size should lower through ProgramGraph");
+  assert.equal(size.graph.lowering, "typed-program-graph-mir", "graph size should lower through typed graph MIR");
   assert.equal(size.generatedCBytes, 0, "graph size should stay on the direct backend");
   assert.equal(size.cBridgeFallback, false, "graph size should not use C bridge fallback");
+
+  const stdArgsArtifact = await dumpGraphArtifact("conformance/native/pass/std-args.0", "std-args-mir");
+  const stdArgsSize = await zeroJson(["graph", "size", "--json", "--target", "linux-musl-x64", stdArgsArtifact]);
+  assert.equal(stdArgsSize.graph.lowering, "typed-program-graph-mir", "graph size should lower std args through typed graph MIR");
+  assert.equal(stdArgsSize.generatedCBytes, 0, "graph MIR std args should stay on the direct backend");
+  assert.equal(stdArgsSize.objectBackend.directFacts.functionCount, 1, "graph MIR std args should retain the main function");
+  const stdArgsRun = await zeroText(["graph", "run", "--out", `${outDir}/std-args-run`, stdArgsArtifact, "one", "two"]);
+  assert.equal(stdArgsRun, "one\n", "graph run should execute std args from typed graph MIR");
 
   const roundtrip = await zeroJson(["graph", "roundtrip", "--json", artifact]);
   assert.equal(roundtrip.ok, true, "graph roundtrip should accept the artifact");
@@ -637,7 +645,7 @@ async function assertBuildParity(fixture, name) {
 
   assert.equal(graph.graph.artifact, artifact, `${fixture}: graph build artifact`);
   assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph build should use artifact input`);
-  assert.equal(graph.graph.lowering, "direct-program-graph", `${fixture}: graph build lowering`);
+  assert.equal(graph.graph.lowering, "typed-program-graph-mir", `${fixture}: graph build lowering`);
   assert.deepEqual(buildSummary(graph), buildSummary(source), `${fixture}: source and graph build summaries should agree`);
   assert(source.artifactBytes > 0, `${fixture}: source build should write an artifact`);
   assert(graph.artifactBytes > 0, `${fixture}: graph build should write an artifact`);

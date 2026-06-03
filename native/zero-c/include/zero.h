@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 typedef struct ZTargetInfo ZTargetInfo;
+typedef struct ZProgramGraph ZProgramGraph;
 
 typedef struct {
   char *data;
@@ -888,6 +889,7 @@ void z_backend_blocker_set(ZBackendBlocker *blocker, const char *target, const c
 void z_diag_set_backend_blocker(ZDiag *diag, const ZBackendBlocker *blocker);
 IrProgram z_lower_program(const Program *program);
 IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input, const ZTargetInfo *target);
+IrProgram z_lower_program_graph_with_source(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target);
 void z_free_ir_program(IrProgram *program);
 bool z_emit_elf64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);

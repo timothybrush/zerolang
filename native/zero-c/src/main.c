@@ -5130,6 +5130,12 @@ static int return_buildability_error(const Command *command, const SourceInput *
   return 1;
 }
 
+static void free_loaded_command_state(SourceInput *input, Program *program, IrProgram *ir) {
+  if (ir) z_free_ir_program(ir);
+  z_free_program(program);
+  z_free_source(input);
+}
+
 static bool direct_buildability_preflight(const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const IrProgram *ir, ZDiag *diag) {
   if (ir && !ir->mir_valid) {
     init_lowering_backend_diag(diag, input, target, command, ir);
@@ -11635,10 +11641,12 @@ static int run_graph_size_command(const Command *command, const ZTargetInfo *tar
   }
 
   long long phase_started = now_ms();
-  IrProgram ir = z_lower_program_with_source(&program, &input, target);
+  IrProgram ir = z_lower_program_graph_with_source(&graph, &input, target);
+  bool graph_mir_valid = ir.mir_valid;
+  if (!graph_mir_valid) { z_free_ir_program(&ir); ir = z_lower_program_with_source(&program, &input, target); }
   input.lower_ms = now_ms() - phase_started;
   apply_ir_metrics_to_input(&input, &ir, target);
-  GraphSizeSource graph_source = {.graph = &graph, .artifact = command->input, .lowering = "direct-program-graph"};
+  GraphSizeSource graph_source = {.graph = &graph, .artifact = command->input, .lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir"};
   z_program_graph_seed_source_metadata(&input, &graph);
   input.parse_cache_hit = compiler_cache_touch("parse-tree", compile_cache_key(&input, NULL, NULL, "parse-tree"));
   input.interface_cache_hit = compiler_cache_touch("interface", graph_interface_cache_key(&input, graph.graph_hash));
@@ -12337,23 +12345,31 @@ int main(int argc, char **argv) {
 
   SourceInput input = {0};
   Program program = {0};
+  IrProgram graph_prepared_ir = {0};
   bool graph_build_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "build") == 0;
   bool graph_test_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "test") == 0;
   bool direct_graph_source_command = false;
   if (direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command || graph_test_command) {
     ZProgramGraphArtifactSource graph_source = {0};
-    if (!z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag)) {
+    bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command;
+    long long graph_lower_started = now_ms();
+    bool prepared_graph = graph_mir_command
+      ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag);
+    if (prepared_graph && graph_mir_command) {
+      input.lower_ms = now_ms() - graph_lower_started;
+      apply_ir_metrics_to_input(&input, &graph_prepared_ir, target);
+    }
+    if (!prepared_graph) {
       if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
-      z_free_program(&program);
-      z_free_source(&input);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
       return 1;
     }
     if (direct_graph_manifest_command && !attach_manifest_metadata_to_graph_input(&input, direct_graph_manifest_input, &diag)) {
       if (command.json) print_command_diag_json(&command, diag.path ? diag.path : direct_graph_manifest_input, &diag);
       else print_diag(diag.path ? diag.path : direct_graph_manifest_input, &diag);
-      z_free_program(&program);
-      z_free_source(&input);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
       return 1;
     }
     input.parse_cache_hit = compiler_cache_touch("parse-tree", compile_cache_key(&input, NULL, NULL, "parse-tree"));
@@ -12369,19 +12385,16 @@ int main(int argc, char **argv) {
     if (strcmp(command.command, "fix") == 0) {
       if (command.apply || command.patch) {
         int rc = print_or_apply_fix_json(diag.path ? diag.path : command.input, &input, &diag, command.apply);
-        z_free_program(&program);
-        z_free_source(&input);
+        free_loaded_command_state(&input, &program, NULL);
         return rc;
       }
       print_fix_plan_json(diag.path ? diag.path : command.input, &diag);
-      z_free_program(&program);
-      z_free_source(&input);
+      free_loaded_command_state(&input, &program, NULL);
       return 0;
     }
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 1;
   }
 
@@ -12389,22 +12402,19 @@ int main(int argc, char **argv) {
   if (!is_graph_command && !validate_target_capabilities(&program, target, &diag, input.source_file)) {
     if (strcmp(command.command, "fix") == 0) {
       print_fix_plan_json(input.source_file, &diag);
-      z_free_program(&program);
-      z_free_source(&input);
+      free_loaded_command_state(&input, &program, &graph_prepared_ir);
       return 0;
     }
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
   }
 
   if (!is_graph_command && !validate_package_dependencies_for_target(&input, target, &diag)) {
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
   }
 
@@ -12412,24 +12422,21 @@ int main(int argc, char **argv) {
       !validate_c_libraries_for_target(&input, target, &command, &diag)) {
     if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
     else print_diag(diag.path ? diag.path : command.input, &diag);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, &graph_prepared_ir);
     return 1;
   }
 
   if (strcmp(command.command, "fix") == 0) {
     if (command.apply || command.patch) print_or_apply_fix_json(input.source_file, &input, NULL, command.apply);
     else print_fix_plan_json(input.source_file, NULL);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
   if (strcmp(command.command, "check") == 0) {
     if (command.json) print_check_json_success(input.source_file, &input, &program, target, &command);
     else printf("ok\n");
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
@@ -12439,8 +12446,7 @@ int main(int argc, char **argv) {
     append_public_docs_json(&doc, &input, &program, target);
     fputs(doc.data, stdout);
     zbuf_free(&doc);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
@@ -12450,8 +12456,7 @@ int main(int argc, char **argv) {
     append_dev_plan_json(&dev, &input, &program, target, &command);
     fputs(dev.data, stdout);
     zbuf_free(&dev);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
@@ -12461,8 +12466,7 @@ int main(int argc, char **argv) {
     append_time_json(&time_json, &input, &program, target, &command);
     fputs(time_json.data, stdout);
     zbuf_free(&time_json);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
@@ -12490,12 +12494,10 @@ int main(int argc, char **argv) {
       }
     } else {
       fprintf(stderr, "unknown abi mode: %s\n", mode);
-      z_free_program(&program);
-      z_free_source(&input);
+      free_loaded_command_state(&input, &program, NULL);
       return 1;
     }
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return 0;
   }
 
@@ -12506,22 +12508,24 @@ int main(int argc, char **argv) {
       return rc;
     }
     int rc = run_tests_direct(&command, &input, &program, target);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return rc;
   }
 
   if (is_graph_command) {
     int rc = run_graph_command(&command, &input, &program, target, &diag);
-    z_free_program(&program);
-    z_free_source(&input);
+    free_loaded_command_state(&input, &program, NULL);
     return rc;
   }
 
   long long phase_started = now_ms();
-  IrProgram ir = z_lower_program_with_source(&program, &input, target);
-  input.lower_ms = now_ms() - phase_started;
-  apply_ir_metrics_to_input(&input, &ir, target);
+  bool use_prepared_ir = graph_prepared_ir.mir_bytes > 0;
+  IrProgram ir = use_prepared_ir ? graph_prepared_ir : z_lower_program_with_source(&program, &input, target);
+  if (use_prepared_ir) graph_prepared_ir = (IrProgram){0};
+  else {
+    input.lower_ms = now_ms() - phase_started;
+    apply_ir_metrics_to_input(&input, &ir, target);
+  }
   if (strcmp(command.command, "mem") == 0) {
     if (!metadata_backend_request_buildable(&command, &input, target, &diag)) {
       int rc = return_buildability_error(&command, &input, &diag, &ir, &program);

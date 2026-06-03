@@ -13,5 +13,6 @@ typedef struct {
 
 bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source);
 bool z_program_graph_prepare_artifact_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphArtifactSource *source, ZDiag *diag);
+bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag);
 
 #endif

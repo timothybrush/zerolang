@@ -98,7 +98,7 @@ typedef struct {
   size_t order;
 } ZProgramGraphEdge;
 
-typedef struct {
+typedef struct ZProgramGraph {
   unsigned schema_version;
   ZProgramGraphValidationState validation_state;
   char *module_identity;
