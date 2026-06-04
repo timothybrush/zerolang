@@ -101,6 +101,22 @@ static char *store_normalize_path_text(const char *path) {
   return out.data;
 }
 
+bool z_program_graph_store_source_path_is_local(const char *path) {
+  if (!path || !path[0] || path[0] == '/' || strchr(path, '\\')) return false;
+  if (path[1] == ':' &&
+      ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))) {
+    return false;
+  }
+  char *normalized = store_normalize_path_text(path);
+  bool ok = normalized && normalized[0] &&
+            !store_text_eq(normalized, ".") &&
+            !store_text_eq(normalized, "..") &&
+            strncmp(normalized, "../", 3) != 0 &&
+            store_text_eq(normalized, path);
+  free(normalized);
+  return ok;
+}
+
 static bool store_path_relative_to_root(const char *root, const char *path, const char **relative) {
   if (!root || !path || !relative) return false;
   size_t root_len = strlen(root);
@@ -291,7 +307,7 @@ static void store_append_quoted(ZBuf *buf, const char *text) {
 
 static bool store_read_projection_text(const char *root, const char *source_path, char **out) {
   *out = NULL;
-  if (!source_path || !source_path[0] || source_path[0] == '/') return false;
+  if (!z_program_graph_store_source_path_is_local(source_path)) return false;
   char *joined = store_join_path(root && root[0] ? root : ".", source_path);
   ZDiag diag = {0};
   *out = z_read_file(joined, &diag);
@@ -380,6 +396,7 @@ static bool store_parse_quoted_field(const char *line, const char *prefix, char 
 
 static bool store_add_source_path(ZProgramGraphStore *store, const char *path) {
   if (!store || !path || !path[0]) return true;
+  if (!z_program_graph_store_source_path_is_local(path)) return false;
   for (size_t i = 0; i < store->source_path_len; i++) {
     if (store_text_eq(store->source_paths[i], path)) return true;
   }
@@ -394,6 +411,7 @@ static bool store_add_source_path(ZProgramGraphStore *store, const char *path) {
 
 static bool store_add_projection(ZProgramGraphStore *store, const char *path, const char *text) {
   if (!store || !path || !path[0] || !text) return true;
+  if (!z_program_graph_store_source_path_is_local(path)) return false;
   for (size_t i = 0; i < store->projection_len; i++) {
     if (store_text_eq(store->projection_paths[i], path)) return false;
   }
@@ -628,8 +646,8 @@ static bool store_parse_source_line(const char *line, ZProgramGraphStore *store)
   bool ok = store_parse_literal(&cursor, "source path:") &&
             store_parse_quoted(&cursor, &path) &&
             *cursor == 0 &&
-            path[0] != 0;
-  if (ok) store_add_source_path(store, path);
+            path[0] != 0 &&
+            store_add_source_path(store, path);
   free(path);
   return ok;
 }
@@ -663,6 +681,9 @@ static bool store_verify_metadata(const char *path, ZProgramGraphStore *store, c
     if (!store_source_path_present(store, node->path)) return store_diag(diag, path, 1, "repository graph source table is missing a node source path", node->path);
   }
   if (store->projection_len == 0) return store_diag(diag, path, 1, "repository graph store has no source projections", "empty projection table");
+  for (size_t i = 0; i < store->source_path_len; i++) {
+    if (!z_program_graph_store_projection_text(store, store->source_paths[i])) return store_diag(diag, path, 1, "repository graph projection table is missing a source path", store->source_paths[i]);
+  }
   for (size_t i = 0; i < store->projection_len; i++) {
     if (!store_source_path_present(store, store->projection_paths[i])) return store_diag(diag, path, 1, "repository graph projection table references an unknown source path", store->projection_paths[i]);
   }

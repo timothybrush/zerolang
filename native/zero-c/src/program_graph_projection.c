@@ -11,7 +11,6 @@ static bool projection_text_eq(const char *left, const char *right) {
 }
 
 static char *projection_join_path(const char *left, const char *right) {
-  if (right && right[0] == '/') return z_strdup(right);
   ZBuf buf;
   zbuf_init(&buf);
   zbuf_append(&buf, left && left[0] ? left : ".");
@@ -32,6 +31,20 @@ static bool projection_add_changed_path(ZProgramGraphProjection *projection, con
 }
 
 static bool projection_source_text(const ZProgramGraphStore *store, const char *source_path, const char **out, ZDiag *diag) {
+  if (!z_program_graph_store_source_path_is_local(source_path)) {
+    if (out) *out = NULL;
+    if (diag) {
+      diag->code = 1002;
+      diag->path = store && store->path ? store->path : "zero.graph";
+      diag->line = 1;
+      diag->column = 1;
+      diag->length = 1;
+      snprintf(diag->message, sizeof(diag->message), "repository graph source projection path is not local");
+      snprintf(diag->expected, sizeof(diag->expected), "relative source projection path inside the repository graph root");
+      snprintf(diag->actual, sizeof(diag->actual), "%s", source_path && source_path[0] ? source_path : "missing source path");
+    }
+    return false;
+  }
   const char *text = z_program_graph_store_projection_text(store, source_path);
   if (out) *out = text;
   if (!text) {
@@ -104,7 +117,8 @@ bool z_program_graph_projection_write_sources(const ZProgramGraphStore *store, Z
   if (projection) z_program_graph_projection_init(projection);
   for (size_t i = 0; i < store->projection_len; i++) {
     const char *source_path = store->projection_paths[i];
-    const char *source_text = store->projection_texts[i] ? store->projection_texts[i] : "";
+    const char *source_text = NULL;
+    if (!projection_source_text(store, source_path, &source_text, diag)) return false;
     char *path = projection_join_path(store->root, source_path);
     ZDiag read_diag = {0};
     char *current = z_read_file(path, &read_diag);

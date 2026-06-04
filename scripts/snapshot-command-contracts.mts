@@ -781,6 +781,51 @@ assert.equal(relativePackageSyncDot.ok, true);
 assert.equal(sha256File(relativePackageStore), relativePackageStoreHash);
 const relativePackageVerifyAbsolute = json(["graph", "verify-sync", "--json", relativePackageRoot]);
 assert.equal(relativePackageVerifyAbsolute.body.ok, true);
+const partialProjectionRoot = join("/tmp", `zero-repo-graph-partial-projection-${process.pid}`);
+const partialProjectionStore = join(partialProjectionRoot, "zero.graph");
+rmSync(partialProjectionRoot, { force: true, recursive: true });
+mkdirSync(join(partialProjectionRoot, "src"), { recursive: true });
+writeFileSync(join(partialProjectionRoot, "zero.json"), readFileSync("conformance/packages/test-app/zero.json", "utf8"));
+writeFileSync(join(partialProjectionRoot, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
+writeFileSync(join(partialProjectionRoot, "src", "helper.0"), readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
+json(["graph", "sync", "--from-source", "--json", partialProjectionRoot]);
+const partialProjectionStoreText = readFileSync(partialProjectionStore, "utf8");
+assert.match(partialProjectionStoreText, /^source path:"src\/helper\.0"$/m);
+assert.match(partialProjectionStoreText, /^projection path:"src\/helper\.0" text:/m);
+writeFileSync(partialProjectionStore, partialProjectionStoreText.replace(/^projection path:"src\/helper\.0" text:[^\n]*\n/m, ""));
+const partialProjectionStatus = json(["graph", "status", "--json", partialProjectionRoot], { allowFailure: true });
+assert.notEqual(partialProjectionStatus.code, 0);
+assert.equal(partialProjectionStatus.body.diagnostics[0].code, "RGP003");
+assert.match(partialProjectionStatus.body.diagnostics[0].actual, /projection table is missing a source path/);
+const unsafeProjectionRoot = join("/tmp", `zero-repo-graph-unsafe-projection-${process.pid}`);
+const unsafeProjectionSource = join(unsafeProjectionRoot, "outside.0");
+const unsafeProjectionStoreRoot = join(unsafeProjectionRoot, "repo");
+const unsafeProjectionStore = join(unsafeProjectionStoreRoot, "zero.graph");
+const unsafeProjectionText = "// should not be written outside the repository graph root\n";
+rmSync(unsafeProjectionRoot, { force: true, recursive: true });
+mkdirSync(unsafeProjectionStoreRoot, { recursive: true });
+writeFileSync(unsafeProjectionSource, readFileSync("examples/hello.0", "utf8"));
+const unsafeProjectionGraph = zero(["graph", "dump", unsafeProjectionSource]).stdout;
+const unsafeProjectionGraphJson = json(["graph", "dump", "--json", unsafeProjectionSource]).body;
+const unsafeProjectionQuote = JSON.stringify;
+const unsafeProjectionStoreLines = [
+  "zero-repository-graph v1",
+  `sourceProjection ${unsafeProjectionQuote(".0")}`,
+  `moduleIdentity ${unsafeProjectionQuote(unsafeProjectionGraphJson.moduleIdentity)}`,
+  `graphHash ${unsafeProjectionQuote(unsafeProjectionGraphJson.graphHash)}`,
+  `moduleHash ${unsafeProjectionQuote(unsafeProjectionGraphJson.graphHash)}`,
+  `source path:${unsafeProjectionQuote(unsafeProjectionSource)}`,
+  `projection path:${unsafeProjectionQuote(unsafeProjectionSource)} text:${unsafeProjectionQuote(unsafeProjectionText)}`,
+  ...unsafeProjectionGraphJson.nodes.map((node) => `nodeHash node:${unsafeProjectionQuote(node.id)} hash:${unsafeProjectionQuote(node.nodeHash)}`),
+];
+writeFileSync(unsafeProjectionStore, `${unsafeProjectionStoreLines.join("\n")}\n\ngraph\n${unsafeProjectionGraph}`);
+const unsafeProjectionStatus = json(["graph", "status", "--json", unsafeProjectionStoreRoot], { allowFailure: true });
+assert.notEqual(unsafeProjectionStatus.code, 0);
+assert.equal(unsafeProjectionStatus.body.diagnostics[0].code, "RGP003");
+assert.match(unsafeProjectionStatus.body.diagnostics[0].actual, /invalid repository graph store/);
+const unsafeProjectionSync = json(["graph", "sync", "--from-graph", "--json", unsafeProjectionStoreRoot], { allowFailure: true });
+assert.notEqual(unsafeProjectionSync.code, 0);
+assert.notEqual(readFileSync(unsafeProjectionSource, "utf8"), unsafeProjectionText);
 const repoGraphArtifactInputRoot = join("/tmp", `zero-repo-graph-artifact-input-${process.pid}`);
 const repoGraphArtifactInputPath = join(repoGraphArtifactInputRoot, "hello.program-graph");
 rmSync(repoGraphArtifactInputRoot, { force: true, recursive: true });
