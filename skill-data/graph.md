@@ -106,10 +106,11 @@ zero graph sync --from-graph <file-or-package>
 ```
 
 In the current compiler, `sync --from-source` updates `zero.graph` from source
-text and stores exact checked-in `.0` projection bytes for tracked local files.
-`sync --from-graph` updates stale checked-in `.0` projections from `zero.graph`,
-and `verify-sync` compares the store with the current source graph and source
-projection.
+text, preserves existing graph node handles where the source edit is
+unambiguous, and stores exact checked-in `.0` projection bytes for tracked local
+files. Ambiguous identity changes fail instead of guessing. `sync --from-graph`
+updates stale checked-in `.0` projections from `zero.graph`, and `verify-sync`
+compares the store with the current source graph and source projection.
 
 For derived graph artifacts, validate the artifact before applying the accepted change to source:
 
