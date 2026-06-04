@@ -10798,6 +10798,23 @@ static bool load_graph_from_checked_current_source(const Command *command, const
   return true;
 }
 
+typedef struct {
+  const Command *command;
+  const ZTargetInfo *target;
+} RepositoryGraphSourceGraphLoader;
+
+static bool load_repository_graph_checked_source_graph(void *ctx, ZProgramGraph *graph, ZDiag *diag) {
+  const RepositoryGraphSourceGraphLoader *loader = (const RepositoryGraphSourceGraphLoader *)ctx;
+  if (!loader || !loader->command) return false;
+  SourceInput input = {0};
+  Program program = {0};
+  bool ok = load_graph_from_checked_current_source(loader->command, loader->target, &input, &program, graph, NULL, diag);
+  z_free_program(&program);
+  z_free_source(&input);
+  if (!ok) z_program_graph_free(graph);
+  return ok;
+}
+
 static bool repository_graph_command_loads_checked_source(const Command *command) {
   if (!command || !command->kind) return false;
   if (command->graph_sync_from_graph) return false;
@@ -12271,7 +12288,8 @@ int main(int argc, char **argv) {
       z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
       return 1;
     }
-    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, repo_has_source_graph ? &repo_source_graph : NULL, repo_wants_source_graph && !repo_has_source_graph ? &repo_source_graph_diag : NULL, &repo_graph_command);
+    RepositoryGraphSourceGraphLoader repo_graph_loader = {.command = &command, .target = target};
+    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, repo_has_source_graph ? &repo_source_graph : NULL, repo_wants_source_graph && !repo_has_source_graph ? &repo_source_graph_diag : NULL, command.graph_sync_from_graph ? load_repository_graph_checked_source_graph : NULL, &repo_graph_loader, &repo_graph_command);
     z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
     if (repo_graph_command) return repo_graph_rc;
     if (strcmp(command.kind, "validate") == 0) return run_graph_validate_command(&command, &diag);

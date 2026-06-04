@@ -802,6 +802,32 @@ const graphOnlyDriftSync = json(["graph", "sync", "--from-graph", "--json", reso
 assert.notEqual(graphOnlyDriftSync.code, 0);
 assert.equal(graphOnlyDriftSync.body.diagnostics[0].code, "RGP004");
 writeFileSync(standaloneRepoGraphStore, storeText);
+const typeErasedBaseLiteralLine = standaloneRepoGraphBaseGraphText.match(/^node (#[^ ]+) Literal [^\n]*value:"hello from zero[^\n]*$/m);
+assert(typeErasedBaseLiteralLine);
+assert(typeErasedBaseLiteralLine[0].includes(' type:"String"'));
+const typeErasedLiteralText = typeErasedBaseLiteralLine[0].replace(' type:"String"', "");
+const typeErasedGraphText = standaloneRepoGraphBaseGraphText.replace(typeErasedBaseLiteralLine[0], typeErasedLiteralText);
+assert.notEqual(typeErasedGraphText, standaloneRepoGraphBaseGraphText);
+const typeErasedLiteralLine = typeErasedGraphText.match(/^node (#[^ ]+) Literal [^\n]*value:"hello from zero\\n"[^\n]*$/m);
+assert(typeErasedLiteralLine);
+const typeErasedGraphHash = recomputeGraphHash(typeErasedGraphText);
+const typeErasedStoredGraphText = typeErasedGraphText.replace(/^hash "graph:[0-9a-f]{16}"$/m, `hash "${typeErasedGraphHash}"`);
+const typeErasedStoreText = storeText
+  .slice(0, standaloneRepoGraphGraphStart + graphMarker.length)
+  .replace(/^graphHash "[^"]+"$/m, `graphHash "${typeErasedGraphHash}"`)
+  .replace(/^moduleHash "[^"]+"$/m, `moduleHash "${typeErasedGraphHash}"`)
+  .replace(
+    new RegExp(`^nodeHash node:${JSON.stringify(typeErasedLiteralLine[1])} hash:"[^"]+"$`, "m"),
+    `nodeHash node:${JSON.stringify(typeErasedLiteralLine[1])} hash:${JSON.stringify(graphNodeHash(typeErasedLiteralLine[0]))}`,
+  ) +
+  typeErasedStoredGraphText;
+writeFileSync(standaloneRepoGraphStore, typeErasedStoreText);
+const typeErasedProjectionStatus = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]);
+assert.equal(typeErasedProjectionStatus.body.repositoryGraph.syncState, "conflict");
+const typeErasedProjectionSync = json(["graph", "sync", "--from-graph", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
+assert.notEqual(typeErasedProjectionSync.code, 0);
+assert.equal(typeErasedProjectionSync.body.diagnostics[0].code, "RGP004");
+writeFileSync(standaloneRepoGraphStore, storeText);
 const relativePackageRoot = join("/tmp", `zero-repo-graph-relative-package-${process.pid}`);
 const relativePackageSource = join(relativePackageRoot, "src", "main.0");
 const relativePackageStore = join(relativePackageRoot, "zero.graph");
@@ -829,6 +855,10 @@ const relativePackageManifestVerify = json(["graph", "verify-sync", "--json", re
 assert.notEqual(relativePackageManifestVerify.code, 0);
 assert.equal(relativePackageManifestVerify.body.repositoryGraph.syncState, "graph-stale");
 assert.equal(relativePackageManifestVerify.body.diagnostics[0].code, "RGP005");
+const relativePackageManifestSyncFromGraph = json(["graph", "sync", "--from-graph", "--json", relativePackageRoot], { allowFailure: true });
+assert.notEqual(relativePackageManifestSyncFromGraph.code, 0);
+assert.equal(relativePackageManifestSyncFromGraph.body.repositoryGraph.syncState, "graph-stale");
+assert.equal(relativePackageManifestSyncFromGraph.body.diagnostics[0].code, "RGP006");
 writeFileSync(relativePackageManifest, JSON.stringify({ package: { name: "systems-package", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } }, null, 2));
 const relativePackageBrokenManifestStatus = json(["graph", "status", "--json", relativePackageRoot]);
 assert.equal(relativePackageBrokenManifestStatus.code, 0);

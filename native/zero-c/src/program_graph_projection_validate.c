@@ -90,10 +90,6 @@ static const char *projection_module_name_for_path(const ZProgramGraphStore *sto
   return "main";
 }
 
-static bool projection_text_present(const char *text) {
-  return text && text[0];
-}
-
 static const char *projection_basename(const char *path) {
   const char *slash = path ? strrchr(path, '/') : NULL;
   return slash ? slash + 1 : (path ? path : "");
@@ -141,10 +137,11 @@ static bool projection_node_matches(const ZProgramGraphNode *expected, const ZPr
       expected->export_c != actual->export_c ||
       !projection_text_eq(expected->path, actual->path) ||
       !projection_text_eq(expected->name, actual->name) ||
+      !projection_text_eq(expected->type, actual->type) ||
       !projection_text_eq(expected->value, actual->value)) {
     return false;
   }
-  return !projection_text_present(expected->type) || projection_text_eq(expected->type, actual->type);
+  return true;
 }
 
 static bool projection_node_actual_used(const ZProgramGraphNode *actual, const ZProgramGraphNode *expected) {
