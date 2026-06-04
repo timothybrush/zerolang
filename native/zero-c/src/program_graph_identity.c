@@ -452,15 +452,22 @@ void z_program_graph_finalize_identities(ZProgramGraph *graph) {
   if (!graph) return;
   GraphIdentityContext identity;
   graph_identity_context_init(&identity, graph);
-  uint64_t graph_hash = 1469598103934665603ull;
-  graph_hash = graph_hash_u64(graph_hash, graph->schema_version);
-  graph_hash = graph_hash_text(graph_hash, graph->module_identity);
   for (size_t i = 0; i < graph->node_len; i++) {
     ZProgramGraphNode *node = &graph->nodes[i];
     free(node->symbol_id);
     free(node->type_id);
     free(node->effect_id);
     free(node->node_hash);
+    node->symbol_id = NULL;
+    node->type_id = NULL;
+    node->effect_id = NULL;
+    node->node_hash = NULL;
+  }
+  uint64_t graph_hash = 1469598103934665603ull;
+  graph_hash = graph_hash_u64(graph_hash, graph->schema_version);
+  graph_hash = graph_hash_text(graph_hash, graph->module_identity);
+  for (size_t i = 0; i < graph->node_len; i++) {
+    ZProgramGraphNode *node = &graph->nodes[i];
     node->symbol_id = graph_node_symbol_id_in_graph(&identity, i, 0);
     node->type_id = graph_node_type_id(node);
     node->effect_id = graph_node_effect_id(node);
