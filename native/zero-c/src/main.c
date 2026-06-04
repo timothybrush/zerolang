@@ -4075,6 +4075,11 @@ static bool is_zero_source_path(const char *path) {
   return path && has_suffix(path, ".0");
 }
 
+static bool is_existing_directory_path(const char *path) {
+  struct stat st;
+  return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 static bool path_has_program_graph_storage_header(const char *path) {
   static const char header[] = "zero-graph v";
   if (!path || !path[0]) return false;
@@ -11725,7 +11730,18 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   if (artifact_input) *artifact_input = false;
   if (!command || !command->command || !command->input || strcmp(command->command, "graph") != 0 || !command->kind) return true;
   ZProgramGraphInputMode input_mode = z_program_graph_command_input_mode(command->kind);
-  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE || input_mode == Z_PROGRAM_GRAPH_INPUT_UNKNOWN) return true;
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_UNKNOWN) return true;
+  if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE) {
+    if (is_zero_source_path(command->input)) return true;
+    if (is_existing_directory_path(command->input)) return true;
+    char *manifest_path = z_manifest_path_for_input(command->input);
+    if (manifest_path) {
+      free(manifest_path);
+      return true;
+    }
+    set_source_input_diag(command->input, diag);
+    return false;
+  }
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && is_zero_source_path(command->input)) return true;
   if (input_mode == Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT && path_has_program_graph_storage_header(command->input)) {
     if (artifact_input) *artifact_input = true;
@@ -12227,7 +12243,16 @@ int main(int argc, char **argv) {
 
   if (strcmp(command.command, "graph") == 0 && command.kind) {
     bool repo_graph_command = false;
-    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, &repo_graph_command);
+    SourceInput repo_graph_input = {0}; Program repo_graph_program = {0}; ZProgramGraph repo_source_graph = {0};
+    bool repo_needs_source_graph = z_repository_graph_needs_source_graph(command.kind, command.input, command.graph_sync_from_graph, command.graph_sync_from_source);
+    if (repo_needs_source_graph && !load_graph_from_current_source(&command, target, &repo_graph_input, &repo_graph_program, &repo_source_graph, NULL, &diag)) {
+      if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
+      else print_diag(diag.path ? diag.path : command.input, &diag);
+      z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
+      return 1;
+    }
+    int repo_graph_rc = z_repository_graph_maybe_command(command.kind, command.input, command.json, command.graph_sync_from_graph, command.graph_sync_from_source, repo_needs_source_graph ? &repo_source_graph : NULL, &repo_graph_command);
+    z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
     if (repo_graph_command) return repo_graph_rc;
     if (strcmp(command.kind, "validate") == 0) return run_graph_validate_command(&command, &diag);
     if (strcmp(command.kind, "view") == 0) return run_graph_view_command(&command, &diag);
