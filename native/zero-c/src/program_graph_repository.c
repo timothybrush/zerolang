@@ -408,6 +408,8 @@ bool z_repository_graph_needs_source_graph(const char *kind, const char *input, 
   return needs_source;
 }
 
+bool z_repository_graph_source_graph_optional(const char *kind, bool from_graph, bool from_source) { return kind && strcmp(kind, "status") == 0 && !from_graph && !from_source; }
+
 int z_repository_graph_maybe_command(const char *kind, const char *input, bool json, bool from_graph, bool from_source, const ZProgramGraph *source_graph, bool *handled) {
   if (handled) *handled = true;
   if (kind && strcmp(kind, "status") == 0) return z_repository_graph_status_command(input, json, from_graph, from_source, source_graph);

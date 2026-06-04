@@ -829,6 +829,14 @@ const relativePackageManifestVerify = json(["graph", "verify-sync", "--json", re
 assert.notEqual(relativePackageManifestVerify.code, 0);
 assert.equal(relativePackageManifestVerify.body.repositoryGraph.syncState, "graph-stale");
 assert.equal(relativePackageManifestVerify.body.diagnostics[0].code, "RGP005");
+writeFileSync(relativePackageManifest, JSON.stringify({ package: { name: "systems-package", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } }, null, 2));
+const relativePackageBrokenManifestStatus = json(["graph", "status", "--json", relativePackageRoot]);
+assert.equal(relativePackageBrokenManifestStatus.code, 0);
+assert.equal(relativePackageBrokenManifestStatus.body.ok, true);
+assert.equal(relativePackageBrokenManifestStatus.body.mode, "status");
+assert.deepEqual(relativePackageBrokenManifestStatus.body.diagnostics, []);
+const relativePackageBrokenManifestVerify = json(["graph", "verify-sync", "--json", relativePackageRoot], { allowFailure: true });
+assert.notEqual(relativePackageBrokenManifestVerify.code, 0);
 const stdProjectionRoot = join("/tmp", `zero-repo-graph-std-projection-${process.pid}`);
 const stdProjectionSource = join(stdProjectionRoot, "std-path-io.0");
 const stdProjectionStore = join(stdProjectionRoot, "zero.graph");
