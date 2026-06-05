@@ -2339,6 +2339,42 @@ assert.equal(checkedInGraphPackageCheckJson.package.manifestPath, join(checkedIn
 assertSourceGraph(checkedInGraphPackageCheckJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "graph-native-check", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageCheckJson, checkedInRepositoryGraphStorePath);
 assertRepositoryGraphNativeCheck(checkedInGraphPackageCheckJson);
+const missingRepoGraphStoreRoot = join(outDir, "repository-graph-missing-store");
+rmSync(missingRepoGraphStoreRoot, { recursive: true, force: true });
+mkdirSync(missingRepoGraphStoreRoot, { recursive: true });
+writeFileSync(join(missingRepoGraphStoreRoot, "zero.json"), JSON.stringify({
+  package: { name: "repository-graph-missing-store", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(missingRepoGraphStoreRoot, "main.0"), "pub fn main() -> i32 { return 0 }\n");
+const missingRepoGraphStoreCheck = json(["check", "--json", missingRepoGraphStoreRoot], { allowFailure: true });
+assert.notEqual(missingRepoGraphStoreCheck.code, 0);
+assert.equal(missingRepoGraphStoreCheck.body.ok, false);
+assert.equal(missingRepoGraphStoreCheck.body.mode, "compiler-input");
+assert.equal(missingRepoGraphStoreCheck.body.repositoryGraph.storePresent, false);
+assert.equal(missingRepoGraphStoreCheck.body.diagnostics[0].code, "RGP001");
+assert.equal(missingRepoGraphStoreCheck.body.diagnostics[0].path, missingRepoGraphStoreRoot);
+assert.match(missingRepoGraphStoreCheck.body.repairCommands.join("\n"), /zero graph sync --from-source/);
+const invalidRepoGraphStoreRoot = join(outDir, "repository-graph-invalid-store");
+rmSync(invalidRepoGraphStoreRoot, { recursive: true, force: true });
+mkdirSync(invalidRepoGraphStoreRoot, { recursive: true });
+writeFileSync(join(invalidRepoGraphStoreRoot, "zero.json"), JSON.stringify({
+  package: { name: "repository-graph-invalid-store", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(invalidRepoGraphStoreRoot, "main.0"), "pub fn main() -> i32 { return 0 }\n");
+writeFileSync(join(invalidRepoGraphStoreRoot, "zero.graph"), "not a repository graph\n");
+const invalidRepoGraphStoreCheck = json(["check", "--json", invalidRepoGraphStoreRoot], { allowFailure: true });
+assert.notEqual(invalidRepoGraphStoreCheck.code, 0);
+assert.equal(invalidRepoGraphStoreCheck.body.ok, false);
+assert.equal(invalidRepoGraphStoreCheck.body.mode, "compiler-input");
+assert.equal(invalidRepoGraphStoreCheck.body.repositoryGraph.storePresent, true);
+assert.equal(invalidRepoGraphStoreCheck.body.repositoryGraph.storeValid, false);
+assert.equal(invalidRepoGraphStoreCheck.body.diagnostics[0].code, "RGP003");
+assert.equal(invalidRepoGraphStoreCheck.body.diagnostics[0].path, invalidRepoGraphStoreRoot);
+assert.match(invalidRepoGraphStoreCheck.body.repairCommands.join("\n"), /zero graph sync --from-source/);
 const sourceFreeGraphPackageRoot = join(outDir, "source-free-graph-package");
 rmSync(sourceFreeGraphPackageRoot, { recursive: true, force: true });
 mkdirSync(join(sourceFreeGraphPackageRoot, "src"), { recursive: true });

@@ -101,8 +101,8 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_reconcile_apply.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository.c": { maxLines: 760, maxStrcmpCalls: 9 },
   "native/zero-c/src/program_graph_repository.h": { maxLines: 18, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_repository_input.c": { maxLines: 205, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_repository_input.h": { maxLines: 10, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_repository_input.c": { maxLines: 220, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_repository_input.h": { maxLines: 12, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_merge.c": { maxLines: 819, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_repository_merge.h": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_repair.c": { maxLines: 75, maxStrcmpCalls: 0 },
@@ -1596,7 +1596,8 @@ const programGraph = {
     /z_program_graph_store_append_table_counts_json\s*\(/.test(programGraphRepositorySource),
   repositoryStatusProjectionValidity: /repo_projection_validity_label\s*\(/.test(programGraphRepositorySource) &&
     /projectionValidity/.test(programGraphRepositoryRaw),
-  repositoryGraphCheckNative: /z_program_graph_store_load_for_input\s*\(/.test(repositoryGraphCheckBody) &&
+  repositoryGraphCheckNative: /z_repository_graph_require_compiler_store\s*\(/.test(repositoryGraphCheckBody) &&
+    /z_program_graph_store_load_path\s*\(/.test(repositoryGraphCheckBody) &&
     /z_program_graph_collect_resolution_facts\s*\(/.test(repositoryGraphCheckBody) &&
     /print_repository_graph_check_json_success\s*\(/.test(repositoryGraphCheckBody),
   repositoryGraphCheckNoProgramLowering: !/z_program_graph_lower_to_program_with_source\s*\(/.test(repositoryGraphCheckBody) &&

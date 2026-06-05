@@ -12222,13 +12222,19 @@ static int run_repository_graph_check_command(Command *command, const ZTargetInf
   if (!enabled) return 0;
   if (handled) *handled = true;
 
+  char *store_path = NULL;
+  int store_rc = z_repository_graph_require_compiler_store(command->input, target, command->json, &store_path);
+  if (store_rc != 0) return store_rc;
+
   ZProgramGraphStore store;
   long long load_started = now_ms();
-  if (!z_program_graph_store_load_for_input(command->input, &store, &diag)) {
+  if (!z_program_graph_store_load_path(store_path, &store, &diag)) {
     if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
     else print_diag(diag.path ? diag.path : command->input, &diag);
+    free(store_path);
     return 1;
   }
+  free(store_path);
   long long load_ms = now_ms() - load_started;
 
   SourceInput input = {0};

@@ -958,6 +958,7 @@ bool z_program_graph_store_load_for_input(const char *input, ZProgramGraphStore 
   char *root = z_program_graph_store_root_for_input(input);
   char *path = z_program_graph_store_path_for_root(root);
   bool ok = z_program_graph_store_load_path(path, out, diag);
+  if (!ok && diag && diag->path == path) diag->path = z_strdup(path);
   free(root);
   free(path);
   return ok;

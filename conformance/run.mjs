@@ -3486,6 +3486,8 @@ const programGraphSourceFixturePackage = "conformance/program-graph";
 const programGraphSourceFixtureStorePath = "conformance/program-graph/zero.graph";
 const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
 const programGraphSourceFixtureDriftPackage = `${outDir}/program-graph-fixture-drift`;
+const programGraphMissingStorePackage = `${outDir}/program-graph-missing-store`;
+const programGraphInvalidStorePackage = `${outDir}/program-graph-invalid-store`;
 const programGraphTargetWebbitsPackage = `${outDir}/program-graph-target-webbits`;
 const programGraphTargetIncompatiblePackage = `${outDir}/program-graph-target-incompatible`;
 const programGraphTargetCapabilityPackage = `${outDir}/program-graph-target-capability`;
@@ -3500,6 +3502,8 @@ await rm(programGraphViewPath, { force: true });
 await rm(programGraphArtifactRoundtripPath, { force: true });
 await rm(programGraphSourceFixtureRunPath, { force: true });
 await rm(programGraphSourceFixtureDriftPackage, { recursive: true, force: true });
+await rm(programGraphMissingStorePackage, { recursive: true, force: true });
+await rm(programGraphInvalidStorePackage, { recursive: true, force: true });
 await rm(programGraphTargetWebbitsPackage, { recursive: true, force: true });
 await rm(programGraphTargetIncompatiblePackage, { recursive: true, force: true });
 await rm(programGraphTargetCapabilityPackage, { recursive: true, force: true });
@@ -3531,6 +3535,23 @@ const programGraphSourceFixtureText = await readFile(programGraphSourceFixturePa
 const programGraphSourceFixtureStoreText = await readFile(programGraphSourceFixtureStorePath, "utf8");
 const programGraphSourceFixturePackageCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixturePackage])).stdout);
 const programGraphSourceFixturePackageRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFixtureRunPath, programGraphSourceFixturePackage]);
+await mkdir(programGraphMissingStorePackage, { recursive: true });
+await writeFile(`${programGraphMissingStorePackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-missing-store", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphMissingStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
+const programGraphMissingStoreCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingStorePackage]).catch((error) => error);
+await mkdir(programGraphInvalidStorePackage, { recursive: true });
+await writeFile(`${programGraphInvalidStorePackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-invalid-store", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphInvalidStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
+await writeFile(`${programGraphInvalidStorePackage}/zero.graph`, "not a repository graph\n");
+const programGraphInvalidStoreCheck = await execFileAsync(zero, ["check", "--json", programGraphInvalidStorePackage]).catch((error) => error);
 await mkdir(programGraphSourceFixtureDriftPackage, { recursive: true });
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.graph`, programGraphSourceFixtureStoreText);
@@ -3715,6 +3736,23 @@ assert.match(programGraphSourceFixturePackageCheckJson.graph.graphHash, /^graph:
 assert.equal(programGraphSourceFixturePackageCheckJson.graph.lowering, "graph-native-check");
 assertRepositoryGraphNativeCheck(programGraphSourceFixturePackageCheckJson);
 assert.equal(programGraphSourceFixturePackageRun.stdout, "hello from zero\n");
+assert.notEqual(programGraphMissingStoreCheck.code, 0);
+const programGraphMissingStoreBody = JSON.parse(programGraphMissingStoreCheck.stdout);
+assert.equal(programGraphMissingStoreBody.ok, false);
+assert.equal(programGraphMissingStoreBody.mode, "compiler-input");
+assert.equal(programGraphMissingStoreBody.repositoryGraph.storePresent, false);
+assert.equal(programGraphMissingStoreBody.diagnostics[0].code, "RGP001");
+assert.equal(programGraphMissingStoreBody.diagnostics[0].path, programGraphMissingStorePackage);
+assert.match(programGraphMissingStoreBody.repairCommands.join("\n"), /zero graph sync --from-source/);
+assert.notEqual(programGraphInvalidStoreCheck.code, 0);
+const programGraphInvalidStoreBody = JSON.parse(programGraphInvalidStoreCheck.stdout);
+assert.equal(programGraphInvalidStoreBody.ok, false);
+assert.equal(programGraphInvalidStoreBody.mode, "compiler-input");
+assert.equal(programGraphInvalidStoreBody.repositoryGraph.storePresent, true);
+assert.equal(programGraphInvalidStoreBody.repositoryGraph.storeValid, false);
+assert.equal(programGraphInvalidStoreBody.diagnostics[0].code, "RGP003");
+assert.equal(programGraphInvalidStoreBody.diagnostics[0].path, programGraphInvalidStorePackage);
+assert.match(programGraphInvalidStoreBody.repairCommands.join("\n"), /zero graph sync --from-source/);
 assert.equal(programGraphSourceFixtureDriftCheck.ok, true);
 assert.equal(programGraphSourceFixtureDriftCheck.graph.lowering, "graph-native-check");
 assertRepositoryGraphNativeCheck(programGraphSourceFixtureDriftCheck);
