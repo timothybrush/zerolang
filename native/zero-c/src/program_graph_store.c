@@ -1,6 +1,7 @@
 #include "program_graph_store.h"
 
 #include "program_graph_format.h"
+#include "program_graph_reconcile_apply.h"
 #include "std_source.h"
 #include "zero.h"
 
@@ -627,6 +628,37 @@ static bool store_normalized_source_graph(const char *root, const ZProgramGraph 
   return true;
 }
 
+static bool store_identity_reconcile_diag(const char *path, const ZProgramGraphIdentityReconcile *identity, ZDiag *diag) {
+  bool module_identity_changed = identity && identity->module_identity_changed;
+  const char *message = module_identity_changed ? "repository graph source identity has a different module identity" : "repository graph source identity is ambiguous";
+  const char *expected = module_identity_changed && identity && identity->node_id[0] ? identity->node_id : "unambiguous ProgramGraph source identity preservation";
+  const char *actual = module_identity_changed && identity && identity->candidate_id[0] ? identity->candidate_id : (identity && identity->node_id[0] ? identity->node_id : (identity && identity->candidate_id[0] ? identity->candidate_id : "ambiguous source identity"));
+  if (diag) {
+    *diag = (ZDiag){0};
+    diag->code = 1002;
+    diag->path = path ? path : "zero.graph";
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "%s", message);
+    snprintf(diag->expected, sizeof(diag->expected), "%s", expected);
+    snprintf(diag->actual, sizeof(diag->actual), "%s", actual);
+  }
+  return false;
+}
+
+static bool store_preserve_existing_source_identities(const char *path, ZProgramGraph *normalized, ZDiag *diag) {
+  if (!path || !z_program_graph_store_file_exists(path)) return true;
+  ZProgramGraphStore existing;
+  ZDiag load_diag = {0};
+  if (!z_program_graph_store_load_path(path, &existing, &load_diag)) return true;
+  ZProgramGraphIdentityReconcile identity = {0};
+  bool ok = z_program_graph_preserve_source_node_ids(&existing.graph, normalized, &identity);
+  z_program_graph_store_free(&existing);
+  if (ok) return true;
+  return store_identity_reconcile_diag(path, &identity, diag);
+}
+
 static void store_node_hash_vec_free(StoreNodeHashVec *hashes) {
   if (!hashes) return;
   for (size_t i = 0; i < hashes->len; i++) {
@@ -914,6 +946,11 @@ bool z_program_graph_store_save_path(const char *path, const ZProgramGraph *grap
     free(root);
     return store_diag(diag, path, 1, "repository graph store requires a source graph", "missing source graph");
   }
+  if (!store_preserve_existing_source_identities(path ? path : "zero.graph", &normalized, diag)) {
+    z_program_graph_free(&normalized);
+    free(root);
+    return false;
+  }
   ZProgramGraphValidation validation = {0};
   if (!z_program_graph_validate(&normalized, &validation)) {
     z_program_graph_free(&normalized);
@@ -988,10 +1025,13 @@ bool z_program_graph_store_graph_matches_source(const ZProgramGraphStore *store,
   if (!store || !source_graph) return false;
   ZProgramGraph normalized;
   if (!store_normalized_source_graph(store->root, source_graph, &normalized)) return false;
+  ZProgramGraphIdentityReconcile identity = {0};
+  bool preserved = z_program_graph_preserve_source_node_ids(&store->graph, &normalized, &identity);
   bool ok = store_text_eq(store->graph.module_identity, normalized.module_identity) &&
             store_text_eq(store->graph.graph_hash, normalized.graph_hash) &&
             store->graph.node_len == normalized.node_len &&
             store->graph.edge_len == normalized.edge_len &&
+            preserved &&
             store_source_paths_match_graph(store, &normalized) &&
             store_source_locations_match_graph(store, &normalized);
   z_program_graph_free(&normalized);

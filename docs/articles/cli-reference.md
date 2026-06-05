@@ -138,12 +138,13 @@ debug and interchange files.
 `zero graph status`, `zero graph verify-sync`, and `zero graph sync
 --from-source|--from-graph` define the repository graph sync surface. Today
 `zero graph sync --from-source` writes a deterministic `zero.graph` repository
-store from current `.0` source, including exact checked-in source projection
-bytes for tracked local files. `zero graph sync --from-graph` rewrites stale
-`.0` source projections from that store, and `zero graph verify-sync` checks the
-store against the current source graph and source projection without writing
-files. Normal build, check, run, and test commands still use checked-in
-`.0` source text as their compiler input.
+store from current `.0` source, preserves existing graph node handles where the
+source edit is unambiguous, and stores exact checked-in source projection bytes
+for tracked local files. Ambiguous identity changes fail instead of guessing.
+`zero graph sync --from-graph` rewrites stale `.0` source projections from that
+store, and `zero graph verify-sync` checks the store against the current source
+graph and source projection without writing files. Normal build, check, run, and
+test commands still use checked-in `.0` source text as their compiler input.
 
 ## ProgramGraph Patches
 

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -1097,6 +1097,245 @@ writeFileSync(copiedRepoGraphSourceB, readFileSync(copiedRepoGraphSourceB, "utf8
 const copiedRepoGraphVerifyDrift = json(["graph", "verify-sync", "--json", copiedRepoGraphSourceB], { allowFailure: true });
 assert.notEqual(copiedRepoGraphVerifyDrift.code, 0);
 assert.equal(copiedRepoGraphVerifyDrift.body.diagnostics[0].code, "RGP005");
+const identityRepoGraphRoot = join("/tmp", `zero-repo-graph-identity-${process.pid}`);
+const identityRepoGraphSource = join(identityRepoGraphRoot, "main.0");
+const identityRepoGraphStore = join(identityRepoGraphRoot, "zero.graph");
+rmSync(identityRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(identityRepoGraphRoot, { recursive: true });
+writeFileSync(
+  identityRepoGraphSource,
+  `use std.mem
+
+pub fn main(world: World) -> Void raises {
+    let text: String = "zero"
+    if std.mem.len(text) == 4 {
+        check world.out.write("identity ok\\n")
+    }
+}
+`,
+);
+json(["graph", "sync", "--from-source", "--json", identityRepoGraphSource]);
+const identityRepoGraphStoreText = readFileSync(identityRepoGraphStore, "utf8");
+const identityRepoGraphMainId = identityRepoGraphStoreText.match(/^node (#[^ ]+) Function name:"main"/m)?.[1];
+const identityRepoGraphMemImportId = identityRepoGraphStoreText.match(/^node (#[^ ]+) Import name:"std\.mem"/m)?.[1];
+const identityRepoGraphLiteralId = identityRepoGraphStoreText.match(/^node (#[^ ]+) Literal [^\n]*value:"identity ok\\n"/m)?.[1];
+assert(identityRepoGraphMainId);
+assert(identityRepoGraphMemImportId);
+assert(identityRepoGraphLiteralId);
+writeFileSync(
+  identityRepoGraphSource,
+  `// human source edit
+use std.str
+use std.mem
+
+pub fn main(world: World) -> Void raises {
+    let label: String = "zero"
+    let count: usize = std.mem.len(label)
+    if count == 4 {
+        // projection comment
+        check world.out.write("identity updated\\n")
+    }
+}
+`,
+);
+const identityRepoGraphSyncEdited = json(["graph", "sync", "--from-source", "--json", identityRepoGraphSource]);
+assert.equal(identityRepoGraphSyncEdited.code, 0);
+assert.equal(identityRepoGraphSyncEdited.body.repositoryGraph.syncState, "clean");
+const identityRepoGraphEditedStoreText = readFileSync(identityRepoGraphStore, "utf8");
+assert(identityRepoGraphEditedStoreText.includes(`node ${identityRepoGraphMainId} Function name:"main"`));
+assert(identityRepoGraphEditedStoreText.includes(`node ${identityRepoGraphMemImportId} Import name:"std.mem"`));
+assert(identityRepoGraphEditedStoreText.includes(`node ${identityRepoGraphLiteralId} Literal type:"String" value:"identity updated\\n"`));
+assert.match(identityRepoGraphEditedStoreText, /^node #[^ ]+ Import name:"std\.str"/m);
+assert.match(identityRepoGraphEditedStoreText, /^projection path:"main\.0" text:"\/\/ human source edit\\n/m);
+assert(identityRepoGraphEditedStoreText.includes("// projection comment"));
+const identityRepoGraphSourceAfterSync = readFileSync(identityRepoGraphSource, "utf8");
+const identityRepoGraphSyncProjection = json(["graph", "sync", "--from-graph", "--json", identityRepoGraphSource]);
+assert.equal(identityRepoGraphSyncProjection.code, 0);
+assert.deepEqual(identityRepoGraphSyncProjection.body.changedPaths, []);
+assert.equal(readFileSync(identityRepoGraphSource, "utf8"), identityRepoGraphSourceAfterSync);
+const deleteRepoGraphRoot = join("/tmp", `zero-repo-graph-delete-${process.pid}`);
+const deleteRepoGraphSource = join(deleteRepoGraphRoot, "main.0");
+const deleteRepoGraphStore = join(deleteRepoGraphRoot, "zero.graph");
+rmSync(deleteRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(deleteRepoGraphRoot, { recursive: true });
+const deleteRepoGraphOriginal = `fn alpha() -> i32 {
+    return 1
+}
+
+fn beta() -> i32 {
+    return 2
+}
+
+fn gamma() -> i32 {
+    return 3
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("delete ok\\n")
+}
+`;
+writeFileSync(deleteRepoGraphSource, deleteRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", deleteRepoGraphSource]);
+const deleteRepoGraphStoreBefore = readFileSync(deleteRepoGraphStore, "utf8");
+const deleteRepoGraphAlphaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"alpha"/m)?.[1];
+const deleteRepoGraphBetaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"beta"/m)?.[1];
+const deleteRepoGraphGammaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"gamma"/m)?.[1];
+assert(deleteRepoGraphAlphaId);
+assert(deleteRepoGraphBetaId);
+assert(deleteRepoGraphGammaId);
+writeFileSync(
+  deleteRepoGraphSource,
+  deleteRepoGraphOriginal.replace(
+    `\nfn beta() -> i32 {
+    return 2
+}
+`,
+    "",
+  ),
+);
+const deleteRepoGraphSync = json(["graph", "sync", "--from-source", "--json", deleteRepoGraphSource]);
+assert.equal(deleteRepoGraphSync.code, 0);
+assert.equal(deleteRepoGraphSync.body.repositoryGraph.syncState, "clean");
+const deleteRepoGraphStoreAfter = readFileSync(deleteRepoGraphStore, "utf8");
+assert(deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphAlphaId} Function name:"alpha"`));
+assert(deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphGammaId} Function name:"gamma"`));
+assert(!deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphBetaId} Function name:"beta"`));
+const renameRepoGraphRoot = join("/tmp", `zero-repo-graph-rename-${process.pid}`);
+const renameRepoGraphSource = join(renameRepoGraphRoot, "main.0");
+const renameRepoGraphStore = join(renameRepoGraphRoot, "zero.graph");
+rmSync(renameRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(renameRepoGraphRoot, { recursive: true });
+const renameRepoGraphOriginal = `fn alpha() -> i32 {
+    return 1
+}
+
+fn beta() -> i32 {
+    return 2
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("rename ok\\n")
+}
+`;
+writeFileSync(renameRepoGraphSource, renameRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", renameRepoGraphSource]);
+const renameRepoGraphStoreBefore = readFileSync(renameRepoGraphStore, "utf8");
+const renameRepoGraphBetaId = renameRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"beta"/m)?.[1];
+assert(renameRepoGraphBetaId);
+writeFileSync(renameRepoGraphSource, renameRepoGraphOriginal.replace("fn beta()", "fn gamma()"));
+const renameRepoGraphSync = json(["graph", "sync", "--from-source", "--json", renameRepoGraphSource]);
+assert.equal(renameRepoGraphSync.code, 0);
+assert.equal(renameRepoGraphSync.body.repositoryGraph.syncState, "clean");
+assert(readFileSync(renameRepoGraphStore, "utf8").includes(`node ${renameRepoGraphBetaId} Function name:"gamma"`));
+const moduleIdentityRepoGraphRoot = join("/tmp", `zero-repo-graph-module-identity-${process.pid}`);
+const moduleIdentityRepoGraphSourceOne = join(moduleIdentityRepoGraphRoot, "one.0");
+const moduleIdentityRepoGraphSourceTwo = join(moduleIdentityRepoGraphRoot, "two.0");
+const moduleIdentityRepoGraphStore = join(moduleIdentityRepoGraphRoot, "zero.graph");
+rmSync(moduleIdentityRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(moduleIdentityRepoGraphRoot, { recursive: true });
+writeFileSync(
+  moduleIdentityRepoGraphSourceOne,
+  `pub fn main(world: World) -> Void raises {
+    check world.out.write("module one\\n")
+}
+`,
+);
+json(["graph", "sync", "--from-source", "--json", moduleIdentityRepoGraphSourceOne]);
+const moduleIdentityRepoGraphStoreBefore = readFileSync(moduleIdentityRepoGraphStore, "utf8");
+renameSync(moduleIdentityRepoGraphSourceOne, moduleIdentityRepoGraphSourceTwo);
+const moduleIdentityRepoGraphSync = json(["graph", "sync", "--from-source", "--json", moduleIdentityRepoGraphSourceTwo], { allowFailure: true });
+assert.notEqual(moduleIdentityRepoGraphSync.code, 0);
+assert.equal(moduleIdentityRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(moduleIdentityRepoGraphSync.body.diagnostics[0].message, "repository graph source identity has a different module identity");
+assert.equal(moduleIdentityRepoGraphSync.body.diagnostics[0].expected, "module:one");
+assert.equal(moduleIdentityRepoGraphSync.body.diagnostics[0].actual, "module:two");
+assert.match(moduleIdentityRepoGraphSync.body.diagnostics[0].help, /module rename/);
+assert.equal(readFileSync(moduleIdentityRepoGraphStore, "utf8"), moduleIdentityRepoGraphStoreBefore);
+const ambiguousRepoGraphRoot = join("/tmp", `zero-repo-graph-ambiguous-${process.pid}`);
+const ambiguousRepoGraphSource = join(ambiguousRepoGraphRoot, "main.0");
+const ambiguousRepoGraphStore = join(ambiguousRepoGraphRoot, "zero.graph");
+rmSync(ambiguousRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(ambiguousRepoGraphRoot, { recursive: true });
+writeFileSync(
+  ambiguousRepoGraphSource,
+  `fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+pub fn main(world: World) -> Void raises {
+    let total: i32 = add(1, 2)
+    if total == 3 {
+        check world.out.write("ambiguous ok\\n")
+    }
+}
+`,
+);
+json(["graph", "sync", "--from-source", "--json", ambiguousRepoGraphSource]);
+const ambiguousRepoGraphStoreBefore = readFileSync(ambiguousRepoGraphStore, "utf8");
+writeFileSync(ambiguousRepoGraphSource, readFileSync(ambiguousRepoGraphSource, "utf8").replace("add(1, 2)", "add(2, 1)"));
+const ambiguousRepoGraphSync = json(["graph", "sync", "--from-source", "--json", ambiguousRepoGraphSource], { allowFailure: true });
+assert.notEqual(ambiguousRepoGraphSync.code, 0);
+assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.equal(readFileSync(ambiguousRepoGraphStore, "utf8"), ambiguousRepoGraphStoreBefore);
+const rotatedRepoGraphRoot = join("/tmp", `zero-repo-graph-rotated-${process.pid}`);
+const rotatedRepoGraphSource = join(rotatedRepoGraphRoot, "main.0");
+const rotatedRepoGraphStore = join(rotatedRepoGraphRoot, "zero.graph");
+rmSync(rotatedRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(rotatedRepoGraphRoot, { recursive: true });
+writeFileSync(
+  rotatedRepoGraphSource,
+  `fn sum3(a: i32, b: i32, c: i32) -> i32 {
+    return a + b + c
+}
+
+pub fn main(world: World) -> Void raises {
+    let total: i32 = sum3(1, 2, 3)
+    if total == 6 {
+        check world.out.write("rotated ok\\n")
+    }
+}
+`,
+);
+json(["graph", "sync", "--from-source", "--json", rotatedRepoGraphSource]);
+const rotatedRepoGraphStoreBefore = readFileSync(rotatedRepoGraphStore, "utf8");
+writeFileSync(rotatedRepoGraphSource, readFileSync(rotatedRepoGraphSource, "utf8").replace("sum3(1, 2, 3)", "sum3(2, 3, 1)"));
+const rotatedRepoGraphSync = json(["graph", "sync", "--from-source", "--json", rotatedRepoGraphSource], { allowFailure: true });
+assert.notEqual(rotatedRepoGraphSync.code, 0);
+assert.equal(rotatedRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(rotatedRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.equal(readFileSync(rotatedRepoGraphStore, "utf8"), rotatedRepoGraphStoreBefore);
+const ambiguousSiblingRepoGraphRoot = join("/tmp", `zero-repo-graph-ambiguous-sibling-${process.pid}`);
+const ambiguousSiblingRepoGraphSource = join(ambiguousSiblingRepoGraphRoot, "main.0");
+const ambiguousSiblingRepoGraphStore = join(ambiguousSiblingRepoGraphRoot, "zero.graph");
+rmSync(ambiguousSiblingRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(ambiguousSiblingRepoGraphRoot, { recursive: true });
+const ambiguousSiblingRepoGraphOriginal = `fn helper() -> i32 {
+    return 1
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("sibling ok\\n")
+}
+`;
+writeFileSync(ambiguousSiblingRepoGraphSource, ambiguousSiblingRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", ambiguousSiblingRepoGraphSource]);
+const ambiguousSiblingRepoGraphStoreBefore = readFileSync(ambiguousSiblingRepoGraphStore, "utf8");
+const ambiguousSiblingRepoGraphHelperId = ambiguousSiblingRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"helper"/m)?.[1];
+assert(ambiguousSiblingRepoGraphHelperId);
+writeFileSync(
+  ambiguousSiblingRepoGraphSource,
+  ambiguousSiblingRepoGraphOriginal.replace(
+    "\npub fn main",
+    "\nfn appendedHelper() -> i32 {\n    return 2\n}\n\npub fn main",
+  ),
+);
+const ambiguousSiblingRepoGraphSync = json(["graph", "sync", "--from-source", "--json", ambiguousSiblingRepoGraphSource], { allowFailure: true });
+assert.notEqual(ambiguousSiblingRepoGraphSync.code, 0);
+assert.equal(ambiguousSiblingRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(ambiguousSiblingRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.equal(ambiguousSiblingRepoGraphSync.body.diagnostics[0].actual, ambiguousSiblingRepoGraphHelperId);
+assert.equal(readFileSync(ambiguousSiblingRepoGraphStore, "utf8"), ambiguousSiblingRepoGraphStoreBefore);
 writeFileSync(standaloneRepoGraphSource, readFileSync(standaloneRepoGraphSource, "utf8").replace("hello from zero", "hello from graph store"));
 const standaloneRepoGraphVerifyDrift = json(["graph", "verify-sync", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
 assert.notEqual(standaloneRepoGraphVerifyDrift.code, 0);

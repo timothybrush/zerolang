@@ -225,6 +225,11 @@ static int repo_graph_error(const RepositoryGraphState *state, bool json, const 
   return repo_graph_error_paths(state, json, mode, code, message, expected, actual, help, false, NULL, 0, include_repairs);
 }
 
+static bool repo_diag_is_identity_reconcile_error(const ZDiag *diag) {
+  const char *prefix = "repository graph source identity ";
+  return diag && strncmp(diag->message, prefix, strlen(prefix)) == 0;
+}
+
 static int repo_missing_or_invalid_store_error(const RepositoryGraphState *state, bool json, const char *mode) {
   if (!state->store_present) {
     return repo_graph_error(state, json, mode, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero graph sync --from-source to create the repository graph store", true);
@@ -412,7 +417,17 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
   ZProgramGraphStore saved;
   ZDiag diag = {0};
   if (!z_program_graph_store_save_for_input(input, source_graph, &saved, &diag)) {
-    int rc = repo_graph_error(&state, json, "sync-from-source", "RGP003", "repository graph store could not be saved", "byte-stable zero.graph repository graph store", diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"), "run zero graph status to inspect repository graph state", false);
+    bool identity_error = repo_diag_is_identity_reconcile_error(&diag);
+    bool module_identity_error = identity_error && ((strncmp(diag.expected, "module:", 7) == 0) || (strncmp(diag.expected, "package:", 8) == 0));
+    int rc = repo_graph_error(&state,
+                              json,
+                              "sync-from-source",
+                              identity_error ? "RGP007" : "RGP003",
+                              identity_error ? diag.message : "repository graph store could not be saved",
+                              module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
+                              diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
+                              module_identity_error ? "sync from the original source path, or recreate zero.graph after reviewing the module rename" : (identity_error ? "split the source edit or make it through zero graph patch so node identity is explicit" : "run zero graph status to inspect repository graph state"),
+                              false);
     repo_graph_state_free(&state);
     return rc;
   }
