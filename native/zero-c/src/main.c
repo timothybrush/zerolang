@@ -58,6 +58,7 @@ typedef struct {
   const char *command;
   const char *kind;
   const char *input;
+  const char *repository_graph_source_input;
   const char *out;
   const char *patch_file;
   const char *patch_text;
@@ -6502,6 +6503,43 @@ static char *ship_default_out_path(const char *source_file, const ZTargetInfo *t
   return buf.data;
 }
 
+static char *repository_graph_default_artifact_source_path(const Command *command, const SourceInput *input) {
+  const char *fallback = input && input->source_file ? input->source_file : "app";
+  if (!command || !command->repository_graph_input) return z_strdup(fallback);
+  const char *manifest_input = command->repository_graph_source_input ? command->repository_graph_source_input : command->input;
+  char *manifest_path = z_manifest_path_for_input(manifest_input);
+  if (!manifest_path) return z_strdup(fallback);
+  ZDiag diag = {0};
+  char *manifest = z_read_file(manifest_path, &diag);
+  if (!manifest) {
+    free(manifest_path);
+    return z_strdup(fallback);
+  }
+  ZManifest parsed_manifest = {0};
+  bool ok = z_parse_manifest_json(manifest, &parsed_manifest, &diag);
+  char *root = ok && parsed_manifest.main_path && is_zero_source_path(parsed_manifest.main_path) ? direct_dirname_of(manifest_path) : NULL;
+  char *source_path = root ? direct_join_path(root, parsed_manifest.main_path) : NULL;
+  free(root);
+  z_free_manifest(&parsed_manifest);
+  free(manifest);
+  free(manifest_path);
+  return source_path ? source_path : z_strdup(fallback);
+}
+
+static char *command_default_out_path(const Command *command, const SourceInput *input) {
+  char *source_path = repository_graph_default_artifact_source_path(command, input);
+  char *out_path = z_default_out_path(source_path);
+  free(source_path);
+  return out_path;
+}
+
+static char *command_ship_default_out_path(const Command *command, const SourceInput *input, const ZTargetInfo *target) {
+  char *source_path = repository_graph_default_artifact_source_path(command, input);
+  char *out_path = ship_default_out_path(source_path, target);
+  free(source_path);
+  return out_path;
+}
+
 static void ship_artifacts_free(ShipArtifacts *artifacts) {
   if (!artifacts) return;
   free(artifacts->binary_path);
@@ -11836,6 +11874,7 @@ static int resolve_direct_command_manifest_graph_input(Command *command, const Z
     return rc;
   }
 
+  command->repository_graph_source_input = command->input;
   command->input = store_path;
   command->repository_graph_input = true;
   if (handled) *handled = true;
@@ -12017,7 +12056,7 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
     int rc = return_buildability_error(command, input, &diag, ir, program); z_free_source(input); return rc;
   }
 
-  char *base_exe_file = command->out ? z_strdup(command->out) : z_default_out_path(input->source_file);
+  char *base_exe_file = command->out ? z_strdup(command->out) : command_default_out_path(command, input);
   char *exe_file = apply_target_suffix(base_exe_file, target);
   free(base_exe_file);
   char *llvm_file = path_with_suffix(exe_file, ".ll");
@@ -12650,7 +12689,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return rc;
     }
-    char *base_llvm_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
+    char *base_llvm_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
     char *llvm_file = command.out ? base_llvm_file : path_with_suffix(base_llvm_file, ".ll");
     if (!command.out) free(base_llvm_file);
     phase_started = now_ms();
@@ -12718,7 +12757,7 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return 1;
     }
-    char *base_object_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
+    char *base_object_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
     char *object_file = base_object_file;
     phase_started = now_ms();
     input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", command_compile_cache_key(&command, &input, target, command.profile, direct_obj.artifact_path));
@@ -12791,7 +12830,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *base_exe_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
+    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
     char *exe_file = apply_target_suffix(base_exe_file, target);
     free(base_exe_file);
     char *object_file = path_with_suffix(exe_file, ".zero.o");
@@ -12901,7 +12940,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *base_exe_file = command.out ? z_strdup(command.out) : (ship_command ? ship_default_out_path(input.source_file, target) : z_default_out_path(input.source_file));
+    char *base_exe_file = command.out ? z_strdup(command.out) : (ship_command ? command_ship_default_out_path(&command, &input, target) : command_default_out_path(&command, &input));
     char *exe_file = apply_target_suffix(base_exe_file, target);
     free(base_exe_file);
     phase_started = now_ms();

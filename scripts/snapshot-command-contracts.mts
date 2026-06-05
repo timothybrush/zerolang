@@ -1471,6 +1471,8 @@ const graphSourceTextOutPath = join(outDir, "hello.source-output.0");
 const graphValidateSourceTextOutPath = join(outDir, "hello.validate-source-output.0");
 const checkedInGraphSourcePath = "conformance/program-graph/hello.0";
 const checkedInGraphPackageDir = "conformance/program-graph";
+const checkedInGraphDefaultBuildPath = ".zero/out/hello";
+const checkedInGraphDefaultShipPath = ".zero/ship/hello-linux-musl-x64";
 const checkedInGraphBuildPath = join(outDir, "checked-in-graph-build");
 const checkedInGraphRunPath = join(outDir, "checked-in-graph-run");
 const checkedInGraphShipPath = join(outDir, "checked-in-graph-ship");
@@ -1570,6 +1572,10 @@ rmSync(graphImportJsonPath, { force: true });
 rmSync(graphCanonicalPath, { force: true });
 rmSync(graphSourceTextOutPath, { force: true });
 rmSync(graphValidateSourceTextOutPath, { force: true });
+rmSync(checkedInGraphDefaultBuildPath, { force: true });
+for (const suffix of ["", ".stripped", ".checksum", ".zeroar", ".debug.json", ".size.json", ".sbom.json"]) {
+  rmSync(`${checkedInGraphDefaultShipPath}${suffix}`, { force: true });
+}
 rmSync(checkedInGraphBuildPath, { force: true });
 rmSync(checkedInGraphRunPath, { force: true });
 rmSync(checkedInGraphShipPath, { force: true });
@@ -1777,6 +1783,8 @@ assert.equal(checkedInGraphPackageBuildJson.sourceFile, checkedInRepositoryGraph
 assertSourceGraph(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "typed-program-graph-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageBuildJson, checkedInRepositoryGraphStorePath);
 assert.equal(checkedInGraphPackageBuildJson.artifactPath, checkedInGraphBuildPath);
+const checkedInGraphPackageDefaultBuildJson = json(["build", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;
+assert.equal(checkedInGraphPackageDefaultBuildJson.artifactPath, checkedInGraphDefaultBuildPath);
 assert.equal(zero(["run", "--out", checkedInGraphRunPath, checkedInGraphPackageDir]).stdout, "hello from zero\n");
 const checkedInGraphPackageTestJson = json(["test", "--json", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphPackageTestJson.ok, true);
@@ -1790,6 +1798,8 @@ assert.equal(checkedInGraphPackageShipJson.sourceFile, checkedInRepositoryGraphS
 assertSourceGraph(checkedInGraphPackageShipJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "typed-program-graph-mir", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageShipJson, checkedInRepositoryGraphStorePath);
 assert.equal(checkedInGraphPackageShipJson.artifactPath, checkedInGraphShipPath);
+const checkedInGraphPackageDefaultShipJson = json(["ship", "--json", "--target", "linux-musl-x64", checkedInGraphPackageDir]).body;
+assert.equal(checkedInGraphPackageDefaultShipJson.artifactPath, checkedInGraphDefaultShipPath);
 const checkedInRepositoryGraphStoreText = readFileSync(checkedInRepositoryGraphStorePath, "utf8");
 assert.match(checkedInRepositoryGraphStoreText, /^zero-repository-graph v1\n/);
 assert.match(checkedInRepositoryGraphStoreText, /^moduleIdentity "package:program-graph-fixture@0\.1\.0"$/m);
