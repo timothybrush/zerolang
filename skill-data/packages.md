@@ -24,7 +24,8 @@ Minimal executable package:
 ```json
 {
   "package": { "name": "hello", "version": "0.1.0" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } }
+  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
+  "repositoryGraph": { "compilerInput": false }
 }
 ```
 
@@ -72,6 +73,11 @@ Current packages support local path dependencies and registry metadata. Local de
 
 The resolver is declarative; it records deterministic lock facts under `.zero/package-locks/` and does not fetch remote package code.
 
+Set `repositoryGraph.compilerInput` to `true` only for packages that check in a
+clean `zero.graph` store beside the `.0` source projection. Normal check,
+build, run, test, size, ship, and mem commands verify sync first and then
+compile from that store. Leave it unset or `false` for source-text packages.
+
 ## Inspect
 
 ```sh
@@ -84,7 +90,7 @@ Use `--json` when a tool needs exact graph, doc, or dev fields. Useful `graph` f
 
 ## Graph Authoring
 
-For agent edits, inspect the package through the graph. Create an artifact under `.zero/` only when another tool needs a file handoff:
+For agent edits, inspect the package through the graph. Create an artifact under `.zero/` only when another tool needs a file artifact:
 
 ```sh
 zero graph view <package>

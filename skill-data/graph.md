@@ -111,6 +111,10 @@ unambiguous, and stores exact checked-in `.0` projection bytes for tracked local
 files. Ambiguous identity changes fail instead of guessing. `sync --from-graph`
 updates stale checked-in `.0` projections from `zero.graph`, and `verify-sync`
 compares the store with the current source graph and source projection.
+When a package manifest sets `repositoryGraph.compilerInput` to `true`, normal
+check, build, run, test, size, ship, and mem commands verify sync first and then
+compile from `zero.graph`. Without that marker, normal commands use checked-in
+`.0` source text.
 In the Zero repository, `pnpm run repository-graph:check` verifies checked-in
 `zero.graph` stores for CI with the pinned `linux-musl-x64` graph target.
 
@@ -135,3 +139,5 @@ zero graph import --out .zero/agent/package.program-graph <package-dir>
 ```
 
 Normal build, run, test, and ship commands use canonical source unless the command is explicitly `zero graph ...`.
+If `zero.json` sets `repositoryGraph.compilerInput` to `true`, those normal
+commands use the checked-in `zero.graph` store after a no-write sync check.

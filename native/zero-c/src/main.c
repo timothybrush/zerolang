@@ -12,9 +12,11 @@
 #include "program_graph_format.h"
 #include "program_graph_import.h"
 #include "program_graph_lower.h"
+#include "program_graph_manifest.h"
 #include "program_graph_patch.h"
 #include "program_graph_reconcile.h"
 #include "program_graph_repository.h"
+#include "program_graph_repository_input.h"
 #include "program_graph_roundtrip.h"
 #include "program_graph_size.h"
 #include "program_graph_source_map.h"
@@ -86,6 +88,7 @@ typedef struct {
   bool graph_reconcile_command;
   bool graph_sync_from_graph;
   bool graph_sync_from_source;
+  bool repository_graph_input;
   EmitKind emit;
 } Command;
 
@@ -11799,86 +11802,44 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   return true;
 }
 
-static bool resolve_direct_command_manifest_graph_input(Command *command, bool *handled, ZDiag *diag) {
-  (void)command;
-  (void)diag;
+static int resolve_direct_command_manifest_graph_input(Command *command, const ZTargetInfo *target, bool *handled) {
   if (handled) *handled = false;
-  return true;
-}
+  if (!command || !z_program_graph_manifest_command_can_use_compiler_input(command->command)) return 0;
 
-static void clear_source_package_metadata(SourceInput *input) {
-  if (!input) return;
-  free(input->package_root);
-  free(input->manifest_path);
-  free(input->package_name);
-  free(input->package_version);
-  free(input->lockfile_path);
-  for (size_t i = 0; i < input->dependency_count; i++) {
-    free(input->dependencies[i].name);
-    free(input->dependencies[i].version);
-    free(input->dependencies[i].path);
-    free(input->dependencies[i].resolved_manifest);
-    free(input->dependencies[i].resolved_name);
-    free(input->dependencies[i].resolved_version);
-    free(input->dependencies[i].targets_json);
-    free(input->dependencies[i].status);
+  bool enabled = false;
+  ZDiag diag = {0};
+  if (!z_program_graph_manifest_compiler_input_enabled(command->input, &enabled, &diag)) {
+    if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
+    else print_diag(diag.path ? diag.path : command->input, &diag);
+    return 1;
   }
-  free(input->dependencies);
-  input->package_root = NULL;
-  input->manifest_path = NULL;
-  input->package_name = NULL;
-  input->package_version = NULL;
-  input->lockfile_path = NULL;
-  input->manifest_hash = 0;
-  input->dependency_graph_hash = 0;
-  input->lockfile_hash = 0;
-  input->dependencies = NULL;
-  input->dependency_count = 0;
-}
+  if (!enabled) return 0;
 
-static void move_source_package_metadata(SourceInput *input, SourceInput *metadata) {
-  if (!input || !metadata) return;
-  clear_source_package_metadata(input);
-  input->package_root = metadata->package_root; metadata->package_root = NULL;
-  input->manifest_path = metadata->manifest_path; metadata->manifest_path = NULL;
-  input->package_name = metadata->package_name; metadata->package_name = NULL;
-  input->package_version = metadata->package_version; metadata->package_version = NULL;
-  input->lockfile_path = metadata->lockfile_path; metadata->lockfile_path = NULL;
-  input->manifest_hash = metadata->manifest_hash; metadata->manifest_hash = 0;
-  input->dependency_graph_hash = metadata->dependency_graph_hash; metadata->dependency_graph_hash = 0;
-  input->lockfile_hash = metadata->lockfile_hash; metadata->lockfile_hash = 0;
-  input->dependencies = metadata->dependencies; metadata->dependencies = NULL;
-  input->dependency_count = metadata->dependency_count; metadata->dependency_count = 0;
-}
+  SourceInput source_input = {0};
+  Program source_program = {0};
+  ZProgramGraph source_graph = {0};
+  ZDiag source_diag = {0};
+  bool source_ok = load_graph_from_checked_current_source(command, target, &source_input, &source_program, &source_graph, NULL, &source_diag);
 
-static bool attach_manifest_metadata_to_graph_input(SourceInput *input, const char *manifest_input, ZDiag *diag) {
-  char *manifest_path = z_manifest_path_for_input(manifest_input);
-  if (!manifest_path) return true;
-
-  char *manifest = z_read_file(manifest_path, diag);
-  if (!manifest) {
-    if (diag && !diag->path) diag->path = z_strdup(manifest_path);
-    free(manifest_path);
-    return false;
+  char *store_path = NULL;
+  int rc = z_repository_graph_verify_compiler_input(command->input,
+                                                    target,
+                                                    command->json,
+                                                    source_ok ? &source_graph : NULL,
+                                                    source_ok ? NULL : &source_diag,
+                                                    &store_path);
+  z_program_graph_free(&source_graph);
+  z_free_program(&source_program);
+  z_free_source(&source_input);
+  if (rc != 0) {
+    free(store_path);
+    return rc;
   }
 
-  ZManifest parsed_manifest = {0};
-  if (!z_parse_manifest_json(manifest, &parsed_manifest, diag)) {
-    if (diag && !diag->path) diag->path = z_strdup(manifest_path);
-    z_free_manifest(&parsed_manifest);
-    free(manifest);
-    free(manifest_path);
-    return false;
-  }
-
-  SourceInput metadata = {0};
-  bool ok = z_resolve_package_metadata(manifest_path, manifest, &parsed_manifest, &metadata, diag);
-  if (ok) move_source_package_metadata(input, &metadata);
-  z_free_source(&metadata);
-  z_free_manifest(&parsed_manifest);
-  free(manifest);
-  free(manifest_path);
-  return ok;
+  command->input = store_path;
+  command->repository_graph_input = true;
+  if (handled) *handled = true;
+  return 0;
 }
 
 static int run_graph_roundtrip_command(const Command *command, SourceInput *input, Program *program, ZDiag *diag) {
@@ -12428,11 +12389,8 @@ int main(int argc, char **argv) {
 
   const char *direct_graph_manifest_input = command.input;
   bool direct_graph_manifest_command = false;
-  if (!resolve_direct_command_manifest_graph_input(&command, &direct_graph_manifest_command, &diag)) {
-    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
-    else print_diag(diag.path ? diag.path : command.input, &diag);
-    return 1;
-  }
+  int direct_graph_manifest_rc = resolve_direct_command_manifest_graph_input(&command, target, &direct_graph_manifest_command);
+  if (direct_graph_manifest_rc != 0) return direct_graph_manifest_rc;
 
   SourceInput input = {0};
   Program program = {0};
@@ -12444,9 +12402,11 @@ int main(int argc, char **argv) {
     ZProgramGraphArtifactSource graph_source = {0};
     bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_command;
     long long graph_lower_started = now_ms();
-    bool prepared_graph = graph_mir_command
-      ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
-      : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag);
+    bool prepared_graph = command.repository_graph_input
+      ? z_program_graph_prepare_repository_store_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+      : (graph_mir_command
+          ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+          : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));
     if (prepared_graph && graph_mir_command) {
       input.lower_ms = now_ms() - graph_lower_started;
       apply_ir_metrics_to_input(&input, &graph_prepared_ir, target);
@@ -12457,7 +12417,7 @@ int main(int argc, char **argv) {
       free_loaded_command_state(&input, &program, &graph_prepared_ir);
       return 1;
     }
-    if (direct_graph_manifest_command && !attach_manifest_metadata_to_graph_input(&input, direct_graph_manifest_input, &diag)) {
+    if (direct_graph_manifest_command && !z_program_graph_manifest_attach_metadata_to_input(&input, direct_graph_manifest_input, &diag)) {
       if (command.json) print_command_diag_json(&command, diag.path ? diag.path : direct_graph_manifest_input, &diag);
       else print_diag(diag.path ? diag.path : direct_graph_manifest_input, &diag);
       free_loaded_command_state(&input, &program, &graph_prepared_ir);

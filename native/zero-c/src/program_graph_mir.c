@@ -5,6 +5,7 @@
 #include "program_graph.h"
 #include "program_graph_lower.h"
 #include "program_graph_size.h"
+#include "program_graph_store.h"
 
 #include <limits.h>
 #include <stdint.h>
@@ -1200,5 +1201,42 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     source->canonical_source = graph.canonical_source;
   }
   z_program_graph_free(&graph);
+  return true;
+}
+
+bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+  if (!ir) return false;
+  ZProgramGraphStore store;
+  if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
+
+  bool ok = z_program_graph_lower_to_program_with_source(&store.graph, store_path, program, input, diag);
+  if (ok) {
+    z_set_check_target(target);
+    ok = z_check_program(program, diag);
+  }
+  if (!ok) {
+    if (input && input->source_file) z_map_source_diag(input, diag);
+    if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : store_path;
+    z_program_graph_store_free(&store);
+    return false;
+  }
+
+  z_program_graph_seed_source_metadata(input, &store.graph);
+  IrProgram graph_ir = z_lower_program_graph_with_source(&store.graph, input, target);
+  bool graph_mir_valid = graph_ir.mir_valid;
+  if (graph_mir_valid) *ir = graph_ir;
+  else { z_free_ir_program(&graph_ir); *ir = z_lower_program_with_source(program, input, target); }
+  if (input) {
+    input->program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
+    input->program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
+  }
+  if (source) {
+    source->artifact = store_path;
+    source->graph_hash = input ? input->program_graph_hash : "";
+    source->module_identity = input ? input->program_graph_module_identity : "";
+    source->lowering = graph_mir_valid ? "typed-program-graph-mir" : "program-graph-ast-mir";
+    source->canonical_source = store.graph.canonical_source;
+  }
+  z_program_graph_store_free(&store);
   return true;
 }

@@ -1,5 +1,6 @@
 #include "program_graph_repository.h"
 
+#include "program_graph_manifest.h"
 #include "program_graph_projection.h"
 #include "program_graph_repository_repair.h"
 #include "program_graph_store.h"
@@ -26,6 +27,7 @@ typedef struct {
   bool graph_current;
   bool projection_checked;
   bool projection_current;
+  bool compiler_input_enabled;
 } RepositoryGraphState;
 
 static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInfo *target, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag) {
@@ -33,6 +35,7 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
   state.root = z_program_graph_store_root_for_input(state.input);
   state.store_path = z_program_graph_store_path_for_root(state.root);
   state.store_present = z_program_graph_store_file_exists(state.store_path);
+  (void)z_program_graph_manifest_compiler_input_enabled(state.input, &state.compiler_input_enabled, NULL);
   if (state.store_present) {
     ZProgramGraphStore store;
     ZDiag diag = {0};
@@ -152,7 +155,9 @@ static void repo_append_state_json(ZBuf *buf, const RepositoryGraphState *state,
   zbuf_append(buf, state->store_valid ? "true" : "false");
   zbuf_append(buf, ", \"syncState\": ");
   repo_append_json_string(buf, repo_sync_state(state));
-  zbuf_append(buf, ", \"possibleSyncStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-stale\", \"graph-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": \"source-text\"}");
+  zbuf_append(buf, ", \"possibleSyncStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-stale\", \"graph-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": ");
+  repo_append_json_string(buf, state->compiler_input_enabled ? "repository-graph" : "source-text");
+  zbuf_append(buf, "}");
   if (state->store_valid) {
     zbuf_append(buf, ",\n  \"store\": {\"format\":\"zero-repository-graph\",\"schemaVersion\":1,\"graphHash\":");
     repo_append_json_string(buf, state->graph_hash);
@@ -302,6 +307,7 @@ int z_repository_graph_status_command(const char *input, const ZTargetInfo *targ
     printf("store: %s\n", state.store_path);
     printf("store valid: %s\n", state.store_valid ? "true" : "false");
     printf("source projection: checked-in .0 source text\n");
+    printf("compiler input: %s\n", state.compiler_input_enabled ? "repository-graph" : "source-text");
     printf("writes: false\n");
   }
   repo_graph_state_free(&state);

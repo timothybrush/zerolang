@@ -7,6 +7,7 @@ packages and executable targets.
 {
   "package": { "name": "hello", "version": "0.1.0", "license": "MIT" },
   "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
+  "repositoryGraph": { "compilerInput": false },
   "dependencies": {
     "local-tools": { "path": "../local-tools", "version": "0.1.0" },
     "registry-tools": "1.2.3"
@@ -27,6 +28,12 @@ Import cycles and duplicate public exports are diagnosed before build output.
 
 Local path dependencies are accepted by the resolver. Exact versioned registry
 references are recorded as metadata without remote fetches.
+
+`repositoryGraph.compilerInput: true` opts a package into using a checked-in
+`zero.graph` store as the compiler input for normal check, build, run, test,
+size, ship, and mem commands. The commands verify that `zero.graph` and the
+checked-in `.0` source projections are in sync before compiling. Leave the field
+unset or `false` for source-text packages.
 
 `zero graph --json <package>` reports:
 

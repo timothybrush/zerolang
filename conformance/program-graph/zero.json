@@ -8,5 +8,8 @@
       "kind": "exe",
       "main": "hello.0"
     }
+  },
+  "repositoryGraph": {
+    "compilerInput": true
   }
 }

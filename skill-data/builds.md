@@ -15,6 +15,11 @@ Most build commands accept one of these:
 - a package directory containing `zero.json`
 - a direct path to `zero.json`
 
+For packages with `repositoryGraph.compilerInput: true`, normal build and run
+commands verify `zero.graph` is in sync with the checked-in `.0` projection and
+then compile from the repository graph store. Other packages compile from `.0`
+source text.
+
 ## Run
 
 Use `zero run` for the host development loop:
@@ -65,7 +70,10 @@ zero graph build --out .zero/out/app .zero/agent/app.program-graph
 zero graph run .zero/agent/app.program-graph
 ```
 
-Use normal `zero build` and `zero run` after persisting the accepted change to canonical `.0` source text.
+Use normal `zero build` and `zero run` after persisting the accepted change to
+canonical `.0` source text. If the package opts into repository graph compiler
+input, run `zero graph sync --from-source <package>` after reviewed source
+changes so normal commands can compile from the refreshed `zero.graph` store.
 
 ## Targets
 

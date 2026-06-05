@@ -143,8 +143,11 @@ source edit is unambiguous, and stores exact checked-in source projection bytes
 for tracked local files. Ambiguous identity changes fail instead of guessing.
 `zero graph sync --from-graph` rewrites stale `.0` source projections from that
 store, and `zero graph verify-sync` checks the store against the current source
-graph and source projection without writing files. Normal build, check, run, and
-test commands still use checked-in `.0` source text as their compiler input.
+graph and source projection without writing files. Packages can opt normal
+check, build, run, test, size, ship, and mem commands into the checked-in store
+with `repositoryGraph.compilerInput: true` in `zero.json`; those commands first
+verify graph/source sync and then compile from `zero.graph`. Packages without
+that marker still use checked-in `.0` source text as their compiler input.
 In this repository, `pnpm run repository-graph:check` verifies checked-in
 `zero.graph` stores for CI with the pinned `linux-musl-x64` graph target.
 

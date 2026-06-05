@@ -48,7 +48,15 @@ assert.equal(status.body.ok, true);
 assert.equal(status.body.repositoryGraph.storePresent, true);
 assert.equal(status.body.repositoryGraph.storeValid, true);
 assert.equal(status.body.repositoryGraph.syncState, "clean");
+assert.equal(status.body.repositoryGraph.compilerInput, "repository-graph");
 assertBudget("status", status.elapsedMs, budgets.statusMs);
+
+const check = runJson(["check", "--json", "--target", target, root]);
+assert.equal(check.body.ok, true);
+assert.equal(check.body.sourceFile, storePath);
+assert.equal(check.body.graph.artifact, storePath);
+assert.equal(check.body.graph.canonicalSource, false);
+assert.equal(check.body.graph.moduleIdentity, "package:program-graph-fixture@0.1.0");
 
 const verify = runJson(["graph", "verify-sync", "--json", "--target", target, root]);
 assert.equal(verify.body.ok, true);
