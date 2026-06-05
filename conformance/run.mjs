@@ -53,6 +53,9 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "availab
   assert.equal(body.graphCompiler.resolution.ok, true);
   assert.equal(body.graphCompiler.resolution.state, "resolved-graph-facts");
   assert.equal(body.graphCompiler.checking.ok, true);
+  assert.equal(body.graphCompiler.checking.state, "checked-graph-readiness-facts");
+  assert.equal(body.graphCompiler.checking.scope, "resolution-package-target-and-graph-mir-readiness");
+  assert.equal(body.graphCompiler.checking.semanticDiagnosticsEnforced, false);
   assert.equal(body.graphCompiler.checking.authority, "ProgramGraphStore");
   assert.equal(body.graphCompiler.checking.sourceTextAuthority, false);
   assert.equal(body.graphCompiler.semanticFacts.state, "typed-facts");

@@ -2625,9 +2625,9 @@ static void append_repository_graph_compiler_path_json(ZBuf *buf, const ZProgram
   zbuf_append(buf, ",\"resolution\":{\"state\":\"resolved-graph-facts\",\"ok\":");
   zbuf_append(buf, resolution && resolution->diagnostic_len == 0 ? "true" : "false");
   zbuf_appendf(buf, ",\"references\":%zu,\"diagnostics\":%zu}", resolution ? resolution->reference_len : 0, resolution ? resolution->diagnostic_len : 0);
-  zbuf_append(buf, ",\"checking\":{\"state\":\"checked-graph-facts\",\"ok\":");
+  zbuf_append(buf, ",\"checking\":{\"state\":\"checked-graph-readiness-facts\",\"ok\":");
   zbuf_append(buf, resolution && resolution->diagnostic_len == 0 ? "true" : "false");
-  zbuf_append(buf, ",\"authority\":\"ProgramGraphStore\",\"sourceTextAuthority\":false}");
+  zbuf_append(buf, ",\"scope\":\"resolution-package-target-and-graph-mir-readiness\",\"semanticDiagnosticsEnforced\":false,\"authority\":\"ProgramGraphStore\",\"sourceTextAuthority\":false}");
   zbuf_append(buf, ",\"semanticFacts\":");
   z_program_graph_append_semantics_json(buf, store ? &store->graph : NULL);
   zbuf_append(buf, "}");
