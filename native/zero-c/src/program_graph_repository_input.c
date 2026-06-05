@@ -1,5 +1,6 @@
 #include "program_graph_repository_input.h"
 
+#include "program_graph_manifest.h"
 #include "program_graph_projection.h"
 #include "program_graph_repository_repair.h"
 #include "program_graph_store.h"
@@ -17,6 +18,7 @@ typedef struct {
   bool store_valid;
   char *store_error;
   char *projection_error;
+  char *module_identity;
   char *graph_hash;
   size_t node_count;
   size_t edge_count;
@@ -44,6 +46,17 @@ static void input_append_json_string(ZBuf *buf, const char *text) {
   zbuf_append_char(buf, '"');
 }
 
+static bool input_text_eq(const char *left, const char *right) {
+  const char *l = left ? left : "";
+  const char *r = right ? right : "";
+  while (*l || *r) {
+    if (*l != *r) return false;
+    l++;
+    r++;
+  }
+  return true;
+}
+
 static RepositoryGraphInputState input_state(const char *input, const ZTargetInfo *target) {
   RepositoryGraphInputState state = {.input = input && input[0] ? input : "."};
   state.root = z_program_graph_store_root_for_input(state.input);
@@ -54,6 +67,7 @@ static RepositoryGraphInputState input_state(const char *input, const ZTargetInf
     ZDiag diag = {0};
     if (z_program_graph_store_load_path(state.store_path, &store, &diag)) {
       state.store_valid = true;
+      state.module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
       state.graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
       state.node_count = store.graph.node_len;
       state.edge_count = store.graph.edge_len;
@@ -75,6 +89,7 @@ static void input_state_free(RepositoryGraphInputState *state) {
   free(state->store_path);
   free(state->store_error);
   free(state->projection_error);
+  free(state->module_identity);
   free(state->graph_hash);
   memset(state, 0, sizeof(*state));
 }
@@ -91,9 +106,9 @@ static const char *input_sync_state(const RepositoryGraphInputState *state) {
 
 static const char *input_projection_validity_label(const RepositoryGraphInputState *state) {
   if (!state || !state->store_valid) return "unavailable";
-  if (state->projection_missing) return "missing";
   if (state->projection_error) return "conflict";
   if (!state->projection_checked) return "unavailable";
+  if (state->projection_missing) return "missing";
   return state->projection_current ? "clean" : "stale";
 }
 
@@ -153,6 +168,29 @@ static int input_error(const RepositoryGraphInputState *state, bool json, const 
   }
   return 1;
 }
+static int input_manifest_identity_error(const RepositoryGraphInputState *state, bool json) {
+  char *expected = NULL;
+  ZDiag diag = {0};
+  if (!z_program_graph_manifest_module_identity(state ? state->input : NULL, &expected, &diag)) {
+    int rc = input_error(state, json, "RGP003", "package manifest could not be read", "valid zero.json package manifest", diag.message[0] ? diag.message : "manifest unavailable", "fix zero.json before using repository graph compiler input", REPO_GRAPH_REPAIR_NONE);
+    free((char *)diag.path);
+    return rc;
+  }
+  if (expected && !input_text_eq(expected, state ? state->module_identity : NULL)) {
+    int rc = input_error(state,
+                         json,
+                         "RGP007",
+                         "repository graph store module identity does not match package manifest",
+                         expected,
+                         state && state->module_identity ? state->module_identity : "missing module identity",
+                         "check in the zero.graph generated for this package, or update zero.json after reviewing the package identity",
+                         REPO_GRAPH_REPAIR_STATUS);
+    free(expected);
+    return rc;
+  }
+  free(expected);
+  return 0;
+}
 
 int z_repository_graph_verify_compiler_input(const char *input, const ZTargetInfo *target, bool json, char **out_store_path) {
   if (out_store_path) *out_store_path = NULL;
@@ -167,25 +205,16 @@ int z_repository_graph_verify_compiler_input(const char *input, const ZTargetInf
     input_state_free(&state);
     return rc;
   }
+  int identity_rc = input_manifest_identity_error(&state, json);
+  if (identity_rc != 0) {
+    input_state_free(&state);
+    return identity_rc;
+  }
   if (out_store_path) *out_store_path = z_strdup(state.store_path);
   input_state_free(&state);
   return 0;
 }
 
 int z_repository_graph_require_compiler_store(const char *input, const ZTargetInfo *target, bool json, char **out_store_path) {
-  if (out_store_path) *out_store_path = NULL;
-  RepositoryGraphInputState state = input_state(input, target);
-  if (!state.store_present) {
-    int rc = input_error(&state, json, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero graph sync --from-source to create the repository graph store", REPO_GRAPH_REPAIR_FROM_SOURCE);
-    input_state_free(&state);
-    return rc;
-  }
-  if (!state.store_valid) {
-    int rc = input_error(&state, json, "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", state.store_error ? state.store_error : "invalid zero.graph", "run zero graph sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
-    input_state_free(&state);
-    return rc;
-  }
-  if (out_store_path) *out_store_path = z_strdup(state.store_path);
-  input_state_free(&state);
-  return 0;
+  return z_repository_graph_verify_compiler_input(input, target, json, out_store_path);
 }

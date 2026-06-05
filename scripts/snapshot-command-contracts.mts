@@ -2358,7 +2358,11 @@ const sourceFreeCopiedGraphStorePath = join(sourceFreeCopiedGraphRoot, "zero.gra
 const sourceFreeCopiedGraphBuildPath = join(outDir, "source-free-program-graph-build");
 const sourceFreeCopiedGraphRunPath = join(outDir, "source-free-program-graph-run");
 const sourceFreeCopiedGraphShipPath = join(outDir, "source-free-program-graph-ship");
+const sourceFreeIdentityMismatchRoot = join(outDir, "source-free-identity-mismatch");
+const sourceFreeBadProjectionRoot = join(outDir, "source-free-bad-projection");
 rmSync(sourceFreeCopiedGraphRoot, { recursive: true, force: true });
+rmSync(sourceFreeIdentityMismatchRoot, { recursive: true, force: true });
+rmSync(sourceFreeBadProjectionRoot, { recursive: true, force: true });
 mkdirSync(sourceFreeCopiedGraphRoot, { recursive: true });
 writeFileSync(join(sourceFreeCopiedGraphRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
 writeFileSync(sourceFreeCopiedGraphStorePath, readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
@@ -2398,6 +2402,37 @@ const sourceFreeCopiedGraphVerifyAfter = json(["graph", "verify-sync", "--json",
 assert.equal(sourceFreeCopiedGraphVerifyAfter.ok, true);
 assert.equal(sourceFreeCopiedGraphVerifyAfter.repositoryGraph.projectionValidity, "clean");
 assert.deepEqual(json(["graph", "sync", "--from-graph", "--json", sourceFreeCopiedGraphRoot]).body.changedPaths, []);
+mkdirSync(sourceFreeIdentityMismatchRoot, { recursive: true });
+writeFileSync(join(sourceFreeIdentityMismatchRoot, "zero.json"), JSON.stringify({
+  package: { name: "wrong-program-graph-fixture", version: "9.9.9" },
+  targets: { cli: { kind: "exe", main: "hello.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+writeFileSync(join(sourceFreeIdentityMismatchRoot, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
+const sourceFreeIdentityMismatchCheck = json(["check", "--json", sourceFreeIdentityMismatchRoot], { allowFailure: true });
+assert.notEqual(sourceFreeIdentityMismatchCheck.code, 0);
+assert.equal(sourceFreeIdentityMismatchCheck.body.diagnostics[0].code, "RGP007");
+assert.equal(sourceFreeIdentityMismatchCheck.body.diagnostics[0].expected, "package:wrong-program-graph-fixture@9.9.9");
+assert.equal(sourceFreeIdentityMismatchCheck.body.diagnostics[0].actual, "package:program-graph-fixture@0.1.0");
+const sourceFreeIdentityMismatchSize = json(["size", "--json", sourceFreeIdentityMismatchRoot], { allowFailure: true });
+assert.notEqual(sourceFreeIdentityMismatchSize.code, 0);
+assert.equal(sourceFreeIdentityMismatchSize.body.diagnostics[0].code, "RGP007");
+mkdirSync(sourceFreeBadProjectionRoot, { recursive: true });
+writeFileSync(join(sourceFreeBadProjectionRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(sourceFreeBadProjectionRoot, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8").replace(
+  /^projection path:"hello\.0" text:.*$/m,
+  `projection path:"hello.0" text:${JSON.stringify("pub fn broken( {\n")}`,
+));
+const sourceFreeBadProjectionStatus = json(["graph", "status", "--json", sourceFreeBadProjectionRoot]).body;
+assert.equal(sourceFreeBadProjectionStatus.repositoryGraph.syncState, "conflict");
+assert.equal(sourceFreeBadProjectionStatus.repositoryGraph.projectionValidity, "conflict");
+const sourceFreeBadProjectionCheck = json(["check", "--json", sourceFreeBadProjectionRoot]).body;
+assert.equal(sourceFreeBadProjectionCheck.ok, true);
+assertSourceGraph(sourceFreeBadProjectionCheck, join(sourceFreeBadProjectionRoot, "zero.graph"), "package:program-graph-fixture@0.1.0", "graph-native-check", false, "conflict");
+assertRepositoryGraphNativeCheck(sourceFreeBadProjectionCheck, "conflict");
+const sourceFreeBadProjectionSync = json(["graph", "sync", "--from-graph", "--json", sourceFreeBadProjectionRoot], { allowFailure: true });
+assert.notEqual(sourceFreeBadProjectionSync.code, 0);
+assert.equal(sourceFreeBadProjectionSync.body.diagnostics[0].code, "RGP004");
 const missingRepoGraphStoreRoot = join(outDir, "repository-graph-missing-store");
 rmSync(missingRepoGraphStoreRoot, { recursive: true, force: true });
 mkdirSync(missingRepoGraphStoreRoot, { recursive: true });

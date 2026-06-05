@@ -137,7 +137,7 @@ static const char *repo_semantic_validity_label(const RepositoryGraphState *stat
 
 static const char *repo_projection_validity_label(const RepositoryGraphState *state) {
   if (!state || !state->store_valid) return "unavailable";
-  if (state->projection_error) return "unavailable";
+  if (state->projection_error) return "conflict";
   if (!state->projection_checked) return "unchecked";
   if (state->projection_missing) return "missing";
   return state->projection_current ? "clean" : "stale";

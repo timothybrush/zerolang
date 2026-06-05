@@ -3490,6 +3490,8 @@ const programGraphSourceFixtureStorePath = "conformance/program-graph/zero.graph
 const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
 const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
 const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
+const programGraphIdentityMismatchPackage = `${outDir}/program-graph-identity-mismatch`;
+const programGraphBadProjectionPackage = `${outDir}/program-graph-bad-projection`;
 const programGraphSourceFixtureDriftPackage = `${outDir}/program-graph-fixture-drift`;
 const programGraphMissingStorePackage = `${outDir}/program-graph-missing-store`;
 const programGraphInvalidStorePackage = `${outDir}/program-graph-invalid-store`;
@@ -3508,6 +3510,8 @@ await rm(programGraphArtifactRoundtripPath, { force: true });
 await rm(programGraphSourceFixtureRunPath, { force: true });
 await rm(programGraphSourceFreePackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeRunPath, { force: true });
+await rm(programGraphIdentityMismatchPackage, { recursive: true, force: true });
+await rm(programGraphBadProjectionPackage, { recursive: true, force: true });
 await rm(programGraphSourceFixtureDriftPackage, { recursive: true, force: true });
 await rm(programGraphMissingStorePackage, { recursive: true, force: true });
 await rm(programGraphInvalidStorePackage, { recursive: true, force: true });
@@ -3550,6 +3554,24 @@ const programGraphSourceFreeRun = await execFileAsync(zero, ["run", "--out", pro
 const programGraphSourceFreeVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
 const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage])).stdout);
+await mkdir(programGraphIdentityMismatchPackage, { recursive: true });
+await writeFile(`${programGraphIdentityMismatchPackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-wrong-package", version: "9.9.9" },
+  targets: { cli: { kind: "exe", main: "hello.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphIdentityMismatchPackage}/zero.graph`, programGraphSourceFixtureStoreText);
+const programGraphIdentityMismatchCheck = await execFileAsync(zero, ["check", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
+const programGraphIdentityMismatchSize = await execFileAsync(zero, ["size", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
+await mkdir(programGraphBadProjectionPackage, { recursive: true });
+await writeFile(`${programGraphBadProjectionPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
+await writeFile(`${programGraphBadProjectionPackage}/zero.graph`, programGraphSourceFixtureStoreText.replace(
+  /^projection path:"hello\.0" text:.*$/m,
+  `projection path:"hello.0" text:${JSON.stringify("pub fn broken( {\n")}`,
+));
+const programGraphBadProjectionStatus = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", programGraphBadProjectionPackage])).stdout);
+const programGraphBadProjectionCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBadProjectionPackage])).stdout);
+const programGraphBadProjectionSync = await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphBadProjectionPackage]).catch((error) => error);
 await mkdir(programGraphMissingStorePackage, { recursive: true });
 await writeFile(`${programGraphMissingStorePackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-missing-store", version: "0.1.0" },
@@ -3765,6 +3787,19 @@ assert.deepEqual(programGraphSourceFreeSyncFromGraph.changedPaths, [`${programGr
 assert.equal(await readFile(`${programGraphSourceFreePackage}/hello.0`, "utf8"), programGraphSourceFixtureText);
 assert.equal(programGraphSourceFreeVerifyAfter.ok, true);
 assert.equal(programGraphSourceFreeVerifyAfter.repositoryGraph.projectionValidity, "clean");
+assert.notEqual(programGraphIdentityMismatchCheck.code, 0);
+const programGraphIdentityMismatchCheckBody = JSON.parse(programGraphIdentityMismatchCheck.stdout);
+assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].code, "RGP007");
+assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].expected, "package:program-graph-wrong-package@9.9.9");
+assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].actual, "package:program-graph-fixture@0.1.0");
+assert.notEqual(programGraphIdentityMismatchSize.code, 0);
+assert.equal(JSON.parse(programGraphIdentityMismatchSize.stdout).diagnostics[0].code, "RGP007");
+assert.equal(programGraphBadProjectionStatus.repositoryGraph.syncState, "conflict");
+assert.equal(programGraphBadProjectionStatus.repositoryGraph.projectionValidity, "conflict");
+assert.equal(programGraphBadProjectionCheck.ok, true);
+assert.equal(programGraphBadProjectionCheck.graph.sourceProjectionState, "conflict");
+assert.notEqual(programGraphBadProjectionSync.code, 0);
+assert.equal(JSON.parse(programGraphBadProjectionSync.stdout).diagnostics[0].code, "RGP004");
 assert.notEqual(programGraphMissingStoreCheck.code, 0);
 const programGraphMissingStoreBody = JSON.parse(programGraphMissingStoreCheck.stdout);
 assert.equal(programGraphMissingStoreBody.ok, false);
