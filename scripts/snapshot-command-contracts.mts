@@ -34,17 +34,19 @@ function json(args, options = {}) {
   return { ...result, body: JSON.parse(result.stdout) };
 }
 
-function repositoryGraphVerifyScript(root, options: { allowFailure?: boolean } = {}) {
+function repositoryGraphVerifyScript(root, options: { allowFailure?: boolean; target?: string } = {}) {
+  const args = [
+    "--experimental-strip-types",
+    "--disable-warning=ExperimentalWarning",
+    "scripts/repository-graph-verify-sync.mts",
+    "--root",
+    root,
+  ];
+  if (options.target) args.push("--target", options.target);
   try {
     const stdout = execFileSync(
       process.execPath,
-      [
-        "--experimental-strip-types",
-        "--disable-warning=ExperimentalWarning",
-        "scripts/repository-graph-verify-sync.mts",
-        "--root",
-        root,
-      ],
+      args,
       { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] },
     );
     return { code: 0, stdout, stderr: "" };
@@ -936,6 +938,9 @@ assert.equal(targetProjectionStatus.body.repositoryGraph.syncState, "clean");
 const targetProjectionVerify = json(["graph", "verify-sync", "--json", "--target", "linux-musl-x64", targetProjectionSource]);
 assert.equal(targetProjectionVerify.code, 0);
 assert.equal(targetProjectionVerify.body.ok, true);
+const targetProjectionVerifyScript = repositoryGraphVerifyScript(targetProjectionRoot, { target: "linux-musl-x64" });
+assert.equal(targetProjectionVerifyScript.code, 0);
+assert.match(targetProjectionVerifyScript.stdout, /repository graph verify-sync ok \(1 store\)/);
 const targetProjectionSyncFromGraph = json(["graph", "sync", "--from-graph", "--json", "--target", "linux-musl-x64", targetProjectionSource]);
 assert.equal(targetProjectionSyncFromGraph.code, 0);
 assert.equal(targetProjectionSyncFromGraph.body.repositoryGraph.syncState, "clean");

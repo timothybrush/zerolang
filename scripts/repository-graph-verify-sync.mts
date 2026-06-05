@@ -16,10 +16,11 @@ const skippedDirs = new Set([
 ]);
 
 function usage() {
-  console.error("usage: repository-graph-verify-sync [--root <path>]");
+  console.error("usage: repository-graph-verify-sync [--root <path>] [--target <target>]");
 }
 
 let root = process.cwd();
+let target = "";
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i];
   if (arg === "--root") {
@@ -29,6 +30,13 @@ for (let i = 2; i < process.argv.length; i++) {
       process.exit(2);
     }
     root = value;
+  } else if (arg === "--target") {
+    const value = process.argv[++i];
+    if (!value) {
+      usage();
+      process.exit(2);
+    }
+    target = value;
   } else if (arg === "--help" || arg === "-h") {
     usage();
     process.exit(0);
@@ -84,11 +92,15 @@ for (const store of stores) {
   const input = sourceInputForStore(store);
   const display = relative(repoRoot, input) || ".";
   console.log(`repository graph verify-sync: ${display}`);
+  const args = ["graph", "verify-sync"];
+  if (target) args.push("--target", target);
+  args.push(input);
   try {
-    execFileSync(zeroBin, ["graph", "verify-sync", input], { stdio: "inherit" });
+    execFileSync(zeroBin, args, { stdio: "inherit" });
   } catch {
     failures++;
-    console.error(`repository graph verify-sync failed: bin/zero graph verify-sync ${display}`);
+    const targetArgs = target ? ` --target ${target}` : "";
+    console.error(`repository graph verify-sync failed: bin/zero graph verify-sync${targetArgs} ${display}`);
   }
 }
 
