@@ -73,10 +73,13 @@ function assertSourceGraph(body, artifact, moduleIdentity, lowering = "typed-pro
   if (sourceProjectionState !== undefined) assert.equal(body.graph.sourceProjectionState, sourceProjectionState);
 }
 
+const programGraphParseTreeKeys = new Map();
+
 function assertProgramGraphCompilerInput(body, artifact) {
   assert(body.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === body.graph.graphHash));
   assert(body.compilerCaches.every((cache) => cache.parserArtifactsInKey === false));
-  const caches = new Map(body.compilerCaches.map((cache) => [cache.name, cache]));
+  const caches = new Map<string, any>();
+  for (const cache of body.compilerCaches) caches.set(cache.name, cache);
   const assertCacheInputs = (name, includes, excludes = []) => {
     const cache = caches.get(name);
     assert(cache, `missing compiler cache ${name}`);
@@ -88,7 +91,10 @@ function assertProgramGraphCompilerInput(body, artifact) {
   assertCacheInputs("checkedBody", ["graphHash", "importPaths", "targetFacts", "compilerVersion", "packageDependencies"], ["sourceFiles", "profile"]);
   assertCacheInputs("specialization", ["graphHash", "importPaths", "targetFacts", "profile", "compilerVersion", "packageDependencies"], ["sourceFiles"]);
   assertCacheInputs("emittedObject", ["graphHash", "importPaths", "targetFacts", "profile", "compilerVersion", "packageDependencies"], ["sourceFiles"]);
-  assert.equal(body.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "ProgramGraph input");
+  const parseTreeCache = caches.get("parseTree");
+  assert.equal(parseTreeCache.invalidatesOn, "ProgramGraph input");
+  if (programGraphParseTreeKeys.has(artifact)) assert.equal(parseTreeCache.key, programGraphParseTreeKeys.get(artifact));
+  else programGraphParseTreeKeys.set(artifact, parseTreeCache.key);
   assert.equal(body.incrementalInvalidation.sourceKind, "program-graph");
   assert.equal(body.incrementalInvalidation.graphInput.artifact, artifact);
   assert.equal(body.incrementalInvalidation.graphInput.graphHash, body.graph.graphHash);

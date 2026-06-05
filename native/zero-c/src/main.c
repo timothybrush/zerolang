@@ -1964,19 +1964,15 @@ static uint64_t source_interface_hash(const SourceInput *input) {
 
 static uint64_t graph_interface_cache_key(const SourceInput *input, const char *graph_hash) { uint64_t hash = fnv1a_text("program-graph-interface"); hash ^= source_interface_hash(input); hash *= 1099511628211ull; return mix_hash_text(hash, graph_hash); }
 
-static uint64_t source_dependency_hash(const SourceInput *input) {
-  uint64_t hash = fnv1a_text("dependencies");
-  if (!input) return hash;
+static uint64_t source_dependency_hash_ex(const SourceInput *input, bool include_source_files) {
+  uint64_t hash = fnv1a_text("dependencies"); if (!input) return hash;
   hash = mix_hash_text(hash, input->package_name);
   hash = mix_hash_text(hash, input->package_version);
   hash = mix_hash_text(hash, input->manifest_path);
-  hash ^= input->manifest_hash;
-  hash *= 1099511628211ull;
-  hash ^= input->dependency_graph_hash;
-  hash *= 1099511628211ull;
-  hash ^= input->lockfile_hash;
-  hash *= 1099511628211ull;
-  for (size_t i = 0; i < input->source_file_count; i++) hash = mix_hash_text(hash, input->source_files[i]);
+  hash ^= input->manifest_hash; hash *= 1099511628211ull;
+  hash ^= input->dependency_graph_hash; hash *= 1099511628211ull;
+  hash ^= input->lockfile_hash; hash *= 1099511628211ull;
+  if (include_source_files) for (size_t i = 0; i < input->source_file_count; i++) hash = mix_hash_text(hash, input->source_files[i]);
   for (size_t i = 0; i < input->import_edge_count; i++) {
     hash = mix_hash_text(hash, input->import_from[i]);
     hash = mix_hash_text(hash, input->import_to[i]);
@@ -1993,6 +1989,9 @@ static uint64_t source_dependency_hash(const SourceInput *input) {
   }
   return hash;
 }
+
+static uint64_t source_dependency_hash(const SourceInput *input) { return source_dependency_hash_ex(input, true); }
+static uint64_t graph_dependency_hash(const SourceInput *input) { return source_dependency_hash_ex(input, false); }
 
 static uint64_t source_imported_package_metadata_hash(const SourceInput *input) {
   uint64_t hash = fnv1a_text("imported-package-metadata");
@@ -2139,7 +2138,7 @@ static uint64_t graph_compile_cache_key(const SourceInput *input, const ZTargetI
   hash = mix_hash_text(hash, graph_hash ? graph_hash : "");
   hash = mix_hash_text(hash, target ? target->name : z_host_target());
   hash = mix_hash_text(hash, profile ? profile : "release");
-  hash ^= source_dependency_hash(input);
+  hash ^= graph_dependency_hash(input);
   return hash;
 }
 

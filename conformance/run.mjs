@@ -89,6 +89,8 @@ function assertSourceGraph(body, artifact, moduleIdentity, lowering = "typed-pro
   if (sourceProjectionState !== undefined) assert.equal(body.graph.sourceProjectionState, sourceProjectionState);
 }
 
+const programGraphParseTreeKeys = new Map();
+
 function assertProgramGraphCompilerInput(body, artifact) {
   assert(body.compilerCaches.every((cache) => cache.sourceKind === "program-graph" && cache.graphHash === body.graph.graphHash));
   assert(body.compilerCaches.every((cache) => cache.parserArtifactsInKey === false));
@@ -104,7 +106,10 @@ function assertProgramGraphCompilerInput(body, artifact) {
   assertCacheInputs("checkedBody", ["graphHash", "importPaths", "targetFacts", "compilerVersion", "packageDependencies"], ["sourceFiles", "profile"]);
   assertCacheInputs("specialization", ["graphHash", "importPaths", "targetFacts", "profile", "compilerVersion", "packageDependencies"], ["sourceFiles"]);
   assertCacheInputs("emittedObject", ["graphHash", "importPaths", "targetFacts", "profile", "compilerVersion", "packageDependencies"], ["sourceFiles"]);
-  assert.equal(body.compilerCaches.find((cache) => cache.name === "parseTree").invalidatesOn, "ProgramGraph input");
+  const parseTreeCache = caches.get("parseTree");
+  assert.equal(parseTreeCache.invalidatesOn, "ProgramGraph input");
+  if (programGraphParseTreeKeys.has(artifact)) assert.equal(parseTreeCache.key, programGraphParseTreeKeys.get(artifact));
+  else programGraphParseTreeKeys.set(artifact, parseTreeCache.key);
   assert.equal(body.incrementalInvalidation.sourceKind, "program-graph");
   assert.equal(body.incrementalInvalidation.graphInput.artifact, artifact);
   assert.equal(body.incrementalInvalidation.graphInput.graphHash, body.graph.graphHash);
@@ -3894,6 +3899,7 @@ assert.equal(programGraphSourceFreeCheckJson.sourceFile, `${programGraphSourceFr
 assert.equal(programGraphSourceFreeCheckJson.graph.artifact, `${programGraphSourceFreePackage}/zero.graph`);
 assert.equal(programGraphSourceFreeCheckJson.graph.sourceProjectionState, "missing");
 assertRepositoryGraphNativeCheck(programGraphSourceFreeCheckJson, "missing");
+assertProgramGraphCompilerInput(programGraphSourceFreeCheckJson, `${programGraphSourceFreePackage}/zero.graph`);
 assertSourceGraph(programGraphSourceFreeSizeJson, `${programGraphSourceFreePackage}/zero.graph`, "package:program-graph-fixture@0.1.0", "typed-program-graph-mir", false, "missing");
 assertProgramGraphCompilerInput(programGraphSourceFreeSizeJson, `${programGraphSourceFreePackage}/zero.graph`);
 assert.equal(programGraphSourceFreeBuildJson.sourceFile, `${programGraphSourceFreePackage}/zero.graph`);
