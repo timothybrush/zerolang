@@ -288,41 +288,85 @@ static void identity_apply_unique_pass(IdentityContext *context, IdentityCandida
   }
 }
 
-static void identity_detect_ordered_payload_swap(IdentityContext *context) {
+static bool identity_matched_payload_changed(IdentityContext *context, size_t base_index) {
+  if (!context || base_index >= context->base->node_len) return false;
+  size_t edited_index = context->base_to_edited[base_index];
+  if (edited_index == identity_missing()) return false;
+  return !identity_node_payload_eq(&context->base->nodes[base_index], &context->edited->nodes[edited_index]);
+}
+
+static bool identity_same_ordered_payload_group(IdentityContext *context, size_t left_base_index, size_t right_base_index) {
+  if (!context ||
+      left_base_index >= context->base->node_len ||
+      right_base_index >= context->base->node_len) {
+    return false;
+  }
+  size_t left_edited_index = context->base_to_edited[left_base_index];
+  size_t right_edited_index = context->base_to_edited[right_base_index];
+  if (left_edited_index == identity_missing() || right_edited_index == identity_missing()) return false;
+  const ZProgramGraphNode *left_base = &context->base->nodes[left_base_index];
+  const ZProgramGraphNode *right_base = &context->base->nodes[right_base_index];
+  if (left_base->kind != right_base->kind) return false;
+  size_t left_base_edge_index = identity_owner_edge_index(context->base, left_base_index);
+  size_t right_base_edge_index = identity_owner_edge_index(context->base, right_base_index);
+  size_t left_edited_edge_index = identity_owner_edge_index(context->edited, left_edited_index);
+  size_t right_edited_edge_index = identity_owner_edge_index(context->edited, right_edited_index);
+  if (left_base_edge_index == identity_missing() ||
+      right_base_edge_index == identity_missing() ||
+      left_edited_edge_index == identity_missing() ||
+      right_edited_edge_index == identity_missing()) {
+    return false;
+  }
+  const ZProgramGraphEdge *left_base_edge = &context->base->edges[left_base_edge_index];
+  const ZProgramGraphEdge *right_base_edge = &context->base->edges[right_base_edge_index];
+  const ZProgramGraphEdge *left_edited_edge = &context->edited->edges[left_edited_edge_index];
+  const ZProgramGraphEdge *right_edited_edge = &context->edited->edges[right_edited_edge_index];
+  return identity_text_eq(left_base_edge->from, right_base_edge->from) &&
+         identity_text_eq(left_base_edge->kind, right_base_edge->kind) &&
+         identity_text_eq(left_edited_edge->from, right_edited_edge->from) &&
+         identity_text_eq(left_edited_edge->kind, right_edited_edge->kind);
+}
+
+static bool identity_edited_payload_matches_base(IdentityContext *context, size_t edited_owner_base_index, size_t payload_base_index) {
+  if (!context ||
+      edited_owner_base_index >= context->base->node_len ||
+      payload_base_index >= context->base->node_len) {
+    return false;
+  }
+  size_t edited_index = context->base_to_edited[edited_owner_base_index];
+  if (edited_index == identity_missing()) return false;
+  return identity_node_payload_eq(&context->edited->nodes[edited_index], &context->base->nodes[payload_base_index]);
+}
+
+static bool identity_payload_cycle_from(IdentityContext *context, size_t start_base_index, size_t current_base_index, bool *visited, size_t depth) {
+  if (!context || !visited || depth > context->base->node_len) return false;
+  visited[current_base_index] = true;
+  for (size_t next = 0; next < context->base->node_len; next++) {
+    if (!identity_matched_payload_changed(context, next)) continue;
+    if (!identity_same_ordered_payload_group(context, start_base_index, next)) continue;
+    if (!identity_edited_payload_matches_base(context, current_base_index, next)) continue;
+    if (next == start_base_index) return true;
+    if (!visited[next] && identity_payload_cycle_from(context, start_base_index, next, visited, depth + 1)) return true;
+  }
+  return false;
+}
+
+static void identity_detect_ordered_payload_permutation(IdentityContext *context) {
+  bool *visited = z_checked_calloc(context && context->base->node_len ? context->base->node_len : 1, sizeof(bool));
   for (size_t i = 0; context && context->result.ok && i < context->base->node_len; i++) {
-    size_t edited_i = context->base_to_edited[i];
-    if (edited_i == identity_missing()) continue;
-    const ZProgramGraphNode *base_i = &context->base->nodes[i];
-    const ZProgramGraphNode *edited_node_i = &context->edited->nodes[edited_i];
-    if (identity_node_payload_eq(base_i, edited_node_i)) continue;
-    size_t base_edge_i = identity_owner_edge_index(context->base, i);
-    size_t edited_edge_i = identity_owner_edge_index(context->edited, edited_i);
-    if (base_edge_i == identity_missing() || edited_edge_i == identity_missing()) continue;
-    for (size_t k = i + 1; k < context->base->node_len; k++) {
-      size_t edited_k = context->base_to_edited[k];
-      if (edited_k == identity_missing()) continue;
-      const ZProgramGraphNode *base_k = &context->base->nodes[k];
-      const ZProgramGraphNode *edited_node_k = &context->edited->nodes[edited_k];
-      if (base_i->kind != base_k->kind || identity_node_payload_eq(base_k, edited_node_k)) continue;
-      size_t base_edge_k = identity_owner_edge_index(context->base, k);
-      size_t edited_edge_k = identity_owner_edge_index(context->edited, edited_k);
-      if (base_edge_k == identity_missing() || edited_edge_k == identity_missing()) continue;
-      const ZProgramGraphEdge *base_owner_i = &context->base->edges[base_edge_i];
-      const ZProgramGraphEdge *base_owner_k = &context->base->edges[base_edge_k];
-      const ZProgramGraphEdge *edited_owner_i = &context->edited->edges[edited_edge_i];
-      const ZProgramGraphEdge *edited_owner_k = &context->edited->edges[edited_edge_k];
-      if (!identity_text_eq(base_owner_i->from, base_owner_k->from) ||
-          !identity_text_eq(base_owner_i->kind, base_owner_k->kind) ||
-          !identity_text_eq(edited_owner_i->from, edited_owner_k->from) ||
-          !identity_text_eq(edited_owner_i->kind, edited_owner_k->kind)) {
-        continue;
-      }
-      if (identity_node_payload_eq(base_i, edited_node_k) && identity_node_payload_eq(base_k, edited_node_i)) {
-        identity_fail(context, "GRC001", "source edit has ambiguous graph identity", base_i->id, edited_node_i->id);
-        return;
-      }
+    if (!identity_matched_payload_changed(context, i)) continue;
+    memset(visited, 0, context->base->node_len * sizeof(bool));
+    if (identity_payload_cycle_from(context, i, i, visited, 0)) {
+      size_t edited_i = context->base_to_edited[i];
+      identity_fail(context,
+                    "GRC001",
+                    "source edit has ambiguous graph identity",
+                    context->base->nodes[i].id,
+                    edited_i == identity_missing() ? "" : context->edited->nodes[edited_i].id);
+      break;
     }
   }
+  free(visited);
 }
 
 static bool identity_assignments_unique(IdentityContext *context) {
@@ -398,7 +442,7 @@ bool z_program_graph_preserve_source_node_ids(const ZProgramGraph *base, ZProgra
   identity_apply_unique_pass(&context, identity_symbol_candidate);
   identity_apply_unique_pass(&context, identity_owner_child_candidate);
   identity_apply_unique_pass(&context, identity_base_id_candidate);
-  identity_detect_ordered_payload_swap(&context);
+  identity_detect_ordered_payload_permutation(&context);
   if (context.result.ok) {
     for (size_t i = 0; i < base->node_len; i++) {
       if (context.base_to_edited[i] == identity_missing()) context.result.deleted++;

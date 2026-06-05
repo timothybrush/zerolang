@@ -1254,6 +1254,33 @@ assert.notEqual(ambiguousRepoGraphSync.code, 0);
 assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].code, "RGP007");
 assert.equal(ambiguousRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
 assert.equal(readFileSync(ambiguousRepoGraphStore, "utf8"), ambiguousRepoGraphStoreBefore);
+const rotatedRepoGraphRoot = join("/tmp", `zero-repo-graph-rotated-${process.pid}`);
+const rotatedRepoGraphSource = join(rotatedRepoGraphRoot, "main.0");
+const rotatedRepoGraphStore = join(rotatedRepoGraphRoot, "zero.graph");
+rmSync(rotatedRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(rotatedRepoGraphRoot, { recursive: true });
+writeFileSync(
+  rotatedRepoGraphSource,
+  `fn sum3(a: i32, b: i32, c: i32) -> i32 {
+    return a + b + c
+}
+
+pub fn main(world: World) -> Void raises {
+    let total: i32 = sum3(1, 2, 3)
+    if total == 6 {
+        check world.out.write("rotated ok\\n")
+    }
+}
+`,
+);
+json(["graph", "sync", "--from-source", "--json", rotatedRepoGraphSource]);
+const rotatedRepoGraphStoreBefore = readFileSync(rotatedRepoGraphStore, "utf8");
+writeFileSync(rotatedRepoGraphSource, readFileSync(rotatedRepoGraphSource, "utf8").replace("sum3(1, 2, 3)", "sum3(2, 3, 1)"));
+const rotatedRepoGraphSync = json(["graph", "sync", "--from-source", "--json", rotatedRepoGraphSource], { allowFailure: true });
+assert.notEqual(rotatedRepoGraphSync.code, 0);
+assert.equal(rotatedRepoGraphSync.body.diagnostics[0].code, "RGP007");
+assert.equal(rotatedRepoGraphSync.body.diagnostics[0].message, "repository graph source identity is ambiguous");
+assert.equal(readFileSync(rotatedRepoGraphStore, "utf8"), rotatedRepoGraphStoreBefore);
 const ambiguousSiblingRepoGraphRoot = join("/tmp", `zero-repo-graph-ambiguous-sibling-${process.pid}`);
 const ambiguousSiblingRepoGraphSource = join(ambiguousSiblingRepoGraphRoot, "main.0");
 const ambiguousSiblingRepoGraphStore = join(ambiguousSiblingRepoGraphRoot, "zero.graph");
