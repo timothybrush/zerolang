@@ -13000,7 +13000,6 @@ static int run_graph_size_command(const Command *command, const ZTargetInfo *tar
                                                   target,
                                                   emit_kind_name(command ? command->emit : EMIT_EXE),
                                                   command ? command->backend : NULL,
-                                                  false,
                                                   &program,
                                                   &input,
                                                   &ir,
@@ -13881,11 +13880,9 @@ int main(int argc, char **argv) {
   bool graph_build_command = strcmp(command.command, "build") == 0 && root_graph_artifact_input;
   bool graph_run_artifact_command = strcmp(command.command, "run") == 0 && root_graph_artifact_input;
   bool graph_size_artifact_command = strcmp(command.command, "size") == 0 && root_graph_artifact_input;
-  bool graph_test_command = strcmp(command.command, "test") == 0 && root_graph_artifact_input;
-  bool direct_graph_source_command = false;
-  if (direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command || graph_size_artifact_command || graph_test_command) {
+  bool graph_artifact_mir_command = graph_build_command || graph_run_artifact_command || graph_size_artifact_command;
+  if (direct_graph_manifest_command || graph_artifact_mir_command) {
     ZProgramGraphArtifactSource graph_source = {0};
-    bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command || graph_size_artifact_command;
     long long graph_lower_started = now_ms();
     if (command.repository_graph_input && command.emit == EMIT_LLVM_IR) {
       if (!z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
@@ -13903,10 +13900,8 @@ int main(int argc, char **argv) {
     }
     bool prepared_graph = command.repository_graph_input
       ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "size") == 0), &program, &input, &graph_prepared_ir, &graph_source, &diag)
-      : (graph_mir_command
-          ? z_program_graph_prepare_artifact_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(graph_build_command || graph_run_artifact_command || graph_size_artifact_command), &program, &input, &graph_prepared_ir, &graph_source, &diag)
-          : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));
-    if (prepared_graph && graph_mir_command) {
+      : z_program_graph_prepare_artifact_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag);
+    if (prepared_graph) {
       input.lower_ms = now_ms() - graph_lower_started;
       apply_ir_metrics_to_input(&input, &graph_prepared_ir, target);
     }
@@ -13924,8 +13919,8 @@ int main(int argc, char **argv) {
     }
     touch_program_graph_compiler_caches(&input, target, command.profile, graph_source.graph_hash);
     command.graph_source = graph_source;
-    if (!direct_graph_manifest_command && !direct_graph_source_command && !graph_size_artifact_command) {
-      command.command = graph_run_artifact_command ? "run" : (graph_test_command ? "test" : "build");
+    if (!direct_graph_manifest_command && !graph_size_artifact_command) {
+      command.command = graph_run_artifact_command ? "run" : "build";
       command.kind = NULL;
     }
   } else if (!compile_input(command.input, target, command.profile, &input, &program, &diag)) {
@@ -13974,11 +13969,9 @@ int main(int argc, char **argv) {
   }
   if (!is_graph_command &&
       !direct_graph_manifest_command &&
-      !direct_graph_source_command &&
       !graph_build_command &&
       !graph_run_artifact_command &&
       !graph_size_artifact_command &&
-      !graph_test_command &&
       z_program_graph_source_command_uses_graph_mir(command.command)) {
     long long graph_lower_started = now_ms();
     bool graph_prepared = z_program_graph_prepare_source_mir_input(

@@ -4230,7 +4230,8 @@ static bool ir_graph_lower_checked_program(const ZProgramGraph *graph, const cha
   return ok;
 }
 
-bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, bool require_checked_program, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+  (void)program;
   if (!ir) return false;
   ZProgramGraph graph = {0};
   if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
@@ -4239,20 +4240,12 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
   char *mir_cache_path = z_mir_binary_cache_path_for_graph_store(artifact_path, graph.graph_hash, target, emit_kind, requested_backend);
   ZMirBinaryCacheFacts mir_cache = {0};
   if (mir_cache_path && z_mir_binary_load_path(mir_cache_path, graph.graph_hash, target, emit_kind, requested_backend, ir, &mir_cache, NULL)) {
-    if (require_checked_program) {
-      if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
-        z_free_ir_program(ir);
-        free(mir_cache_path);
-        z_program_graph_free(&graph);
-        return false;
-      }
-    }
     if (input) {
-      if (!require_checked_program) z_program_graph_seed_artifact_source_paths(input, &graph, artifact_path);
+      z_program_graph_seed_artifact_source_paths(input, &graph, artifact_path);
       z_program_graph_seed_source_metadata_facts(input, &graph);
       input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
       input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
-      ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, true, false, !require_checked_program, require_checked_program);
+      ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, true, false, true, false);
     }
     if (source) {
       source->artifact = artifact_path;
@@ -4268,13 +4261,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
 
   IrProgram graph_ir = z_lower_program_graph_with_source(&graph, input, target);
   if (graph_ir.mir_valid) {
-    if (require_checked_program && !ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
-      z_free_ir_program(&graph_ir);
-      free(mir_cache_path);
-      z_program_graph_free(&graph);
-      return false;
-    }
-    if (input && !require_checked_program) z_program_graph_seed_artifact_source_paths(input, &graph, artifact_path);
+    if (input) z_program_graph_seed_artifact_source_paths(input, &graph, artifact_path);
     if (mir_cache_path) {
       ZDiag cache_diag = {0};
       if (z_mir_binary_write_path(mir_cache_path, &graph_ir, graph.graph_hash, target, emit_kind, requested_backend, &cache_diag)) {
@@ -4282,7 +4269,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
         if (z_mir_binary_load_path(mir_cache_path, graph.graph_hash, target, emit_kind, requested_backend, &mapped_ir, &mir_cache, NULL)) {
           z_free_ir_program(&graph_ir);
           graph_ir = mapped_ir;
-          ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, true, false, require_checked_program);
+          ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, true, false, false);
         }
       }
     }
@@ -4299,7 +4286,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     z_program_graph_seed_source_metadata_facts(input, &graph);
     input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
-    ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, mir_cache.hit, false, require_checked_program);
+    ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, mir_cache.hit, false, false);
   }
   if (source) {
     source->artifact = artifact_path;

@@ -969,7 +969,8 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryGraphMirPrepReportsUnsupportedFacts ||
       !programGraph.repositoryGraphMirPrepNoInvalidMirProgramFallback ||
       !programGraph.artifactGraphMirPrepNoInvalidMirProgramFallback ||
-      !programGraph.artifactGraphSizeNoProgramReconstruction) {
+      !programGraph.artifactGraphSizeNoProgramReconstruction ||
+      !programGraph.artifactGraphProgramPrepRemoved) {
     violations.push({
       kind: "program-graph-repository-mir-prep",
       programGraph,
@@ -1289,6 +1290,8 @@ const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c")
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
 const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ?? "";
+const programGraphBuildRaw = texts.get("native/zero-c/src/program_graph_build.c") ?? "";
+const programGraphBuildHeaderRaw = texts.get("native/zero-c/src/program_graph_build.h") ?? "";
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
@@ -1801,9 +1804,9 @@ const programGraph = {
     /z_lower_program_graph_with_source\s*\(/.test(artifactGraphMirPrepBody) &&
     /source\s*->\s*lowering\s*=\s*"mapped-final-mir"/.test(artifactGraphMirPrepRawBody) &&
     /ir_graph_set_mapped_mir_cache_facts\s*\(/.test(artifactGraphMirPrepRawBody),
-  artifactGraphMirPrepImmediateCacheHit: /require_checked_program/.test(artifactGraphMirPrepRawBody) &&
-    /if\s*\(\s*require_checked_program\s*\)\s*\{\s*if\s*\(!ir_graph_lower_checked_program\s*\(/.test(artifactGraphMirPrepRawBody) &&
-    /ir_graph_set_mapped_mir_cache_facts\s*\(\s*input,\s*&mir_cache,\s*true,\s*false,\s*!require_checked_program,\s*require_checked_program\s*\)/.test(artifactGraphMirPrepRawBody),
+  artifactGraphMirPrepImmediateCacheHit: !/require_checked_program/.test(artifactGraphMirPrepRawBody) &&
+    !/ir_graph_lower_checked_program\s*\(/.test(artifactGraphMirPrepRawBody) &&
+    /ir_graph_set_mapped_mir_cache_facts\s*\(\s*input,\s*&mir_cache,\s*true,\s*false,\s*true,\s*false\s*\)/.test(artifactGraphMirPrepRawBody),
   repositoryGraphMirCacheFacts: /mappedFinalMir/.test(main) &&
     /borrowedStorage/.test(main) &&
     /memoryMapped/.test(main) &&
@@ -1823,7 +1826,7 @@ const programGraph = {
     (repositoryGraphMirPrepRawBody.match(/ir_graph_lower_checked_program\s*\(&store\.graph/g) ?? []).length === 2 &&
     /else\s*\{\s*if\s*\(\s*diag\s*&&\s*diag->code\s*==\s*0\s*\)\s*ir_graph_init_lowering_diag/.test(repositoryGraphMirPrepRawBody),
   artifactGraphMirPrepNoInvalidMirProgramFallback:
-    (artifactGraphMirPrepRawBody.match(/ir_graph_lower_checked_program\s*\(&graph/g) ?? []).length === 2 &&
+    !/ir_graph_lower_checked_program\s*\(/.test(artifactGraphMirPrepRawBody) &&
     /else\s*\{\s*if\s*\(\s*diag\s*&&\s*diag->code\s*==\s*0\s*\)\s*ir_graph_init_lowering_diag/.test(artifactGraphMirPrepRawBody),
   artifactGraphSizeNoProgramReconstruction:
     /z_program_graph_prepare_artifact_mir_input\s*\(/.test(artifactGraphSizeBody) &&
@@ -1832,6 +1835,12 @@ const programGraph = {
     !/z_program_graph_from_program\s*\(/.test(artifactGraphSizeBody) &&
     !/load_graph_input_for_read\s*\(/.test(artifactGraphSizeBody) &&
     !/graph_size_artifact_command\s*&&\s*diag\.code\s*==\s*2004/.test(main),
+  artifactGraphProgramPrepRemoved:
+    !/z_program_graph_prepare_artifact_input\s*\(/.test(main) &&
+    !/z_program_graph_prepare_artifact_input\s*\(/.test(programGraphBuildRaw) &&
+    !/z_program_graph_prepare_artifact_input\s*\(/.test(programGraphBuildHeaderRaw) &&
+    !/\bdirect_graph_source_command\b/.test(main) &&
+    !/\bgraph_test_command\b/.test(main),
   repositoryCompilerInputSourceFree: /z_repository_graph_verify_compiler_input\s*\(\s*command->input\s*,\s*target\s*,\s*command->json\s*,\s*&store_path\s*\)/.test(directManifestGraphInputBody) &&
     !/load_graph_from_checked_current_source\s*\(/.test(directManifestGraphInputBody) &&
     !/SourceInput\s+source_input/.test(directManifestGraphInputBody),
