@@ -101,8 +101,8 @@ another tool needs stable fields.
 | `zero view --json` | Canonical source text rendered from source or a ProgramGraph artifact with `moduleIdentity`, `graphHash`, and optional output path. |
 | `zero source-map --json` | Graph node IDs mapped to source ranges with node hashes, symbol/type/effect IDs, and file hash facts. |
 | `zero reconcile --json` | Identity decisions when edited source is compared with a prior graph, including ambiguous-match diagnostics and simple graph patch text when available. |
-| `zero status --json` | Repository graph projection facts, the expected `zero.graph` path, no-write status, store validity, and whether the graph/source projection is current. |
-| `zero verify-projection --json` | A no-write graph/source projection check that compares a valid repository graph store with the current source graph and reports repair commands on drift. |
+| `zero status --json` | Repository graph projection facts, the expected `zero.graph` path, no-write status, store validity, and whether checked-in projections are current. |
+| `zero verify-projection --json` | A no-write projection drift check that compares a valid repository graph store with checked-in `.0` projection bytes and reports import/export repair choices on drift. |
 | `zero merge --json` | Three-way repository graph store merge with base/left/right stores, durable-node conflict diagnostics, changed-path reporting, storage facts, and scale counts. |
 | `zero size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
 | `zero build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
@@ -195,16 +195,16 @@ format. Stdlib `std/*.graph` stores are binary graph stores used by the
 compiler path; sibling `std/*.0` files are human-readable projections, not the
 stdlib compile source.
 `zero export` rewrites stale `.0` source projections from that
-store, and `zero verify-projection` checks the store against the current source
-graph and source projection without writing files. Packages can opt normal
+store, and `zero verify-projection` checks the store against checked-in source
+projection bytes without writing files. Packages can opt normal
 check, build, run, test, size, ship, and mem commands into the checked-in store
 with `repositoryGraph.compilerInput: true` in `zero.toml`.
 Normal compiler
 commands validate and compile from the graph store, including target and package
 metadata, so source-free graph packages can still be checked, built, run,
 tested, sized, shipped, and inspected. Commands report source projection state
-and do not rewrite `.0` files; run `zero verify-projection` when graph and
-source projection drift must fail the workflow. Packages without that marker
+and do not rewrite `.0` files; run `zero verify-projection` when checked-in
+projection drift must fail the workflow. Packages without that marker
 still use checked-in `.0` source text as their compiler input.
 `zero merge --base <base-zero.graph> --left <left-zero.graph> --right
 <right-zero.graph> <input>` combines independent repository graph store edits by

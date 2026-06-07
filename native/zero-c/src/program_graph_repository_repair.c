@@ -44,6 +44,9 @@ void z_repository_graph_append_repair_commands_json(ZBuf *buf, const char *input
     repair_append_json_command(buf, &first, "zero import", input);
   } else if (repair == REPO_GRAPH_REPAIR_FROM_GRAPH) {
     repair_append_json_command(buf, &first, "zero export", input);
+  } else if (repair == REPO_GRAPH_REPAIR_IMPORT_OR_EXPORT) {
+    repair_append_json_command(buf, &first, "zero import", input);
+    repair_append_json_command(buf, &first, "zero export", input);
   } else if (repair == REPO_GRAPH_REPAIR_STATUS) {
     repair_append_json_command(buf, &first, "zero status", input);
   }
@@ -61,6 +64,9 @@ void z_repository_graph_print_repair_commands(FILE *stream, const char *input, Z
   if (repair == REPO_GRAPH_REPAIR_FROM_SOURCE) {
     repair_print_command(stream, "zero import", input);
   } else if (repair == REPO_GRAPH_REPAIR_FROM_GRAPH) {
+    repair_print_command(stream, "zero export", input);
+  } else if (repair == REPO_GRAPH_REPAIR_IMPORT_OR_EXPORT) {
+    repair_print_command(stream, "zero import", input);
     repair_print_command(stream, "zero export", input);
   } else if (repair == REPO_GRAPH_REPAIR_STATUS) {
     repair_print_command(stream, "zero status", input);

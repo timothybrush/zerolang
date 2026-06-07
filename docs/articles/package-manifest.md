@@ -73,7 +73,7 @@ zero check .
 Use `zero export` to materialize or refresh `.0` projections
 for human review. Use `zero import` after humans edit `.0` so
 the graph store reflects the reviewed source projection. Use
-`zero verify-projection` when CI or review needs the no-write graph/source drift
+`zero verify-projection` when CI or review needs the no-write projection drift
 gate. Leave the field unset or `false` for source-text packages.
 
 `zero inspect --json <package>` reports:

@@ -4623,8 +4623,9 @@ const programGraphSourceFixtureDriftBody = JSON.parse(programGraphSourceFixtureD
 assert.equal(programGraphSourceFixtureDriftBody.ok, false);
 assert.equal(programGraphSourceFixtureDriftBody.mode, "verify-projection");
 assert.equal(programGraphSourceFixtureDriftBody.repositoryGraph.compilerInput, "repository-graph");
-assert.equal(programGraphSourceFixtureDriftBody.diagnostics[0].code, "RGP005");
+assert.equal(programGraphSourceFixtureDriftBody.diagnostics[0].code, "RGP006");
 assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero import/);
+assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero export/);
 assert.equal(programGraphTargetIncompatibleSync.ok, true);
 assert.notEqual(programGraphTargetIncompatibleCheck.code, 0);
 const programGraphTargetIncompatibleBody = JSON.parse(programGraphTargetIncompatibleCheck.stdout);

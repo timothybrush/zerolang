@@ -326,7 +326,7 @@ static void repo_append_diagnostic_json(ZBuf *buf, const RepositoryGraphState *s
   repo_append_json_string(buf, actual);
   zbuf_append(buf, ",\"help\":");
   repo_append_json_string(buf, help);
-  zbuf_append(buf, ",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"inspect-repository-graph-status\",\"summary\":\"Inspect graph/source projection state before choosing import or export.\"},\"related\":[]}],");
+  zbuf_append(buf, ",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"inspect-repository-graph-status\",\"summary\":\"Inspect projection state before choosing import or export.\"},\"related\":[]}],");
   zbuf_append(buf, "\n  \"repairCommands\": ");
   z_repository_graph_append_repair_commands_json(buf, state->input, repair);
   zbuf_append(buf, "\n}\n");
@@ -481,8 +481,8 @@ int z_repository_graph_status_command(const char *input, const ZTargetInfo *targ
   return 0;
 }
 
-int z_repository_graph_verify_projection_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source, const ZProgramGraph *source_graph) {
-  RepositoryGraphState state = repo_graph_state(input, target, source_graph, NULL);
+int z_repository_graph_verify_projection_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source) {
+  RepositoryGraphState state = repo_graph_state(input, target, NULL, NULL);
   if (from_graph || from_source) {
     int rc = repo_graph_import_export_error(&state, json, "verify-projection", "unexpected import/export direction");
     repo_graph_state_free(&state);
@@ -524,14 +524,8 @@ int z_repository_graph_verify_projection_command(const char *input, const ZTarge
   bool projection_current = false;
   bool projection_checked = z_program_graph_projection_sources_match(&store, target, &projection_current, &diag);
   if (!projection_checked || !projection_current) {
-    if (source_graph && !z_program_graph_store_graph_matches_source(&store, source_graph)) {
-      rc = repo_graph_error(&state, json, "verify-projection", "RGP005", "repository graph store differs from source text", "zero.graph projection matching checked-in .0 source text", source_graph && source_graph->graph_hash ? source_graph->graph_hash : "changed source graph", "run zero import after reviewing source changes", REPO_GRAPH_REPAIR_FROM_SOURCE);
-      z_program_graph_store_free(&store);
-      repo_graph_state_free(&state);
-      return rc;
-    }
     const char *actual = projection_checked ? "source projection differs" : (diag.message[0] ? diag.message : "projection unavailable");
-    rc = repo_graph_error(&state, json, "verify-projection", "RGP006", "source projection differs from repository graph", "checked-in .0 source text matching zero.graph projection", actual, "run zero export after reviewing graph changes", REPO_GRAPH_REPAIR_FROM_GRAPH);
+    rc = repo_graph_error(&state, json, "verify-projection", "RGP006", "source projection differs from repository graph", "checked-in .0 source text matching zero.graph projection", actual, "review the diff, then run zero import if the .0 projection is authoritative or zero export if zero.graph is authoritative", REPO_GRAPH_REPAIR_IMPORT_OR_EXPORT);
     z_program_graph_store_free(&store);
     repo_graph_state_free(&state);
     return rc;
@@ -846,11 +840,10 @@ int z_repository_graph_merge_command(const char *input, const ZTargetInfo *targe
 bool z_repository_graph_needs_source_graph(const char *kind, const char *input, const ZTargetInfo *target, bool from_graph, bool from_source) {
   if (REPO_KIND(kind, "import")) return true;
   if (REPO_KIND(kind, "status") && !from_graph && !from_source) return false;
-  if (!REPO_KIND(kind, "verify-projection") || from_graph || from_source) return false;
-  RepositoryGraphState state = repo_graph_state(input, target, NULL, NULL);
-  bool needs_source = state.compiler_input_valid && state.store_valid;
-  repo_graph_state_free(&state);
-  return needs_source;
+  if (REPO_KIND(kind, "verify-projection") && !from_graph && !from_source) return false;
+  (void)input;
+  (void)target;
+  return false;
 }
 
 bool z_repository_graph_source_graph_optional(const char *kind, bool from_graph, bool from_source) {
@@ -862,7 +855,7 @@ bool z_repository_graph_source_graph_optional(const char *kind, bool from_graph,
 int z_repository_graph_maybe_command(const char *kind, const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source, const char *merge_base, const char *merge_left, const char *merge_right, const char *store_format, const char *out, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag, ZRepositoryGraphLoadSourceGraphFn load_source_graph, void *load_source_graph_ctx, bool *handled) {
   if (handled) *handled = true;
   if (REPO_KIND(kind, "status")) return z_repository_graph_status_command(input, target, json, from_graph, from_source, source_graph, source_graph_diag);
-  if (REPO_KIND(kind, "verify-projection")) return z_repository_graph_verify_projection_command(input, target, json, from_graph, from_source, source_graph);
+  if (REPO_KIND(kind, "verify-projection")) return z_repository_graph_verify_projection_command(input, target, json, from_graph, from_source);
   bool is_import = REPO_KIND(kind, "import");
   bool is_export = REPO_KIND(kind, "export");
   if (is_import || is_export) {

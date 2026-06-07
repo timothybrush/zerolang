@@ -9,7 +9,7 @@
 typedef bool (*ZRepositoryGraphLoadSourceGraphFn)(void *ctx, ZProgramGraph *graph, ZDiag *diag);
 
 int z_repository_graph_status_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag);
-int z_repository_graph_verify_projection_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source, const ZProgramGraph *source_graph);
+int z_repository_graph_verify_projection_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source);
 int z_repository_graph_import_export_command(const char *input, const ZTargetInfo *target, bool json, bool from_graph, bool from_source, const char *store_format, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag, ZRepositoryGraphLoadSourceGraphFn load_source_graph, void *load_source_graph_ctx);
 int z_repository_graph_merge_command(const char *input, const ZTargetInfo *target, const char *base_path, const char *left_path, const char *right_path, const char *store_format, bool json);
 bool z_repository_graph_needs_source_graph(const char *kind, const char *input, const ZTargetInfo *target, bool from_graph, bool from_source);

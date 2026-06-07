@@ -11953,7 +11953,7 @@ static bool load_repository_graph_checked_source_graph(void *ctx, ZProgramGraph 
 static bool repository_graph_command_loads_checked_source(const Command *command) {
   if (!command || !command->kind) return false;
   if (command->graph_export_from_graph) return false;
-  if (strcmp(command->kind, "status") == 0 || strcmp(command->kind, "verify-projection") == 0) return !command->graph_import_from_source;
+  if (strcmp(command->kind, "status") == 0 || strcmp(command->kind, "verify-projection") == 0) return false;
   return strcmp(command->kind, "import") == 0;
 }
 

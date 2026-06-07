@@ -154,7 +154,7 @@ static int input_error(const RepositoryGraphInputState *state, bool json, const 
     input_append_json_string(&buf, actual);
     zbuf_append(&buf, ",\"help\":");
     input_append_json_string(&buf, help);
-    zbuf_append(&buf, ",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"inspect-repository-graph-status\",\"summary\":\"Inspect graph/source projection state before choosing import or export.\"},\"related\":[]}],\n  \"repairCommands\": ");
+    zbuf_append(&buf, ",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"inspect-repository-graph-status\",\"summary\":\"Inspect projection state before choosing import or export.\"},\"related\":[]}],\n  \"repairCommands\": ");
     z_repository_graph_append_repair_commands_json(&buf, state->input, repair);
     zbuf_append(&buf, "\n}\n");
     fputs(buf.data, stdout);

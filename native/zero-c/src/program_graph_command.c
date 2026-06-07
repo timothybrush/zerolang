@@ -150,7 +150,7 @@ void z_program_graph_print_command_help(void) {
   printf("  source-map map graph nodes to source ranges and semantic identity facts\n");
   printf("  reconcile compare a prior graph with edited source and report identity decisions\n");
   printf("  status    report repository graph projection state without writing files\n");
-  printf("  verify-projection check graph/source projection drift without writing files\n");
+  printf("  verify-projection check checked-in projection drift without writing files\n");
   printf("  merge     combine independent repository graph store edits by durable node id\n");
   printf("  roundtrip compare graph semantics after direct ProgramGraph lowering\n");
   printf("\nRepository store encoding:\n");

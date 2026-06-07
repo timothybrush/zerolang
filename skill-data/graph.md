@@ -21,7 +21,7 @@ packages, `.0` files are the human-readable source projection, and
   projections for human review.
 - Use `zero import <package>` after a human edits `.0` so the
   reviewed source projection refreshes `zero.graph`.
-- Use `zero verify-projection <package>` when graph/source drift must fail
+- Use `zero verify-projection <package>` when projection drift must fail
   without writing files.
 - Use `.program-graph` artifacts only when another tool needs a standalone
   debug or interchange file.
@@ -340,14 +340,15 @@ graph node handles where the source edit is unambiguous, and stores exact
 checked-in `.0` projection bytes for tracked local files. Ambiguous identity
 changes fail instead of guessing. `export` updates stale or missing
 checked-in `.0` projections from `zero.graph`, and `verify-projection` checks the
-store against the current source graph and source projection.
+store against checked-in source projection bytes without rebuilding a source
+graph.
 
 When a package manifest sets `repositoryGraph.compilerInput` to `true`, normal
 compiler commands validate and compile from the graph store, including target
 and package metadata, so source-free graph packages can still be checked, built,
 run, tested, sized, shipped, and inspected. Commands report whether the source
 projection is clean, missing, stale, conflicting, or unavailable, but do not
-rewrite `.0` files. Use `zero verify-projection` when graph/source drift must
+rewrite `.0` files. Use `zero verify-projection` when projection drift must
 fail the workflow. Without that marker, normal commands use checked-in `.0`
 source text.
 

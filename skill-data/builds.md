@@ -22,7 +22,7 @@ For packages with `repositoryGraph.compilerInput: true`, normal check, build,
 run, test, size, ship, and mem commands compile from the checked-in
 `zero.graph` store. Source projections may be clean, missing, stale, or in
 conflict; commands report that state and do not rewrite `.0` files. Use
-`zero verify-projection` when CI or review needs graph/source drift to fail, and
+`zero verify-projection` when CI or review needs projection drift to fail, and
 `zero export` to regenerate projections from the store. Other
 packages compile from `.0` source text.
 
