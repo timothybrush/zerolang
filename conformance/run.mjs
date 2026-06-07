@@ -52,6 +52,58 @@ function execFileAsync(file, args = [], options = {}) {
   });
 }
 
+function tomlQuote(value) {
+  return JSON.stringify(String(value));
+}
+
+function tomlArray(values) {
+  return `[${values.map(tomlQuote).join(", ")}]`;
+}
+
+function appendManifestFields(lines, object, order) {
+  for (const key of order) {
+    if (!(key in object)) continue;
+    const value = object[key];
+    if (Array.isArray(value)) lines.push(`${key} = ${tomlArray(value)}`);
+    else if (typeof value === "boolean") lines.push(`${key} = ${value ? "true" : "false"}`);
+    else lines.push(`${key} = ${tomlQuote(value)}`);
+  }
+}
+
+function manifestToml(manifest) {
+  const lines = ["[package]"];
+  appendManifestFields(lines, manifest.package ?? {}, ["name", "version", "license"]);
+  for (const [targetName, target] of Object.entries(manifest.targets ?? {})) {
+    lines.push("", `[targets.${targetName}]`);
+    appendManifestFields(lines, target, ["kind", "main", "graph", "defaultTarget", "devTarget", "releaseProfile"]);
+  }
+  if (manifest.repositoryGraph) {
+    lines.push("", "[repositoryGraph]");
+    appendManifestFields(lines, manifest.repositoryGraph, ["compilerInput"]);
+  }
+  for (const sectionName of ["deps", "dependencies"]) {
+    if (!manifest[sectionName]) continue;
+    lines.push("", `[${sectionName}]`);
+    for (const [name, value] of Object.entries(manifest[sectionName])) {
+      if (typeof value === "string") lines.push(`${name} = ${tomlQuote(value)}`);
+    }
+    for (const [name, value] of Object.entries(manifest[sectionName])) {
+      if (typeof value === "string") continue;
+      lines.push("", `[${sectionName}.${name}]`);
+      appendManifestFields(lines, value, ["path", "version", "targets", "target"]);
+    }
+  }
+  for (const [name, lib] of Object.entries(manifest.c?.libs ?? {})) {
+    lines.push("", `[c.libs.${name}]`);
+    appendManifestFields(lines, lib, ["headers", "include", "lib", "link", "mode", "pkg_config", "pkgConfig"]);
+  }
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}\n`;
+}
+
+async function writeZeroToml(root, manifest) {
+  await writeFile(`${root}/zero.toml`, manifestToml(manifest));
+}
+
 function isolatedCacheEnv(workerIndex) {
   return {
     ...process.env,
@@ -3441,11 +3493,11 @@ assert(importGraphBody.functions.some((item) => item.name === "main" && item.ret
 
 const whitespaceUsePackage = `${outDir}/use-whitespace-package`;
 await mkdir(`${whitespaceUsePackage}/src`, { recursive: true });
-await writeFile(`${whitespaceUsePackage}/zero.json`, JSON.stringify({
+await writeZeroToml(whitespaceUsePackage, {
   package: { name: "use-whitespace-package", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   deps: {},
-}, null, 2));
+});
 await mkdir(`${whitespaceUsePackage}/src/math`, { recursive: true });
 await writeFile(`${whitespaceUsePackage}/src/math.0`, 'fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n');
 await writeFile(`${whitespaceUsePackage}/src/math/util.0`, 'fn add_two(value: i32) -> i32 {\n    return value + 2\n}\n');
@@ -3753,7 +3805,7 @@ const programGraphSourceFixtureStoreText = await readFile(programGraphSourceFixt
 const programGraphSourceFixturePackageCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixturePackage])).stdout);
 const programGraphSourceFixturePackageRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFixtureRunPath, programGraphSourceFixturePackage]);
 await mkdir(programGraphSourceFreePackage, { recursive: true });
-await writeFile(`${programGraphSourceFreePackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
+await writeFile(`${programGraphSourceFreePackage}/zero.toml`, await readFile(`${programGraphSourceFixturePackage}/zero.toml`, "utf8"));
 await writeFile(`${programGraphSourceFreePackage}/zero.graph`, programGraphSourceFixtureStoreText);
 const programGraphSourceFreeCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeSizeJson = JSON.parse((await execFileAsync(zero, ["size", "--json", "--target", "linux-musl-x64", programGraphSourceFreePackage])).stdout);
@@ -3767,11 +3819,11 @@ const programGraphSourceFreeVerify = await execFileAsync(zero, ["verify-sync", "
 const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["verify-sync", "--json", programGraphSourceFreePackage])).stdout);
 await mkdir(programGraphSourceFreeStdStrPackage, { recursive: true });
-await writeFile(`${programGraphSourceFreeStdStrPackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphSourceFreeStdStrPackage, {
   package: { name: "program-graph-source-free-std-str", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphSourceFreeStdStrPackage}/main.0`, await readFile("examples/std-str.0", "utf8"));
 const programGraphSourceFreeStdStrSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphSourceFreeStdStrPackage])).stdout);
 await rm(`${programGraphSourceFreeStdStrPackage}/main.0`, { force: true });
@@ -3980,7 +4032,7 @@ const programGraphAuthoringCliTestAfterHumanEdit = JSON.parse((await execFileAsy
 const programGraphAuthoringCliRunAfterHumanEdit = await execFileAsync(zero, ["run", "--out", programGraphAuthoringCliRunAfterHumanEditPath, programGraphAuthoringCliPackage, "--", "5", "6"]);
 await mkdir(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true });
 await mkdir(`${programGraphSourceFreeCImportPackage}/vendor/include`, { recursive: true });
-await writeFile(`${programGraphSourceFreeCImportPackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphSourceFreeCImportPackage, {
   package: { name: "program-graph-source-free-c-import", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   repositoryGraph: { compilerInput: true },
@@ -3989,7 +4041,7 @@ await writeFile(`${programGraphSourceFreeCImportPackage}/zero.json`, JSON.string
       ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" },
     },
   },
-}, null, 2));
+});
 await writeFile(`${programGraphSourceFreeCImportPackage}/vendor/include/zero_ext.h`, "int zero_ext_add(int a, int b);\n");
 await writeFile(`${programGraphSourceFreeCImportPackage}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
 
@@ -4002,10 +4054,10 @@ await rm(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true, force
 const programGraphSourceFreeCImportCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeCImportPackage])).stdout);
 const programGraphSourceFreeCImportRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeCImportRunPath, programGraphSourceFreeCImportPackage]);
 await mkdir(programGraphSourceFreeCImportCwdPackage, { recursive: true });
-await writeFile(`${programGraphSourceFreeCImportCwdPackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphSourceFreeCImportCwdPackage, {
   package: { name: "program-graph-source-free-c-import-cwd", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
-}, null, 2));
+});
 const programGraphSourceFreeCImportCwdBuild = JSON.parse((await execFileAsync(resolve(zero), [
   "build",
   "--json",
@@ -4014,23 +4066,23 @@ const programGraphSourceFreeCImportCwdBuild = JSON.parse((await execFileAsync(re
   resolve(programGraphSourceFreeCImportPackage),
 ], { cwd: programGraphSourceFreeCImportCwdPackage })).stdout);
 await mkdir(programGraphIdentityMismatchPackage, { recursive: true });
-await writeFile(`${programGraphIdentityMismatchPackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphIdentityMismatchPackage, {
   package: { name: "program-graph-wrong-package", version: "9.9.9" },
   targets: { cli: { kind: "exe", main: "hello.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphIdentityMismatchPackage}/zero.graph`, programGraphSourceFixtureStoreText);
 const programGraphIdentityMismatchCheck = await execFileAsync(zero, ["check", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
 const programGraphIdentityMismatchSize = await execFileAsync(zero, ["size", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
 await mkdir(programGraphMissingPackageNamePackage, { recursive: true });
-await writeFile(`${programGraphMissingPackageNamePackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphMissingPackageNamePackage, {
   targets: { cli: { kind: "exe", main: "hello.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphMissingPackageNamePackage}/zero.graph`, programGraphSourceFixtureStoreText);
 const programGraphMissingPackageNameCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingPackageNamePackage]).catch((error) => error);
 await mkdir(programGraphBadProjectionPackage, { recursive: true });
-await writeFile(`${programGraphBadProjectionPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
+await writeFile(`${programGraphBadProjectionPackage}/zero.toml`, await readFile(`${programGraphSourceFixturePackage}/zero.toml`, "utf8"));
 await writeFile(`${programGraphBadProjectionPackage}/zero.graph`, programGraphSourceFixtureStoreText.replace(
   /^projection path:"hello\.0" text:.*$/m,
   `projection path:"hello.0" text:${JSON.stringify("pub fn broken( {\n")}`,
@@ -4039,46 +4091,46 @@ const programGraphBadProjectionStatus = JSON.parse((await execFileAsync(zero, ["
 const programGraphBadProjectionCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBadProjectionPackage])).stdout);
 const programGraphBadProjectionSync = await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphBadProjectionPackage]).catch((error) => error);
 await mkdir(programGraphMissingStorePackage, { recursive: true });
-await writeFile(`${programGraphMissingStorePackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphMissingStorePackage, {
   package: { name: "program-graph-missing-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphMissingStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
 const programGraphMissingStoreCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingStorePackage]).catch((error) => error);
 await mkdir(programGraphInvalidStorePackage, { recursive: true });
-await writeFile(`${programGraphInvalidStorePackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphInvalidStorePackage, {
   package: { name: "program-graph-invalid-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphInvalidStorePackage}/main.0`, "pub fn main() -> i32 { return 0 }\n");
 await writeFile(`${programGraphInvalidStorePackage}/zero.graph`, "not a repository graph\n");
 const programGraphInvalidStoreCheck = await execFileAsync(zero, ["check", "--json", programGraphInvalidStorePackage]).catch((error) => error);
 await mkdir(programGraphSourceFixtureDriftPackage, { recursive: true });
-await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
+await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.toml`, await readFile(`${programGraphSourceFixturePackage}/zero.toml`, "utf8"));
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.graph`, programGraphSourceFixtureStoreText);
 await writeFile(`${programGraphSourceFixtureDriftPackage}/hello.0`, programGraphSourceFixtureText.replace("hello from zero", "hello from drift"));
 const programGraphSourceFixtureDriftCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixtureDriftPackage])).stdout);
 const programGraphSourceFixtureDriftVerify = await execFileAsync(zero, ["verify-sync", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
 await mkdir(programGraphTargetWebbitsPackage, { recursive: true });
-await writeFile(`${programGraphTargetWebbitsPackage}/zero.json`, await readFile("conformance/packages/target-webbits/zero.json", "utf8"));
+await writeFile(`${programGraphTargetWebbitsPackage}/zero.toml`, await readFile("conformance/packages/target-webbits/zero.toml", "utf8"));
 await mkdir(`${programGraphTargetIncompatiblePackage}/src`, { recursive: true });
-await writeFile(`${programGraphTargetIncompatiblePackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphTargetIncompatiblePackage, {
   package: { name: "program-graph-target-incompatible", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   dependencies: { "target-webbits": { path: "../program-graph-target-webbits", version: "0.1.0", targets: ["win32-x64.exe"] } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphTargetIncompatiblePackage}/src/main.0`, await readFile("conformance/packages/target-incompatible-app/src/main.0", "utf8"));
 const programGraphTargetIncompatibleSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphTargetIncompatiblePackage])).stdout);
 const programGraphTargetIncompatibleCheck = await execFileAsync(zero, ["check", "--json", "--target", "linux-musl-x64", programGraphTargetIncompatiblePackage]).catch((error) => error);
 await mkdir(programGraphTargetCapabilityPackage, { recursive: true });
-await writeFile(`${programGraphTargetCapabilityPackage}/zero.json`, JSON.stringify({
+await writeZeroToml(programGraphTargetCapabilityPackage, {
   package: { name: "program-graph-target-capability", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 await writeFile(`${programGraphTargetCapabilityPackage}/main.0`, `pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()
     if std.fs.writeFile(fs, ".zero/out/program-graph-target-capability.txt", "ok\\n") {
@@ -4788,14 +4840,14 @@ await mkdir(`${cImportPartialLinkRoot}/src`, { recursive: true });
 await mkdir(`${cImportPartialLinkRoot}/vendor/include`, { recursive: true });
 await writeFile(`${cImportPartialLinkRoot}/vendor/include/a.h`, "int zero_a_add(int left, int right);\n");
 await writeFile(`${cImportPartialLinkRoot}/vendor/include/b.h`, "int zero_b_add(int left, int right);\n");
-await writeFile(`${cImportPartialLinkRoot}/zero.json`, JSON.stringify({
+await writeZeroToml(cImportPartialLinkRoot, {
   package: { name: "c-import-partial-link", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   c: { libs: {
     a: { headers: ["vendor/include/a.h"], include: ["vendor/include"], lib: ["vendor/lib/a.o"], link: [], mode: "static" },
     b: { headers: ["vendor/include/b.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" }
   } }
-}, null, 2));
+});
 await writeFile(`${cImportPartialLinkRoot}/src/main.0`, `extern c "vendor/include/a.h" as a
 extern c "vendor/include/b.h" as b
 
@@ -4877,19 +4929,19 @@ if (externCallDirtyAsm) {
   await writeFile(`${externCallRoot}/vendor/lib/zero_ext_dirty.S`, externCallDirtyAsm);
   await execFileAsync("cc", ["-c", `${externCallRoot}/vendor/lib/zero_ext_dirty.S`, "-o", `${externCallRoot}/${externCallDirtyObjectRel}`]);
 }
-await writeFile(`${externCallRoot}/zero.json`, JSON.stringify({
+await writeZeroToml(externCallRoot, {
   package: { name: "extern-c-call", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   c: { libs: {
     ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [externCallObjectRel, ...(externCallDirtyAsm ? [externCallDirtyObjectRel] : [])], link: [], mode: "static" },
     unused: { headers: ["vendor/include/unused.h"], include: ["vendor/include"], lib: ["vendor/lib/missing-unused.o"], link: [], mode: "static" }
   } }
-}, null, 2));
-await writeFile(`${externCallScalarRoot}/zero.json`, JSON.stringify({
+});
+await writeZeroToml(externCallScalarRoot, {
   package: { name: "extern-c-scalar", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   c: { libs: { ext: { headers: [`${externCallRoot}/vendor/include/zero_ext.h`], include: [`${externCallRoot}/vendor/include`], lib: [`${externCallRoot}/${externCallObjectRel}`], link: [], mode: "static" } } }
-}, null, 2));
+});
 await writeFile(`${externCallRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
 
 pub fn main(world: World) -> Void raises {
@@ -5005,11 +5057,11 @@ await rm(unsafeExternLinkRoot, { recursive: true, force: true });
 await mkdir(`${unsafeExternLinkRoot}/src`, { recursive: true });
 await mkdir(`${unsafeExternLinkRoot}/vendor/include`, { recursive: true });
 await writeFile(`${unsafeExternLinkRoot}/vendor/include/zero_ext.h`, "int zero_ext_add(int left, int right);\n");
-await writeFile(`${unsafeExternLinkRoot}/zero.json`, JSON.stringify({
+await writeZeroToml(unsafeExternLinkRoot, {
   package: { name: "extern-c-unsafe-link", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   c: { libs: { ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: ["zero_ext;touch"], mode: "static" } } }
-}, null, 2));
+});
 await writeFile(`${unsafeExternLinkRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
 
 pub fn main() -> i32 {
@@ -5030,11 +5082,11 @@ await rm(unsafeExternLinkRoot, { recursive: true, force: true });
 const runtimeManifestRoot = `/tmp/zero-runtime-manifest-link-${process.pid}`;
 await rm(runtimeManifestRoot, { recursive: true, force: true });
 await mkdir(`${runtimeManifestRoot}/src`, { recursive: true });
-await writeFile(`${runtimeManifestRoot}/zero.json`, JSON.stringify({
+await writeZeroToml(runtimeManifestRoot, {
   package: { name: "runtime-manifest-link", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   c: { libs: { unused: { headers: ["vendor/include/unused.h"], include: ["vendor/include"], lib: ["vendor/lib/missing.o"], link: ["zero_missing_system"], mode: "static" } } }
-}, null, 2));
+});
 await writeFile(`${runtimeManifestRoot}/src/main.0`, `pub fn main(world: World) -> Void raises {
     check world.out.write("runtime manifest ignored\\n")
 }

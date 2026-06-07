@@ -1,9 +1,10 @@
 ## Package And Manifest Reference
 
-Zero packages use either `zero.toml` or `zero.json` as the package manifest.
-Use one manifest per package in normal projects. If both files exist,
-`zero.toml` takes precedence for directory inputs; an explicit `zero.json` path
-still checks that JSON manifest directly.
+Zero packages normally use `zero.toml` as the package manifest. `zero.json` is
+still accepted for compatibility, but examples and fixtures use TOML. Use one
+manifest per package in normal projects. If both files exist, `zero.toml` takes
+precedence for directory inputs; an explicit `zero.json` path still checks that
+JSON manifest directly.
 
 The current compiler supports local packages and executable targets.
 
@@ -27,7 +28,7 @@ path = "../local-tools"
 version = "0.1.0"
 ```
 
-The equivalent JSON shape is also accepted:
+The equivalent JSON shape is accepted for compatibility:
 
 ```json
 {

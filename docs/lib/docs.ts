@@ -68,7 +68,7 @@ export const docs: Doc[] = [
   {
     slug: "package-manifest",
     title: "Package And Manifest Reference",
-    description: "zero.toml and zero.json package manifests, imports, targets, dependencies, and profiles.",
+    description: "zero.toml package manifests, imports, targets, dependencies, and profiles.",
     path: "/package-manifest",
     sourcePath: "/articles/package-manifest.md",
     section: "Reference",

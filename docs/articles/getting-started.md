@@ -69,7 +69,7 @@ The graph-first package has these important files:
 
 ```text
 hello/
-  zero.toml or zero.json
+  zero.toml
   zero.graph
   src/
     main.0
@@ -111,7 +111,7 @@ zero build --target linux-musl-x64 --out .zero/out/hello .
 ```
 
 Normal compiler commands compile from `zero.graph` when
-`repositoryGraph.compilerInput: true` is set in `zero.toml` or `zero.json`.
+`repositoryGraph.compilerInput: true` is set in `zero.toml`.
 They report source
 projection state, but they do not rewrite `.0` files. Sync explicitly when the
 human projection needs to be refreshed.
@@ -167,12 +167,18 @@ zero query --find write .
 
 The manifest records that the graph store is the compiler input:
 
-```json
-{
-  "package": { "name": "hello", "version": "0.1.0", "license": "MIT" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
-  "repositoryGraph": { "compilerInput": true }
-}
+```toml
+[package]
+name = "hello"
+version = "0.1.0"
+license = "MIT"
+
+[targets.cli]
+kind = "exe"
+main = "src/main.0"
+
+[repositoryGraph]
+compilerInput = true
 ```
 
 After the first graph-backed build or run, Zero may also create

@@ -62,7 +62,7 @@ each `cLibraries[].linkPlan` with include paths, library paths, sysroot status,
 target ABI, and host discovery status.
 
 Executable builds with direct extern C calls require matching package link
-metadata in `zero.toml` or `zero.json`: the imported header must appear in
+metadata in `zero.toml`: the imported header must appear in
 `c.libs.*.headers`, and that library must provide `lib` or `link` inputs.
 Missing link inputs or unsafe system library names in `link` report `CIMP005`
 before the linker runs.

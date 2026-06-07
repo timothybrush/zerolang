@@ -286,7 +286,7 @@ when you need explicit `Fs`, `File`, and `owned<File>` resource examples.
 
 ## Organize A Package
 
-A package has a `zero.toml` or `zero.json` manifest and source projections under
+A package has a `zero.toml` manifest and source projections under
 `src/`.
 
 ```toml

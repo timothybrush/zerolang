@@ -110,7 +110,7 @@ These examples are the small native workflow set used by docs and tests:
 | Example | What it teaches | Try it |
 | --- | --- | --- |
 | `config-shape.0` | `extern c`, `extern type`, C-shaped data | `bin/zero check examples/config-shape.0` |
-| `systems-package/` | `zero.json`, multiple source files, `defer`, std helpers | `bin/zero check examples/systems-package` |
+| `systems-package/` | `zero.toml`, multiple source files, `defer`, std helpers | `bin/zero check examples/systems-package` |
 | `readall-cli/` | package-local imports, named errors, `std.fs.readAll`, explicit fixed-buffer allocation | `bin/zero check examples/readall-cli` |
 | `batch3-cli/` | module graph metadata, local `rescue`, path helpers, named fs errors, explicit allocation | `bin/zero check examples/batch3-cli` |
 | `resource-cli/` | args/env fallback, path joins, `std.mem.copy`/`fill`, named-error owned-file resources | `bin/zero check examples/resource-cli` |

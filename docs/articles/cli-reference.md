@@ -172,10 +172,9 @@ interchange files.
 
 `zero status`, `zero verify-sync`, and `zero sync
 --from-source|--from-graph` define the repository graph sync surface.
-`zero init <project>` creates a graph-first package with
-`repositoryGraph.compilerInput: true`, `zero.json`, and `zero.graph`; pass
-`--manifest toml` to write `zero.toml` instead. It does not materialize `.0`
-files. Agents can patch the package with
+`zero init --manifest toml <project>` creates a graph-first package with
+`repositoryGraph.compilerInput: true`, `zero.toml`, and `zero.graph`. It does
+not materialize `.0` files. Agents can patch the package with
 `zero patch <project> --op ...`; from inside a graph-first package,
 `zero patch --op ...` defaults to the current directory. Then normal
 `zero check`, `zero run`, and `zero test` run against the graph store.
@@ -197,7 +196,7 @@ stdlib compile source.
 store, and `zero verify-sync` checks the store against the current source
 graph and source projection without writing files. Packages can opt normal
 check, build, run, test, size, ship, and mem commands into the checked-in store
-with `repositoryGraph.compilerInput: true` in `zero.toml` or `zero.json`.
+with `repositoryGraph.compilerInput: true` in `zero.toml`.
 Normal compiler
 commands validate and compile from the graph store, including target and package
 metadata, so source-free graph packages can still be checked, built, run,

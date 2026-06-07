@@ -1,13 +1,16 @@
 ## Program Model
 
-A Zero program can be a single `.0` file or a package with a `zero.toml` or
-`zero.json` manifest.
+A Zero program can be a single `.0` file or a package with a `zero.toml`
+manifest. `zero.json` is still accepted for explicit compatibility cases.
 
-```json
-{
-  "package": { "name": "hello", "version": "0.1.0" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } }
-}
+```toml
+[package]
+name = "hello"
+version = "0.1.0"
+
+[targets.cli]
+kind = "exe"
+main = "src/main.0"
 ```
 
 Command-line programs export `main`:
@@ -766,8 +769,8 @@ part of the current public surface.
 
 ## Packages
 
-A package uses `zero.toml` or `zero.json`. `zero.toml` takes precedence when
-both exist for a directory input:
+A package normally uses `zero.toml`. If both `zero.toml` and the compatibility
+`zero.json` manifest exist for a directory input, `zero.toml` takes precedence:
 
 ```toml
 [package]

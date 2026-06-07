@@ -655,6 +655,58 @@ function removeInlineTests(path) {
   if (testStart >= 0) writeFileSync(path, `${source.slice(0, testStart)}\n`);
 }
 
+function tomlQuote(value: unknown) {
+  return JSON.stringify(String(value));
+}
+
+function tomlArray(values: unknown[]) {
+  return `[${values.map(tomlQuote).join(", ")}]`;
+}
+
+function appendManifestFields(lines: string[], object: Record<string, unknown>, order: string[]) {
+  for (const key of order) {
+    if (!(key in object)) continue;
+    const value = object[key];
+    if (Array.isArray(value)) lines.push(`${key} = ${tomlArray(value)}`);
+    else if (typeof value === "boolean") lines.push(`${key} = ${value ? "true" : "false"}`);
+    else lines.push(`${key} = ${tomlQuote(value)}`);
+  }
+}
+
+function manifestToml(manifest: Record<string, any>) {
+  const lines = ["[package]"];
+  appendManifestFields(lines, manifest.package ?? {}, ["name", "version", "license"]);
+  for (const [targetName, target] of Object.entries(manifest.targets ?? {})) {
+    lines.push("", `[targets.${targetName}]`);
+    appendManifestFields(lines, target as Record<string, unknown>, ["kind", "main", "graph", "defaultTarget", "devTarget", "releaseProfile"]);
+  }
+  if (manifest.repositoryGraph) {
+    lines.push("", "[repositoryGraph]");
+    appendManifestFields(lines, manifest.repositoryGraph, ["compilerInput"]);
+  }
+  for (const sectionName of ["deps", "dependencies"]) {
+    if (!manifest[sectionName]) continue;
+    lines.push("", `[${sectionName}]`);
+    for (const [name, value] of Object.entries(manifest[sectionName])) {
+      if (typeof value === "string") lines.push(`${name} = ${tomlQuote(value)}`);
+    }
+    for (const [name, value] of Object.entries(manifest[sectionName])) {
+      if (typeof value === "string") continue;
+      lines.push("", `[${sectionName}.${name}]`);
+      appendManifestFields(lines, value as Record<string, unknown>, ["path", "version", "targets", "target"]);
+    }
+  }
+  for (const [name, lib] of Object.entries(manifest.c?.libs ?? {})) {
+    lines.push("", `[c.libs.${name}]`);
+    appendManifestFields(lines, lib as Record<string, unknown>, ["headers", "include", "lib", "link", "mode", "pkg_config", "pkgConfig"]);
+  }
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n")}\n`;
+}
+
+function writeZeroTomlSync(root: string, manifest: Record<string, any>) {
+  writeFileSync(join(root, "zero.toml"), manifestToml(manifest));
+}
+
 function assertTemplateManifest(kind, manifest, readme) {
   assert.equal(manifest.package.version, "0.1.0");
   assert.equal(manifest.targets.cli.defaultTarget, "linux-musl-x64");
@@ -990,17 +1042,23 @@ assert.deepEqual(repoGraphStatus.repairCommands, []);
 const invalidRepoGraphCompilerInputRoot = join("/tmp", `zero-repo-graph-invalid-compiler-input-${process.pid}`);
 rmSync(invalidRepoGraphCompilerInputRoot, { force: true, recursive: true });
 mkdirSync(invalidRepoGraphCompilerInputRoot, { recursive: true });
-writeFileSync(join(invalidRepoGraphCompilerInputRoot, "zero.json"), `${JSON.stringify({
-  package: { name: "invalid-repo-graph-compiler-input", version: "0.1.0" },
-  targets: { cli: { kind: "exe", main: "main.0" } },
-  repositoryGraph: { compilerInput: "true" },
-}, null, 2)}\n`);
+writeFileSync(join(invalidRepoGraphCompilerInputRoot, "zero.toml"), `[package]
+name = "invalid-repo-graph-compiler-input"
+version = "0.1.0"
+
+[targets.cli]
+kind = "exe"
+main = "main.0"
+
+[repositoryGraph]
+compilerInput = "true"
+`);
 const invalidRepoGraphCompilerInputStatus = json(["status", "--json", invalidRepoGraphCompilerInputRoot], { allowFailure: true });
 assert.notEqual(invalidRepoGraphCompilerInputStatus.code, 0);
 assert.equal(invalidRepoGraphCompilerInputStatus.body.ok, false);
 assert.equal(invalidRepoGraphCompilerInputStatus.body.repositoryGraph.compilerInput, "invalid");
 assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].code, "BLD002");
-assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].path, join(invalidRepoGraphCompilerInputRoot, "zero.json"));
+assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].path, join(invalidRepoGraphCompilerInputRoot, "zero.toml"));
 assert.equal(invalidRepoGraphCompilerInputStatus.body.diagnostics[0].message, "repositoryGraph.compilerInput must be a boolean");
 const standaloneRepoGraphRoot = join("/tmp", `zero-repo-graph-contract-${process.pid}`);
 const standaloneRepoGraphSource = join(standaloneRepoGraphRoot, "standalone.0");
@@ -1227,7 +1285,7 @@ const relativePackageSource = join(relativePackageRoot, "src", "main.0");
 const relativePackageStore = join(relativePackageRoot, "zero.graph");
 rmSync(relativePackageRoot, { force: true, recursive: true });
 mkdirSync(join(relativePackageRoot, "src"), { recursive: true });
-writeFileSync(join(relativePackageRoot, "zero.json"), readFileSync("examples/systems-package/zero.json", "utf8"));
+writeFileSync(join(relativePackageRoot, "zero.toml"), readFileSync("examples/systems-package/zero.toml", "utf8"));
 writeFileSync(relativePackageSource, readFileSync("examples/hello.0", "utf8"));
 json(["sync", "--from-source", "--json", relativePackageRoot]);
 const relativePackageStoreText = readFileSync(relativePackageStore, "utf8");
@@ -1241,8 +1299,8 @@ assert.equal(relativePackageSyncDot.ok, true);
 assert.equal(sha256File(relativePackageStore), relativePackageStoreHash);
 const relativePackageVerifyAbsolute = json(["verify-sync", "--json", relativePackageRoot]);
 assert.equal(relativePackageVerifyAbsolute.body.ok, true);
-const relativePackageManifest = join(relativePackageRoot, "zero.json");
-writeFileSync(relativePackageManifest, JSON.stringify({ package: { name: "systems-package-renamed", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } }, null, 2));
+const relativePackageManifest = join(relativePackageRoot, "zero.toml");
+writeFileSync(relativePackageManifest, manifestToml({ package: { name: "systems-package-renamed", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } }));
 const relativePackageManifestStatus = json(["status", "--json", relativePackageRoot]);
 assert.equal(relativePackageManifestStatus.body.repositoryGraph.syncState, "conflict");
 const relativePackageManifestVerify = json(["verify-sync", "--json", relativePackageRoot], { allowFailure: true });
@@ -1253,7 +1311,7 @@ const relativePackageManifestSyncFromGraph = json(["sync", "--from-graph", "--js
 assert.notEqual(relativePackageManifestSyncFromGraph.code, 0);
 assert.equal(relativePackageManifestSyncFromGraph.body.repositoryGraph.syncState, "conflict");
 assert.equal(relativePackageManifestSyncFromGraph.body.diagnostics[0].code, "RGP007");
-writeFileSync(relativePackageManifest, JSON.stringify({ package: { name: "systems-package", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } }, null, 2));
+writeFileSync(relativePackageManifest, manifestToml({ package: { name: "systems-package", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } }));
 const relativePackageBrokenManifestStatus = json(["status", "--json", relativePackageRoot]);
 assert.equal(relativePackageBrokenManifestStatus.code, 0);
 assert.equal(relativePackageBrokenManifestStatus.body.ok, true);
@@ -1266,13 +1324,13 @@ const postCheckWriteFailureRoot = join("/tmp", `zero-repo-graph-post-check-write
 const postCheckWriteFailureHelper = join(postCheckWriteFailureRoot, "src", "helper.0");
 rmSync(postCheckWriteFailureRoot, { force: true, recursive: true });
 mkdirSync(join(postCheckWriteFailureRoot, "src"), { recursive: true });
-writeFileSync(join(postCheckWriteFailureRoot, "zero.json"), readFileSync("conformance/packages/test-app/zero.json", "utf8"));
+writeFileSync(join(postCheckWriteFailureRoot, "zero.toml"), readFileSync("conformance/packages/test-app/zero.toml", "utf8"));
 writeFileSync(join(postCheckWriteFailureRoot, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
 writeFileSync(postCheckWriteFailureHelper, readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
 json(["sync", "--from-source", "--json", postCheckWriteFailureRoot]);
 const postCheckWriteFailureOriginalHelper = readFileSync(postCheckWriteFailureHelper, "utf8");
 writeFileSync(postCheckWriteFailureHelper, postCheckWriteFailureOriginalHelper.replace("return value + value", "return value + value + 0"));
-writeFileSync(join(postCheckWriteFailureRoot, "zero.json"), JSON.stringify({ package: { name: "test-app", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } }, null, 2));
+writeZeroTomlSync(postCheckWriteFailureRoot, { package: { name: "test-app", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/missing.0" } } });
 const postCheckWriteFailure = json(["sync", "--from-graph", "--json", postCheckWriteFailureRoot], { allowFailure: true });
 assert.notEqual(postCheckWriteFailure.code, 0);
 assert.equal(postCheckWriteFailure.body.diagnostics[0].code, "RGP006");
@@ -1330,7 +1388,7 @@ const embeddedStdMainRoot = join("/tmp", `zero-repo-graph-embedded-std-main-${pr
 const embeddedStdMainStore = join(embeddedStdMainRoot, "zero.graph");
 rmSync(embeddedStdMainRoot, { force: true, recursive: true });
 mkdirSync(join(embeddedStdMainRoot, "std"), { recursive: true });
-writeFileSync(join(embeddedStdMainRoot, "zero.json"), JSON.stringify({ package: { name: "embedded-std-main", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "std/path.0" } } }, null, 2));
+writeZeroTomlSync(embeddedStdMainRoot, { package: { name: "embedded-std-main", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "std/path.0" } } });
 writeFileSync(join(embeddedStdMainRoot, "std", "path.0"), readFileSync("std/path.0", "utf8"));
 const embeddedStdMainSync = json(["sync", "--from-source", "--json", embeddedStdMainRoot]);
 assert.equal(embeddedStdMainSync.code, 0);
@@ -1360,7 +1418,7 @@ const partialProjectionRoot = join("/tmp", `zero-repo-graph-partial-projection-$
 const partialProjectionStore = join(partialProjectionRoot, "zero.graph");
 rmSync(partialProjectionRoot, { force: true, recursive: true });
 mkdirSync(join(partialProjectionRoot, "src"), { recursive: true });
-writeFileSync(join(partialProjectionRoot, "zero.json"), readFileSync("conformance/packages/test-app/zero.json", "utf8"));
+writeFileSync(join(partialProjectionRoot, "zero.toml"), readFileSync("conformance/packages/test-app/zero.toml", "utf8"));
 writeFileSync(join(partialProjectionRoot, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
 writeFileSync(join(partialProjectionRoot, "src", "helper.0"), readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
 json(["sync", "--from-source", "--json", partialProjectionRoot]);
@@ -1387,7 +1445,7 @@ const partialProjectionWriteMain = join(partialProjectionWriteRoot, "src", "main
 const partialProjectionWriteHelper = join(partialProjectionWriteRoot, "src", "helper.0");
 rmSync(partialProjectionWriteRoot, { force: true, recursive: true });
 mkdirSync(join(partialProjectionWriteRoot, "src"), { recursive: true });
-writeFileSync(join(partialProjectionWriteRoot, "zero.json"), readFileSync("conformance/packages/test-app/zero.json", "utf8"));
+writeFileSync(join(partialProjectionWriteRoot, "zero.toml"), readFileSync("conformance/packages/test-app/zero.toml", "utf8"));
 writeFileSync(partialProjectionWriteMain, readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
 writeFileSync(partialProjectionWriteHelper, readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
 json(["sync", "--from-source", "--json", partialProjectionWriteRoot]);
@@ -1442,7 +1500,7 @@ if (process.platform !== "win32") {
   mkdirSync(symlinkProjectionRoot, { recursive: true });
   mkdirSync(symlinkProjectionRootSourceDir, { recursive: true });
   mkdirSync(symlinkProjectionOutside, { recursive: true });
-  writeFileSync(join(symlinkProjectionRoot, "zero.json"), JSON.stringify({ package: { name: "symlink-projection", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } }, null, 2));
+  writeZeroTomlSync(symlinkProjectionRoot, { package: { name: "symlink-projection", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "src/main.0" } } });
   writeFileSync(symlinkProjectionRootSource, readFileSync("examples/hello.0", "utf8"));
   json(["sync", "--from-source", "--json", symlinkProjectionRoot]);
   rmSync(symlinkProjectionRootSourceDir, { force: true, recursive: true });
@@ -2025,7 +2083,7 @@ const mergePathMoveRenamedSource = join(mergePathMoveRoot, "renamed.0");
 const mergePathMoveStore = join(mergePathMoveRoot, "zero.graph");
 rmSync(mergePathMoveRoot, { force: true, recursive: true });
 mkdirSync(mergePathMoveRoot, { recursive: true });
-writeFileSync(join(mergePathMoveRoot, "zero.json"), JSON.stringify({ package: { name: "merge-path-move", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "main.0" } } }, null, 2));
+writeZeroTomlSync(mergePathMoveRoot, { package: { name: "merge-path-move", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "main.0" } } });
 writeFileSync(
   mergePathMoveSource,
   `fn alpha() -> i32 {
@@ -2041,7 +2099,7 @@ json(["sync", "--from-source", "--json", mergePathMoveRoot]);
 writeFileSync(join(mergePathMoveRoot, "base.graph"), readFileSync(mergePathMoveStore, "utf8"));
 writeFileSync(join(mergePathMoveRoot, "right.graph"), readFileSync(mergePathMoveStore, "utf8"));
 renameSync(mergePathMoveSource, mergePathMoveRenamedSource);
-writeFileSync(join(mergePathMoveRoot, "zero.json"), JSON.stringify({ package: { name: "merge-path-move", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "renamed.0" } } }, null, 2));
+writeZeroTomlSync(mergePathMoveRoot, { package: { name: "merge-path-move", version: "0.1.0" }, targets: { cli: { kind: "exe", main: "renamed.0" } } });
 json(["sync", "--from-source", "--json", mergePathMoveRoot]);
 writeFileSync(join(mergePathMoveRoot, "left.graph"), readFileSync(mergePathMoveStore, "utf8"));
 const mergePathMove = json([
@@ -2502,7 +2560,7 @@ assert.equal(checkedInGraphQueryJson.patchOperations.includes("addLetLiteral fn=
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnValue fn=\"identity\" value=\"input\" type=\"i32\""), true);
 rmSync(graphRepositoryPatchPackageDir, { recursive: true, force: true });
 mkdirSync(graphRepositoryPatchPackageDir, { recursive: true });
-writeFileSync(join(graphRepositoryPatchPackageDir, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(graphRepositoryPatchPackageDir, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(join(graphRepositoryPatchPackageDir, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
 writeFileSync(join(graphRepositoryPatchPackageDir, "hello.0"), checkedInGraphSource);
 const repositoryPatchQueryJson = json(["query", "--json", graphRepositoryPatchPackageDir]).body;
@@ -2572,7 +2630,7 @@ const checkedInGraphPackageCheckJson = json(["check", "--json", checkedInGraphPa
 assert.equal(checkedInGraphPackageCheckJson.ok, true);
 assert.equal(checkedInGraphPackageCheckJson.sourceFile, checkedInRepositoryGraphStorePath);
 assert.equal(checkedInGraphPackageCheckJson.package.name, "program-graph-fixture");
-assert.equal(checkedInGraphPackageCheckJson.package.manifestPath, join(checkedInGraphPackageDir, "zero.json"));
+assert.equal(checkedInGraphPackageCheckJson.package.manifestPath, join(checkedInGraphPackageDir, "zero.toml"));
 assertSourceGraph(checkedInGraphPackageCheckJson, checkedInRepositoryGraphStorePath, "package:program-graph-fixture@0.1.0", "graph-native-check", false);
 assertProgramGraphCompilerInput(checkedInGraphPackageCheckJson, checkedInRepositoryGraphStorePath);
 assertRepositoryGraphNativeCheck(checkedInGraphPackageCheckJson);
@@ -2598,7 +2656,7 @@ rmSync(sourceFreeIdentityMismatchRoot, { recursive: true, force: true });
 rmSync(sourceFreeMissingPackageNameRoot, { recursive: true, force: true });
 rmSync(sourceFreeBadProjectionRoot, { recursive: true, force: true });
 mkdirSync(sourceFreeCopiedGraphRoot, { recursive: true });
-writeFileSync(join(sourceFreeCopiedGraphRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(sourceFreeCopiedGraphRoot, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(sourceFreeCopiedGraphStorePath, readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
 const sourceFreeCopiedGraphCheckJson = json(["check", "--json", sourceFreeCopiedGraphRoot]).body;
 assert.equal(sourceFreeCopiedGraphCheckJson.ok, true);
@@ -2639,7 +2697,7 @@ assert.equal(sourceFreeCopiedGraphVerifyAfter.repositoryGraph.projectionValidity
 assert.deepEqual(json(["sync", "--from-graph", "--json", sourceFreeCopiedGraphRoot]).body.changedPaths, []);
 mkdirSync(join(sourceFreeCImportRoot, "src"), { recursive: true });
 mkdirSync(join(sourceFreeCImportRoot, "vendor/include"), { recursive: true });
-writeFileSync(join(sourceFreeCImportRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeCImportRoot, {
   package: { name: "source-free-c-import", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   repositoryGraph: { compilerInput: true },
@@ -2648,7 +2706,7 @@ writeFileSync(join(sourceFreeCImportRoot, "zero.json"), JSON.stringify({
       ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" },
     },
   },
-}, null, 2));
+});
 writeFileSync(join(sourceFreeCImportRoot, "vendor/include/zero_ext.h"), "int zero_ext_add(int a, int b);\n");
 writeFileSync(join(sourceFreeCImportRoot, "src/main.0"), `extern c "vendor/include/zero_ext.h" as c
 
@@ -2667,10 +2725,10 @@ assertProgramGraphCompilerInput(sourceFreeCImportCheck, sourceFreeCImportStorePa
 assertRepositoryGraphNativeCheck(sourceFreeCImportCheck, "missing");
 assert.equal(zero(["run", "--out", sourceFreeCImportRunPath, sourceFreeCImportRoot]).stdout, "source-free c import ok\n");
 mkdirSync(sourceFreeCImportCwdRoot, { recursive: true });
-writeFileSync(join(sourceFreeCImportCwdRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeCImportCwdRoot, {
   package: { name: "unrelated-cwd-package", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
-}, null, 2));
+});
 const sourceFreeCImportCwdBuild = JSON.parse(execFileSync(zeroBin, [
   "build",
   "--json",
@@ -2681,11 +2739,11 @@ const sourceFreeCImportCwdBuild = JSON.parse(execFileSync(zeroBin, [
 assertSourceGraph(sourceFreeCImportCwdBuild, resolve(sourceFreeCImportStorePath), "package:source-free-c-import@0.1.0", "mapped-final-mir", false, "missing");
 assertProgramGraphCompilerInput(sourceFreeCImportCwdBuild, resolve(sourceFreeCImportStorePath));
 mkdirSync(sourceFreeIdentityMismatchRoot, { recursive: true });
-writeFileSync(join(sourceFreeIdentityMismatchRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeIdentityMismatchRoot, {
   package: { name: "wrong-program-graph-fixture", version: "9.9.9" },
   targets: { cli: { kind: "exe", main: "hello.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(sourceFreeIdentityMismatchRoot, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
 const sourceFreeIdentityMismatchCheck = json(["check", "--json", sourceFreeIdentityMismatchRoot], { allowFailure: true });
 assert.notEqual(sourceFreeIdentityMismatchCheck.code, 0);
@@ -2696,10 +2754,10 @@ const sourceFreeIdentityMismatchSize = json(["size", "--json", sourceFreeIdentit
 assert.notEqual(sourceFreeIdentityMismatchSize.code, 0);
 assert.equal(sourceFreeIdentityMismatchSize.body.diagnostics[0].code, "RGP007");
 mkdirSync(sourceFreeMissingPackageNameRoot, { recursive: true });
-writeFileSync(join(sourceFreeMissingPackageNameRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeMissingPackageNameRoot, {
   targets: { cli: { kind: "exe", main: "hello.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(sourceFreeMissingPackageNameRoot, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8"));
 const sourceFreeMissingPackageNameCheck = json(["check", "--json", sourceFreeMissingPackageNameRoot], { allowFailure: true });
 assert.notEqual(sourceFreeMissingPackageNameCheck.code, 0);
@@ -2707,7 +2765,7 @@ assert.equal(sourceFreeMissingPackageNameCheck.body.diagnostics[0].code, "RGP007
 assert.equal(sourceFreeMissingPackageNameCheck.body.diagnostics[0].message, "repository graph compiler input requires package.name");
 assert.match(sourceFreeMissingPackageNameCheck.body.diagnostics[0].actual, /package:program-graph-fixture@0\.1\.0/);
 mkdirSync(sourceFreeBadProjectionRoot, { recursive: true });
-writeFileSync(join(sourceFreeBadProjectionRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(sourceFreeBadProjectionRoot, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(join(sourceFreeBadProjectionRoot, "zero.graph"), readFileSync(checkedInRepositoryGraphStorePath, "utf8").replace(
   /^projection path:"hello\.0" text:.*$/m,
   `projection path:"hello.0" text:${JSON.stringify("pub fn broken( {\n")}`,
@@ -2725,11 +2783,11 @@ assert.equal(sourceFreeBadProjectionSync.body.diagnostics[0].code, "RGP004");
 const missingRepoGraphStoreRoot = join(outDir, "repository-graph-missing-store");
 rmSync(missingRepoGraphStoreRoot, { recursive: true, force: true });
 mkdirSync(missingRepoGraphStoreRoot, { recursive: true });
-writeFileSync(join(missingRepoGraphStoreRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(missingRepoGraphStoreRoot, {
   package: { name: "repository-graph-missing-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(missingRepoGraphStoreRoot, "main.0"), "pub fn main() -> i32 { return 0 }\n");
 const missingRepoGraphStoreCheck = json(["check", "--json", missingRepoGraphStoreRoot], { allowFailure: true });
 assert.notEqual(missingRepoGraphStoreCheck.code, 0);
@@ -2742,11 +2800,11 @@ assert.match(missingRepoGraphStoreCheck.body.repairCommands.join("\n"), /zero sy
 const invalidRepoGraphStoreRoot = join(outDir, "repository-graph-invalid-store");
 rmSync(invalidRepoGraphStoreRoot, { recursive: true, force: true });
 mkdirSync(invalidRepoGraphStoreRoot, { recursive: true });
-writeFileSync(join(invalidRepoGraphStoreRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(invalidRepoGraphStoreRoot, {
   package: { name: "repository-graph-invalid-store", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(invalidRepoGraphStoreRoot, "main.0"), "pub fn main() -> i32 { return 0 }\n");
 writeFileSync(join(invalidRepoGraphStoreRoot, "zero.graph"), "not a repository graph\n");
 const invalidRepoGraphStoreCheck = json(["check", "--json", invalidRepoGraphStoreRoot], { allowFailure: true });
@@ -2761,11 +2819,11 @@ assert.match(invalidRepoGraphStoreCheck.body.repairCommands.join("\n"), /zero sy
 const sourceFreeGraphPackageRoot = join(outDir, "source-free-graph-package");
 rmSync(sourceFreeGraphPackageRoot, { recursive: true, force: true });
 mkdirSync(join(sourceFreeGraphPackageRoot, "src"), { recursive: true });
-writeFileSync(join(sourceFreeGraphPackageRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeGraphPackageRoot, {
   package: { name: "source-free-graph-package", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(sourceFreeGraphPackageRoot, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
 writeFileSync(join(sourceFreeGraphPackageRoot, "src", "helper.0"), readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
 const sourceFreeGraphPackageSync = json(["sync", "--from-source", "--json", sourceFreeGraphPackageRoot]);
@@ -2834,13 +2892,13 @@ rmSync(graphTargetWebbitsRoot, { recursive: true, force: true });
 rmSync(graphTargetIncompatibleRoot, { recursive: true, force: true });
 mkdirSync(join(graphTargetIncompatibleRoot, "src"), { recursive: true });
 mkdirSync(graphTargetWebbitsRoot, { recursive: true });
-writeFileSync(join(graphTargetWebbitsRoot, "zero.json"), readFileSync("conformance/packages/target-webbits/zero.json", "utf8"));
-writeFileSync(join(graphTargetIncompatibleRoot, "zero.json"), JSON.stringify({
+writeFileSync(join(graphTargetWebbitsRoot, "zero.toml"), readFileSync("conformance/packages/target-webbits/zero.toml", "utf8"));
+writeZeroTomlSync(graphTargetIncompatibleRoot, {
   package: { name: "repo-graph-target-incompatible-app", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
   dependencies: { "target-webbits": { path: "../repo-graph-target-webbits", version: "0.1.0", targets: ["win32-x64.exe"] } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(graphTargetIncompatibleRoot, "src", "main.0"), readFileSync("conformance/packages/target-incompatible-app/src/main.0", "utf8"));
 assert.equal(json(["sync", "--from-source", "--json", graphTargetIncompatibleRoot]).body.ok, true);
 const graphTargetIncompatibleCheck = json(["check", "--json", "--target", "linux-musl-x64", graphTargetIncompatibleRoot], { allowFailure: true });
@@ -2850,11 +2908,11 @@ assert.match(graphTargetIncompatibleCheck.body.diagnostics[0].actual, /target-we
 const graphTargetCapabilityRoot = join(outDir, "repo-graph-target-capability-app");
 rmSync(graphTargetCapabilityRoot, { recursive: true, force: true });
 mkdirSync(graphTargetCapabilityRoot, { recursive: true });
-writeFileSync(join(graphTargetCapabilityRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(graphTargetCapabilityRoot, {
   package: { name: "repo-graph-target-capability-app", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(graphTargetCapabilityRoot, "main.0"), `pub fn main(world: World) -> Void raises {
     let fs: Fs = std.fs.host()
     if std.fs.writeFile(fs, ".zero/out/repo-graph-target-capability.txt", "ok\\n") {
@@ -2875,11 +2933,11 @@ assert.equal(graphTargetBackendMismatchCheck.body.targetReadiness.diagnostics[0]
 const sourceFreeStdGraphRoot = join(outDir, "source-free-std-str");
 rmSync(sourceFreeStdGraphRoot, { recursive: true, force: true });
 mkdirSync(sourceFreeStdGraphRoot, { recursive: true });
-writeFileSync(join(sourceFreeStdGraphRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(sourceFreeStdGraphRoot, {
   package: { name: "source-free-std-str", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(sourceFreeStdGraphRoot, "main.0"), readFileSync("examples/std-str.0", "utf8"));
 const sourceFreeStdGraphSync = json(["sync", "--from-source", "--json", sourceFreeStdGraphRoot]);
 assert.equal(sourceFreeStdGraphSync.body.ok, true);
@@ -2910,11 +2968,11 @@ assert.equal(checkedInGraphPackageBuildMir.codegenImmediate, true);
 assert.equal(checkedInGraphPackageBuildMir.programReconstructed, false);
 assert.equal(checkedInGraphPackageBuildJson.artifactPath, checkedInGraphBuildPath);
 mkdirSync(graphRecordRoot, { recursive: true });
-writeFileSync(join(graphRecordRoot, "zero.json"), JSON.stringify({
+writeZeroTomlSync(graphRecordRoot, {
   package: { name: "repository-graph-record", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "main.0" } },
   repositoryGraph: { compilerInput: true },
-}, null, 2));
+});
 writeFileSync(join(graphRecordRoot, "main.0"), [
   "type Point {",
   "    x: i32,",
@@ -2985,7 +3043,7 @@ assert.match(checkedInRepositoryGraphStoreText, /^projection path:"hello\.0" tex
 const sourceLocationOnlyGraphRoot = join(outDir, "repository-graph-source-location-only");
 rmSync(sourceLocationOnlyGraphRoot, { recursive: true, force: true });
 mkdirSync(sourceLocationOnlyGraphRoot, { recursive: true });
-writeFileSync(join(sourceLocationOnlyGraphRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(sourceLocationOnlyGraphRoot, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(join(sourceLocationOnlyGraphRoot, "hello.0"), checkedInGraphSource);
 writeFileSync(join(sourceLocationOnlyGraphRoot, "zero.graph"), checkedInRepositoryGraphStoreText.replace("line:1 column:1", "line:99 column:77"));
 const sourceLocationOnlyVerify = json(["verify-sync", "--json", sourceLocationOnlyGraphRoot]).body;
@@ -3010,7 +3068,7 @@ assert.match(checkedInRepositoryGraphScript.stdout, /repository graph verify-syn
 const checkedInGraphDriftRoot = join(outDir, "repository-graph-drift-package");
 rmSync(checkedInGraphDriftRoot, { recursive: true, force: true });
 mkdirSync(checkedInGraphDriftRoot, { recursive: true });
-writeFileSync(join(checkedInGraphDriftRoot, "zero.json"), readFileSync(join(checkedInGraphPackageDir, "zero.json"), "utf8"));
+writeFileSync(join(checkedInGraphDriftRoot, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(join(checkedInGraphDriftRoot, "zero.graph"), checkedInRepositoryGraphStoreText);
 writeFileSync(join(checkedInGraphDriftRoot, "hello.0"), checkedInGraphSource.replace("hello from zero", "hello from drift"));
 const checkedInGraphDriftCheck = json(["check", "--json", checkedInGraphDriftRoot]);
@@ -3202,10 +3260,10 @@ mkdirSync(join(graphManifestPackageDir, "src"), { recursive: true });
 mkdirSync(join(graphManifestPackageDir, "artifacts"), { recursive: true });
 writeFileSync(join(graphManifestPackageDir, "src", "main.0"), readFileSync("conformance/packages/test-app/src/main.0", "utf8"));
 writeFileSync(join(graphManifestPackageDir, "src", "helper.0"), readFileSync("conformance/packages/test-app/src/helper.0", "utf8"));
-writeFileSync(join(graphManifestPackageDir, "zero.json"), `${JSON.stringify({
+writeZeroTomlSync(graphManifestPackageDir, {
   package: { name: "graph-manifest-package", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/test-app.program-graph" } },
-}, null, 2)}\n`);
+});
 assert.equal(zero(["import", "--out", graphManifestArtifactPath, "conformance/packages/test-app"]).stdout, "");
 assert.equal(zero(["validate", graphManifestPackageDir]).stdout, "program graph ok\n");
 const graphManifestCheckJson = json(["check", "--json", graphManifestPackageDir]).body;
@@ -3239,10 +3297,10 @@ assert.equal(directGraphManifestCheckJson.ok, true);
 assertSourceGraph(directGraphManifestCheckJson, graphManifestSourcePath, "package:graph-manifest-package@0.1.0");
 assert.equal(directGraphManifestCheckJson.sourceFile, graphManifestSourcePath);
 assert.equal(directGraphManifestCheckJson.package.name, "graph-manifest-package");
-assert.equal(directGraphManifestCheckJson.package.manifestPath, join(graphManifestPackageDir, "zero.json"));
+assert.equal(directGraphManifestCheckJson.package.manifestPath, join(graphManifestPackageDir, "zero.toml"));
 assert.notEqual(directGraphManifestCheckJson.package.manifestHash, "0000000000000000");
 assertProgramGraphCompilerInput(directGraphManifestCheckJson, graphManifestSourcePath);
-assert.equal(directGraphManifestCheckJson.incrementalInvalidation.changedInputs.manifestPath, join(graphManifestPackageDir, "zero.json"));
+assert.equal(directGraphManifestCheckJson.incrementalInvalidation.changedInputs.manifestPath, join(graphManifestPackageDir, "zero.toml"));
 const directGraphManifestSizeJson = json(["size", "--json", "--target", "linux-musl-x64", graphManifestPackageDir]).body;
 assertSourceGraph(directGraphManifestSizeJson, graphManifestSourcePath, "package:graph-manifest-package@0.1.0");
 assertProgramGraphCompilerInput(directGraphManifestSizeJson, graphManifestSourcePath);
@@ -3275,11 +3333,11 @@ mkdirSync(join(directGraphTargetGatePackageDir, "artifacts"), { recursive: true 
 mkdirSync(join(directGraphTargetGateDepDir, "src"), { recursive: true });
 writeFileSync(join(directGraphTargetGatePackageDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"target gate\\n\")\n}\n");
 writeFileSync(join(directGraphTargetGateDepDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"webbits\\n\")\n}\n");
-writeFileSync(join(directGraphTargetGateDepDir, "zero.json"), `${JSON.stringify({
+writeZeroTomlSync(directGraphTargetGateDepDir, {
   package: { name: "target-webbits", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
-}, null, 2)}\n`);
-writeFileSync(join(directGraphTargetGatePackageDir, "zero.json"), `${JSON.stringify({
+});
+writeZeroTomlSync(directGraphTargetGatePackageDir, {
   package: { name: "direct-graph-target-gate", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/app.program-graph" } },
   dependencies: {
@@ -3289,7 +3347,7 @@ writeFileSync(join(directGraphTargetGatePackageDir, "zero.json"), `${JSON.string
       targets: ["win32-x64.exe"],
     },
   },
-}, null, 2)}\n`);
+});
 assert.equal(zero(["import", "--out", directGraphTargetGateArtifactPath, directGraphTargetGatePackageDir]).stdout, "");
 const directGraphTargetGateJson = json(["check", "--json", "--target", "linux-musl-x64", directGraphTargetGatePackageDir], { allowFailure: true });
 assert.equal(directGraphTargetGateJson.code, 1);
@@ -3298,7 +3356,7 @@ assert.equal(directGraphTargetGateJson.body.diagnostics[0].message, "package dep
 mkdirSync(join(directGraphHostLeakPackageDir, "src"), { recursive: true });
 mkdirSync(join(directGraphHostLeakPackageDir, "artifacts"), { recursive: true });
 writeFileSync(join(directGraphHostLeakPackageDir, "src", "main.0"), "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"host leak\\n\")\n}\n");
-writeFileSync(join(directGraphHostLeakPackageDir, "zero.json"), `${JSON.stringify({
+writeZeroTomlSync(directGraphHostLeakPackageDir, {
   package: { name: "direct-graph-host-leak", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0", graph: "artifacts/app.program-graph" } },
   c: {
@@ -3312,7 +3370,7 @@ writeFileSync(join(directGraphHostLeakPackageDir, "zero.json"), `${JSON.stringif
       },
     },
   },
-}, null, 2)}\n`);
+});
 assert.equal(zero(["import", "--out", directGraphHostLeakArtifactPath, directGraphHostLeakPackageDir]).stdout, "");
 const directGraphHostLeakJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", directGraphHostLeakBuildPath, directGraphHostLeakPackageDir], { allowFailure: true });
 assert.equal(directGraphHostLeakJson.code, 1);
@@ -3389,17 +3447,10 @@ const graphSourcePackageMain = join(graphSourcePackageDir, "src", "main.0");
 const graphSourcePackageHelper = join(graphSourcePackageDir, "src", "helper.0");
 rmSync(graphSourcePackageDir, { recursive: true, force: true });
 mkdirSync(join(graphSourcePackageDir, "src"), { recursive: true });
-writeFileSync(
-  join(graphSourcePackageDir, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "graph-source-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.0" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
+writeZeroTomlSync(graphSourcePackageDir, {
+  package: { name: "graph-source-package", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+});
 writeFileSync(
   graphSourcePackageHelper,
   "pub fn value() -> i32 {\n" +
@@ -4399,17 +4450,10 @@ assert.match(unsupportedFmtRejected.stderr, /\.0 source file, zero\.toml, zero\.
 const unsupportedSourcePackage = join(outDir, "unsupported-source-package");
 rmSync(unsupportedSourcePackage, { recursive: true, force: true });
 mkdirSync(join(unsupportedSourcePackage, "src"), { recursive: true });
-writeFileSync(
-  join(unsupportedSourcePackage, "zero.json"),
-  JSON.stringify(
-    {
-      package: { name: "unsupported-source-package", version: "0.1.0" },
-      targets: { cli: { kind: "exe", main: "src/main.txt" } },
-    },
-    null,
-    2,
-  ) + "\n",
-);
+writeZeroTomlSync(unsupportedSourcePackage, {
+  package: { name: "unsupported-source-package", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.txt" } },
+});
 writeFileSync(join(unsupportedSourcePackage, "src", "main.txt"), unsupportedSourceText);
 const unsupportedPackageRejected = json(["check", "--json", unsupportedSourcePackage], { allowFailure: true });
 assert.notEqual(unsupportedPackageRejected.code, 0);

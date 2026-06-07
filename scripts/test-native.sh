@@ -186,11 +186,14 @@ done
 
 project=".zero/native-test/project"
 mkdir -p "$project/src"
-cat > "$project/zero.json" <<'PROJECT'
-{
-  "package": { "name": "native-project", "version": "0.1.0" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } }
-}
+cat > "$project/zero.toml" <<'PROJECT'
+[package]
+name = "native-project"
+version = "0.1.0"
+
+[targets.cli]
+kind = "exe"
+main = "src/main.0"
 PROJECT
 
 cat > "$project/src/main.0" <<'SOURCE'
