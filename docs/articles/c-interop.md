@@ -1,7 +1,33 @@
 ## The C Boundary
 
-Zero supports a small explicit C ABI surface from graph inputs. C-facing code
+Zerolang supports a small explicit C ABI surface from graph inputs. C-facing code
 should stay narrow, inspectable, and target-aware.
+
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "can this call my tiny c helper on linux musl?"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll check the target link plan and tell you what blocks the call."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero inspect --json --target linux-musl-x64",
+          "output": "{\"cLibraries\":[{\"linkPlan\":{\"sysrootStatus\":\"configured\"}}]}"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## What This Means
 
 Projection example:
 
@@ -48,29 +74,3 @@ hash data.
 
 Unsafe foreign-target discovery fails with `CIMP003`. Missing or unsafe link
 inputs fail with `CIMP005`.
-
-## Agent Flow
-
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "can this call my tiny c helper on linux musl?"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll check the target link plan and tell you what blocks the call."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero inspect --json --target linux-musl-x64",
-          "output": "{\"cLibraries\":[{\"linkPlan\":{\"sysrootStatus\":\"configured\"}}]}"
-        }
-      ]
-    }
-  ]
-}
-```

@@ -1,7 +1,33 @@
 ## Make Retention Visible
 
-Zero optimization docs should answer a concrete question: why did this graph
+Zerolang optimization docs should answer a concrete question: why did this graph
 input retain these bytes, helpers, allocations, or runtime shims?
+
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "why is this binary bigger now?"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll inspect the size report and trace what is being retained."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero size --json",
+          "output": "{\"sizeBreakdown\":{},\"retentionReasons\":[\"std.http.fetch retained by handle\"]}"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## What This Means
 
 Use graph inputs or graph-first packages:
 
@@ -49,29 +75,3 @@ debug metadata block stayed in the artifact.
 
 These fields are the public way to check whether an example remains
 fixed-capacity, caller-buffered, or heap-free.
-
-## Agent Flow
-
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "why is this binary bigger now?"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll inspect the size report and trace what is being retained."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero size --json",
-          "output": "{\"sizeBreakdown\":{},\"retentionReasons\":[\"std.http.fetch retained by handle\"]}"
-        }
-      ]
-    }
-  ]
-}
-```

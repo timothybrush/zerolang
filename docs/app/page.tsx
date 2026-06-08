@@ -39,6 +39,29 @@ const CONSTRAINTS = [
   "Zero dependencies",
 ];
 
+const ARCHITECTURE_STEPS = [
+  {
+    label: "Human",
+    title: "Asks for an outcome",
+    body: "Build a CRM API, add auth, or fix a failing route",
+  },
+  {
+    label: "Agent",
+    title: "Reads graph facts",
+    body: "Symbols, calls, types, effects, node IDs, and graph hashes",
+  },
+  {
+    label: "Compiler",
+    title: "Checks patches",
+    body: "Shape, type, stale-state, and repository metadata checks",
+  },
+  {
+    label: "Human",
+    title: "Reviews projection",
+    body: "Readable .0 projections stay available for review and rare manual edits",
+  },
+];
+
 /* ─── Primitives ──────────────────────────────────── */
 
 function GridGlow() {
@@ -128,6 +151,46 @@ function CodeWindow({
   );
 }
 
+function ArchitectureDiagram() {
+  return (
+    <div className="mt-12 w-full text-left">
+      <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+        {ARCHITECTURE_STEPS.map((item, index) => (
+          <div
+            key={item.title}
+            className="group relative flex flex-col bg-bg p-7 transition-colors duration-200 hover:bg-surface-muted"
+          >
+            <div className="mb-7 flex items-center gap-2.5">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border font-mono text-[0.6875rem] tabular-nums text-muted transition-colors group-hover:border-fg/40 group-hover:text-fg">
+                {index + 1}
+              </span>
+              <span className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-muted">
+                {item.label}
+              </span>
+            </div>
+            <h2 className="m-0 text-[1.0625rem] font-semibold leading-snug tracking-[-0.02em] text-fg">
+              {item.title}
+            </h2>
+            <p className="m-0 mt-2.5 text-[0.8125rem] leading-[1.65] text-muted">
+              {item.body}
+            </p>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 translate-x-[calc(50%+1px)] lg:flex"
+            >
+              {index < ARCHITECTURE_STEPS.length - 1 ? (
+                <span className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-bg text-muted">
+                  <ArrowRightIcon width={12} height={12} />
+                </span>
+              ) : null}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Chat mockup ─────────────────────────────────── */
 
 function ChatMockup() {
@@ -184,16 +247,17 @@ export default function HomePage() {
               Experimental
             </div>
             <h1 className="m-0 text-[clamp(2.5rem,7vw,5rem)] font-semibold leading-[0.98] tracking-[-0.05em]">
-              The future of
+              The Programming
               <br />
-              programming is a graph.
+              Language for Agents
             </h1>
             <p className="mt-7 max-w-[40rem] text-pretty text-[clamp(1.0625rem,2vw,1.25rem)] leading-[1.6] text-muted">
-              Zerolang is the programming language for agents. They reason over semantic
-              program structure and submit checked graph edits, instead of guessing at
-              raw source text.
+              A programming language where the graph is the program. Humans ask
+              for outcomes. Agents query the program graph, submit checked
+              edits, and prove the result.
             </p>
             <InstallCopy />
+            <ArchitectureDiagram />
             <p className="mt-5 max-w-[34rem] text-[0.8125rem] leading-relaxed text-muted">
               Expect breaking changes. Run it in a safe environment, not against
               production systems.
@@ -201,22 +265,22 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* 01 — Chat (Why) */}
+        {/* 01 — Chat */}
         <Section>
           <SectionHeader
-            title="You just ask."
-            description="Humans use chat first. Agents author the graph. Projections stay available for review and rare manual edits."
+            title="Start with a request."
+            description="The expected workflow is a normal conversation. The graph discipline lives in the agent skills and compiler commands, not in stiff human prompts."
           />
           <VisualGlow className="mx-auto max-w-[40rem]">
             <ChatMockup />
           </VisualGlow>
         </Section>
 
-        {/* 02 — Graph (What) */}
+        {/* 02 — Graph */}
         <Section>
           <SectionHeader
-            title="The graph is the program."
-            description="Readable text is useful for review, but the compiler-owned graph is the program database agents edit and the compiler consumes."
+            title="The program database."
+            description="Readable text stays useful for review. The compiler-owned graph is the program database agents edit and the compiler consumes."
           />
           <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <CodeWindow title="zero query · graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />
@@ -224,11 +288,11 @@ export default function HomePage() {
           </VisualGlow>
         </Section>
 
-        {/* 03 — Patch (How) */}
+        {/* 03 — Patch */}
         <Section>
           <SectionHeader
-            title="Every edit is checked."
-            description="Graph patches target a semantic node and field, guarded by a graph-hash and an expected value. Stale edits fail before they touch anything."
+            title="Checked by default."
+            description="Graph patches target semantic nodes and fields, guarded by graph hashes and expected values. Stale or invalid edits fail before they touch the store."
           />
           <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
             <CodeWindow title="zero patch" html={highlight(PATCH_EXAMPLE, "sh")} />
@@ -254,8 +318,8 @@ export default function HomePage() {
         {/* 04 — Constraints */}
         <Section>
           <SectionHeader
-            title="Still a systems language."
-            description="The graph work does not relax the runtime goals. Zerolang is designed to stay small, fast, and dependency-free for both humans and the agents writing it."
+            title="Still built for runtime constraints."
+            description="The graph model should reduce guessing without relaxing the runtime goals. Zerolang still aims to stay small, fast, explicit, and dependency-free."
           />
           <VisualGlow>
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
@@ -279,13 +343,15 @@ export default function HomePage() {
               Explore with us.
             </h2>
             <p className="mx-auto mt-6 max-w-[38rem] text-pretty text-[1.0625rem] leading-[1.6] text-muted">
-              Install the compiler, ask an agent for a program, inspect the graph, and
-              test the edit loop. The most useful feedback is what helps agents work
-              with less guessing.
+              Start with the getting started guide, then read the graph architecture
+              and compile-path pages to see why the program database matters.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <ButtonLink href="/getting-started" variant="primary" size="lg">
                 Get started <ArrowRightIcon />
+              </ButtonLink>
+              <ButtonLink href="/concepts/graph-architecture" variant="default" size="lg">
+                Graph architecture <ArrowRightIcon />
               </ButtonLink>
             </div>
           </div>

@@ -87,13 +87,26 @@ export function FlowChart({ spec }: { spec: FlowChartSpec }) {
     })
     .filter((e): e is NonNullable<typeof e> => e !== null);
 
+  // Only show a connection dot where an edge actually attaches. Normal edges
+  // attach to the source's bottom and the target's top; loop-backs attach to
+  // the side, so they do not light up a top/bottom dot.
+  const topConn = new Set<string>();
+  const bottomConn = new Set<string>();
+  for (const edge of spec.edges) {
+    const s = byId.get(edge.source);
+    const t = byId.get(edge.target);
+    if (!s || !t || t.y <= s.y) continue;
+    bottomConn.add(s.id);
+    topConn.add(t.id);
+  }
+
   const stroke = "color-mix(in srgb, var(--color-fg) 28%, transparent)";
   const dot = "color-mix(in srgb, var(--color-fg) 40%, transparent)";
 
   return (
-    <div className="not-prose my-6 overflow-hidden rounded-2xl border border-fg/30 bg-bg">
+    <div className="not-prose my-6 overflow-hidden rounded-2xl border border-border bg-bg">
       {spec.title ? (
-        <div className="border-b border-fg/30 px-5 py-3.5 font-mono text-xs font-medium text-muted">
+        <div className="border-b border-border px-5 py-3.5 font-mono text-xs font-medium text-muted">
           {spec.title}
         </div>
       ) : null}
@@ -118,8 +131,8 @@ export function FlowChart({ spec }: { spec: FlowChartSpec }) {
           ))}
           {spec.nodes.map((n) => (
             <g key={`dots-${n.id}`} fill={dot}>
-              <circle cx={cx(n)} cy={topY(n)} r={3} />
-              <circle cx={cx(n)} cy={bottomY(n)} r={3} />
+              {topConn.has(n.id) && <circle cx={cx(n)} cy={topY(n)} r={3} />}
+              {bottomConn.has(n.id) && <circle cx={cx(n)} cy={bottomY(n)} r={3} />}
             </g>
           ))}
 

@@ -1,6 +1,6 @@
 ## Graph-Backed Library Surface
 
-The standard library is graph-backed. The compiler uses binary `std/*.graph`
+The Zerolang standard library is graph-backed. The compiler uses binary `std/*.graph`
 stores. Sibling `std/*.0` files are human-readable projections for review, not
 the normal compile path.
 
@@ -12,7 +12,7 @@ zero skills get stdlib
 
 Humans should use this page to decide which module to ask for.
 
-## How To Ask For A Module
+## Expected Usage
 
 ```json-render
 {

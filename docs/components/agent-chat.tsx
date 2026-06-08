@@ -13,6 +13,35 @@ type Message =
 
 export type ChatSpec = { title?: string; messages: Message[] };
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label="Copy message"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1400);
+        } catch {}
+      }}
+      className="shrink-0 cursor-pointer rounded-md p-1.5 text-muted transition hover:bg-surface-muted hover:text-fg"
+    >
+      {copied ? (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+          <path d="M13.5 4.5 6.5 11.5 3 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M5 1.75A1.75 1.75 0 0 1 6.75 0h5.5A1.75 1.75 0 0 1 14 1.75v5.5A1.75 1.75 0 0 1 12.25 9H11V7.5h1.25a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-5.5a.25.25 0 0 0-.25.25V3H5V1.75Z" />
+          <path d="M2 4.75A1.75 1.75 0 0 1 3.75 3h5.5A1.75 1.75 0 0 1 11 4.75v5.5A1.75 1.75 0 0 1 9.25 12h-5.5A1.75 1.75 0 0 1 2 10.25v-5.5Zm1.75-.25a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-5.5Z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -79,7 +108,8 @@ function ToolCalls({ calls }: { calls: ToolCall[] }) {
 function ChatMessage({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-1">
+        <CopyButton text={message.text} />
         <div className="max-w-[82%] rounded-2xl rounded-br-md bg-fg px-4 py-2.5 text-[0.875rem] leading-relaxed text-bg">
           {message.text}
         </div>
@@ -119,7 +149,7 @@ function ChatMessage({ message }: { message: Message }) {
 
 export function AgentChat({ spec }: { spec: ChatSpec }) {
   return (
-    <div className="not-prose my-6 overflow-hidden rounded-2xl border border-fg/30 bg-bg">
+    <div className="not-prose my-6 overflow-hidden rounded-2xl border border-border bg-bg">
       <div className="flex flex-col gap-5 p-5 sm:p-6">
         {spec.messages.map((message, i) => (
           <ChatMessage key={i} message={message} />

@@ -1,6 +1,6 @@
 ## Semantic Edits
 
-Text is an excellent human review format. It is not an ideal agent edit format.
+In Zerolang, text is an excellent human review format. It is not an ideal agent edit format.
 
 When an agent edits text, it must keep many details in its context at once:
 syntax, indentation, imports, symbol names, surrounding control flow, stale

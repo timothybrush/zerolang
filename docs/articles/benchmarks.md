@@ -1,6 +1,6 @@
 ## Measure The Current Compiler
 
-Benchmarks are regression signals for the current compiler. They are not broad
+Zerolang benchmarks are regression signals for the current compiler. They are not broad
 marketing claims. Use them to compare graph inputs, artifact sizes, build time,
 startup/runtime behavior, and memory use across changes.
 

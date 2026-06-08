@@ -1,6 +1,6 @@
 ## The Human Model
 
-Zero has two views of the same program:
+Zerolang has two views of the same program:
 
 - The graph is the program database. Agents inspect and patch it.
 - The `.0` projection is readable text. Humans use it for review and rare
@@ -9,17 +9,46 @@ Zero has two views of the same program:
 When this page shows Zero syntax, it is showing projection syntax. The graph
 contains the same declarations, types, calls, and edges as structured facts.
 
-## How To Prompt
+## Expected Usage
 
-Ask for the behavior. The Zero skills tell the agent to use the graph:
+Ask for the behavior in normal language. The Zero skills tell the agent to use
+the graph:
 
-```text
-make a cli that adds two numbers
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "make a cli that adds two numbers"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll add the function, wire the CLI, and run a sample input."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero query --fn main",
+          "output": "main\n  check world.out.write \"hello\\n\""
+        },
+        {
+          "command": "zero patch /tmp/add-cli.patch",
+          "output": "program graph patch ok"
+        },
+        {
+          "command": "zero run -- 40 2",
+          "output": "42"
+        }
+      ]
+    }
+  ]
+}
 ```
 
-The agent should gather current compiler knowledge with `zero skills`, inspect
-the package with `zero status` or `zero query`, patch the graph, then run
-`zero check`, `zero test`, or `zero run` only when useful for the task.
+Under the hood, the agent gathers current compiler knowledge with `zero skills`,
+inspects the package with `zero status` or `zero query`, patches the graph, then
+runs `zero check`, `zero test`, or `zero run` only when useful for the task.
 
 ## A Minimal Program
 

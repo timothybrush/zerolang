@@ -1,8 +1,38 @@
 ## Run Tests From The Graph
 
-`zero test` runs test blocks from graph inputs and graph-first packages. When
+In Zerolang, `zero test` runs test blocks from graph inputs and graph-first packages. When
 this page shows `test` projection syntax, read it as the human review view of a
 graph-backed test declaration.
+
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "add subtract and prove it works"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll add the function and a focused test for it."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero patch /tmp/subtract.patch",
+          "output": "program graph patch ok"
+        },
+        {
+          "command": "zero test --json --filter subtract",
+          "output": "{\"ok\":true,\"passedTests\":1,\"expectedFailures\":0}"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## What This Means
 
 ```zero
 test "add works" {
@@ -34,36 +64,6 @@ Expected-fail tests are named with `xfail:`, `expected fail:`, or `[xfail]`.
 
 `zero test --json` includes `fixtures`, `snapshotKey`, selected/discovered
 counts, stdout/stderr, and per-test results.
-
-## Agent Test Flow
-
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "add subtract and prove it works"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll add the function and a focused test for it."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero patch /tmp/subtract.patch",
-          "output": "program graph patch ok"
-        },
-        {
-          "command": "zero test --json --filter subtract",
-          "output": "{\"ok\":true,\"passedTests\":1,\"expectedFailures\":0}"
-        }
-      ]
-    }
-  ]
-}
-```
 
 ## Repository Reliability
 

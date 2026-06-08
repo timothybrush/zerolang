@@ -1,6 +1,6 @@
 ## Use A Checkout Compiler
 
-Use this page when you are working on Zero itself or testing a local compiler
+Use this page when you are working on Zerolang itself or testing a local compiler
 change. Public docs use `zero`; contributor notes cover checkout wrapper
 details.
 

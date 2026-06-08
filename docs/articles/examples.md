@@ -1,17 +1,42 @@
 ## Start With Graph Examples
 
-The examples directory is the fastest way to understand what works today. Most
+The Zerolang examples directory is the fastest way to understand what works today. Most
 examples are checked-in `.graph` inputs or graph-first packages with
 `zero.graph` stores. Sibling `.0` files, when present, are human-readable
 projections for review.
 
-Start here:
+## Expected Usage
 
-```sh
-zero query examples/hello.graph
-zero check examples/hello.graph
-zero run examples/add.graph
-zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "make a tiny contacts api like the crm example"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll use the CRM example as the pattern and run the route checks."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero query examples/crm-api --find route",
+          "output": "routes: health, contacts list, contact by id, create, update, delete"
+        },
+        {
+          "command": "zero patch /tmp/contacts-api.patch",
+          "output": "program graph patch ok"
+        },
+        {
+          "command": "zero run -- $'GET /health\\n\\n'",
+          "output": "HTTP/1.1 200 OK"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## Learning Order
@@ -56,38 +81,13 @@ Compiler and agent workflows:
 - `examples/memory-package/`
 - `examples/zero-hash/`
 
-## What To Ask An Agent
+## Inspect And Run Examples
 
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "make a tiny contacts api like the crm example"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll use the CRM example as the pattern and run the route checks."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero query examples/crm-api --find route",
-          "output": "routes: health, contacts list, contact by id, create, update, delete"
-        },
-        {
-          "command": "zero patch /tmp/contacts-api.patch",
-          "output": "program graph patch ok"
-        },
-        {
-          "command": "zero run -- $'GET /health\\n\\n'",
-          "output": "HTTP/1.1 200 OK"
-        }
-      ]
-    }
-  ]
-}
+```sh
+zero query examples/hello.graph
+zero check examples/hello.graph
+zero run examples/add.graph
+zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
 ```
 
 ## Build And Size Examples

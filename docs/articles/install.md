@@ -1,6 +1,6 @@
 ## Install The Compiler
 
-Install Zero when you want an agent to build graph-first programs on your
+Install Zerolang when you want an agent to build graph-first programs on your
 machine. The compiler is experimental. Use it in isolated workspaces and avoid
 production data.
 

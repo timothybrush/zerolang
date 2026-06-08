@@ -1,6 +1,6 @@
 ## The Program Database
 
-Zero exists because humans increasingly ask agents to write programs.
+Zerolang exists because humans increasingly ask agents to write programs.
 
 Most programming languages still make text the primary program database. That
 works for humans, but it is a poor interface for agents. An agent has to infer
@@ -12,7 +12,7 @@ types, calls, blocks, imports, capabilities, and source-map facts directly.
 Agents edit those facts with checked graph patches. Humans read `.0`
 projections when they want a source-like review view.
 
-## What Changes
+## The Editing Loop
 
 A traditional agent loop writes text, then runs check, format, and build to find
 out what the text meant. Zero's loop queries the graph, submits one checked
@@ -96,7 +96,7 @@ package becomes the new compiler input.
 That is the agent-facing contract: write checked semantic edits, not hopeful
 text diffs.
 
-## Why Humans Still Get Text
+## Human Review Stays Textual
 
 Humans should not have to inspect graph dumps to trust a change. `.0`
 projections exist so people can read, review, and occasionally manually edit a
@@ -112,7 +112,7 @@ The important distinction is ownership:
 
 Zero is a graph-native language with human-editable text projections.
 
-## Why It Matters
+## The Payoff
 
 The graph-first model is meant to reduce guessing and reduce tool calls. A
 checked patch combines edit intent, stale-state protection, shape validation,

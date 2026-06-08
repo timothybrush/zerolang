@@ -1,6 +1,6 @@
 ## Start With An Agent
 
-Zero is designed for a human working with an agent.
+Zerolang is designed for a human working with an agent.
 
 The agent should author the program through the graph. The human should review
 the graph summary, command output, and the `.0` projection when useful. A
@@ -19,15 +19,9 @@ Use the installed `zero` command in public examples. If you are developing Zero
 itself, follow the repository contributor notes for checkout-local compiler
 work.
 
-## Ask An Agent For Hello World
+## Expected First Conversation
 
-A good first prompt can be casual:
-
-```text
-make hello world here
-```
-
-A good agent conversation should look like this:
+Start by asking for the behavior in normal language:
 
 ```json-render
 {

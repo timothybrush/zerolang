@@ -1,10 +1,10 @@
 ## When To Use std.args
 
-Use `std.args` for hosted command-line programs that need positional
+In Zerolang, use `std.args` for hosted command-line programs that need positional
 arguments, option lookup, or simple numeric argument parsing.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
-while the Zero snippets below show the human-readable projection that agents may
+while the projection snippets below show the human-readable projection that agents may
 export for review. Agents should discover helpers with `zero skills get stdlib`,
 inspect user packages with `zero query [graph-input]` or
 `zero inspect [graph-input]`, and patch user code through the graph instead of

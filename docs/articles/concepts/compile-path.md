@@ -1,9 +1,10 @@
 ## From Graph To Code
 
-Most languages have a parse-first compile path: the normal compiler input is
-text, so every compile starts by parsing text into compiler data structures.
-Zero's package path is graph-first. It is the same kind of pipeline with fewer
-stages, and the input is the graph store instead of text:
+Zerolang is easiest to understand against parse-first compilers. Most languages
+have a parse-first compile path: the normal compiler input is text, so every
+compile starts by parsing text into compiler data structures. Zerolang's
+package path is graph-first. It is the same kind of pipeline with fewer stages,
+and the input is the graph store instead of text:
 
 ```json-render
 {

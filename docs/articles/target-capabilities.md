@@ -1,16 +1,38 @@
 ## Capabilities Are Target Facts
 
-Zero does not assume every target can do filesystem, network, process, time, or
-random operations. Those are explicit target facts.
+In Zerolang, start with the user request. The agent should inspect target capability facts
+before patching APIs that depend on hosted runtime support.
 
-Ask an agent for target-sensitive work in normal language:
-
-```text
-make this cli work on linux musl too
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "make this cli work on linux musl too"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll check the target facts and call out anything that blocks the port."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero check --json --target linux-musl-x64",
+          "output": "{\"ok\":false,\"diagnostics\":[{\"code\":\"TAR002\",\"message\":\"target does not provide required capability\"}]}"
+        }
+      ]
+    }
+  ]
+}
 ```
 
-The agent should inspect target capability facts before patching APIs that
-depend on hosted runtime support.
+## What This Means
+
+Zero does not assume every target can do filesystem, network, process, time, or
+random operations. Those are explicit target facts. Target JSON includes host
+identity, aliases, object formats, C target mapping, capabilities, HTTP runtime
+metadata, and `targetToolchains`.
 
 ## Inspect Targets
 
@@ -19,9 +41,6 @@ zero targets
 zero targets --json
 zero check --json --target linux-musl-x64 examples/memory-package
 ```
-
-Target JSON includes host identity, aliases, object formats, C target mapping,
-capabilities, HTTP runtime metadata, and `targetToolchains`.
 
 ## Hosted Capabilities
 
@@ -54,32 +73,6 @@ zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-ta
 
 The diagnostic is `TAR002` and the repair id points at choosing a target with
 the required capability.
-
-## Agent Flow
-
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "can this run on linux musl?"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll check the target facts and call out any capability blockers."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero check --json --target linux-musl-x64",
-          "output": "{\"ok\":false,\"diagnostics\":[{\"code\":\"TAR002\",\"message\":\"target does not provide required capability\"}]}"
-        }
-      ]
-    }
-  ]
-}
-```
 
 ## What To Remember
 

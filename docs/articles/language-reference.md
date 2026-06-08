@@ -1,6 +1,6 @@
 ## How Programs Are Shaped
 
-Zero programs are semantic graph declarations with a human-readable `.0`
+Zerolang programs are semantic graph declarations with a human-readable `.0`
 projection. This page names the language pieces that appear in both views.
 
 Read **Primitives And Types** first when you want scalar types, `Maybe<T>`,

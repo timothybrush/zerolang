@@ -1,5 +1,41 @@
 ## Packages Are Graph-Backed
 
+In Zerolang, a human usually starts with the package they want, not the manifest fields:
+
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "start a small crm api package here"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll start the package with zero.toml and add the first API route."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero init --template package --manifest toml --format binary",
+          "output": "graph project init ok\nwrote: ./zero.toml\nwrote: ./zero.graph"
+        },
+        {
+          "command": "zero patch /tmp/crm-routes.patch",
+          "output": "program graph patch ok"
+        },
+        {
+          "command": "zero run -- $'GET /health\\n\\n'",
+          "output": "HTTP/1.1 200 OK\ncontent-type: application/json"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## What This Means
+
 A Zero package has a manifest, a graph store, and review projections:
 
 ```text
@@ -51,40 +87,6 @@ zero size --json
 ```
 
 These commands report projection state, but they do not rewrite `.0` files.
-
-## Agent Package Flow
-
-```json-render
-{
-  "messages": [
-    {
-      "role": "user",
-      "text": "start a small crm api package here"
-    },
-    {
-      "role": "assistant",
-      "text": "I’ll start the package with zero.toml and add the first API route."
-    },
-    {
-      "role": "tools",
-      "calls": [
-        {
-          "command": "zero init --template package --manifest toml --format binary",
-          "output": "graph project init ok\nwrote: ./zero.toml\nwrote: ./zero.graph"
-        },
-        {
-          "command": "zero patch /tmp/crm-routes.patch",
-          "output": "program graph patch ok"
-        },
-        {
-          "command": "zero run -- $'GET /health\\n\\n'",
-          "output": "HTTP/1.1 200 OK\ncontent-type: application/json"
-        }
-      ]
-    }
-  ]
-}
-```
 
 ## Projection Import And Export
 

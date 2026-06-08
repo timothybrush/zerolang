@@ -1,6 +1,6 @@
 ## Read The Error As A Repair Contract
 
-Diagnostics are written for humans and agents together. A human should see what
+Zerolang diagnostics are written for humans and agents together. A human should see what
 went wrong. An agent should see the safest next edit shape.
 
 Example:

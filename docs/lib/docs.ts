@@ -6,10 +6,10 @@ const SECTION_ORDER = [
   "Agent Workflow",
   "Language Pieces",
   "Standard Library",
-  "Stdlib Core",
-  "Stdlib Text And Data",
-  "Stdlib Programs",
-  "Stdlib Runtime And Web",
+  "Core",
+  "Text And Data",
+  "Programs",
+  "Runtime And Web",
   "Build And Runtime",
 ];
 
@@ -17,7 +17,7 @@ export const docs: Doc[] = [
   {
     slug: "getting-started",
     title: "Getting Started",
-    description: "Install Zero and ask an agent to create a graph-first program you can review.",
+    description: "Install Zerolang and ask an agent to create a graph-first program you can review.",
     path: "/getting-started",
     sourcePath: "/articles/getting-started.md",
     section: "Start Here",
@@ -32,8 +32,8 @@ export const docs: Doc[] = [
   },
   {
     slug: "learn-zero",
-    title: "Learn Zero",
-    description: "A human tour of the graph-first workflow, projections, and agent conversations.",
+    title: "Learn Zerolang",
+    description: "A human tour of Zerolang's graph-first workflow, projections, and agent conversations.",
     path: "/learn",
     sourcePath: "/articles/learn-zero.md",
     section: "Start Here",
@@ -49,7 +49,7 @@ export const docs: Doc[] = [
   {
     slug: "graph-architecture",
     title: "Graph Architecture",
-    description: "Why Zero makes the semantic graph the program instead of treating text as the primary interface.",
+    description: "How Zerolang makes the semantic graph the program instead of treating text as the primary interface.",
     path: "/concepts/graph-architecture",
     sourcePath: "/articles/concepts/graph-architecture.md",
     section: "Concepts",
@@ -65,7 +65,7 @@ export const docs: Doc[] = [
   {
     slug: "compile-path",
     title: "Compile Path",
-    description: "How Zero's graph-native compile path compares with traditional parse-first compilers.",
+    description: "How Zerolang's graph-native compile path compares with traditional parse-first compilers.",
     path: "/concepts/compile-path",
     sourcePath: "/articles/concepts/compile-path.md",
     section: "Concepts",
@@ -188,7 +188,7 @@ export const docs: Doc[] = [
     description: "ASCII byte predicates, case conversion, and digit value helpers.",
     path: "/modules/ascii",
     sourcePath: "/articles/modules/ascii.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-parse",
@@ -196,7 +196,7 @@ export const docs: Doc[] = [
     description: "Allocation-free byte scanners and integer/bool parsers.",
     path: "/modules/parse",
     sourcePath: "/articles/modules/parse.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-codec",
@@ -204,7 +204,7 @@ export const docs: Doc[] = [
     description: "Little-endian integer helpers, unsigned varints, and CRC-32 primitives.",
     path: "/modules/codec",
     sourcePath: "/articles/modules/codec.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-mem",
@@ -212,7 +212,7 @@ export const docs: Doc[] = [
     description: "Span metadata, copy and equality helpers, and the allocator surface.",
     path: "/modules/mem",
     sourcePath: "/articles/modules/mem.md",
-    section: "Stdlib Core",
+    section: "Core",
   },
   {
     slug: "module-collections",
@@ -220,7 +220,7 @@ export const docs: Doc[] = [
     description: "Fixed-capacity collection operations over caller-owned storage.",
     path: "/modules/collections",
     sourcePath: "/articles/modules/collections.md",
-    section: "Stdlib Core",
+    section: "Core",
   },
   {
     slug: "module-search",
@@ -228,7 +228,7 @@ export const docs: Doc[] = [
     description: "Scalar span search and binary-search helpers.",
     path: "/modules/search",
     sourcePath: "/articles/modules/search.md",
-    section: "Stdlib Core",
+    section: "Core",
   },
   {
     slug: "module-sort",
@@ -236,7 +236,7 @@ export const docs: Doc[] = [
     description: "In-place sort and sortedness helpers over caller-owned storage.",
     path: "/modules/sort",
     sourcePath: "/articles/modules/sort.md",
-    section: "Stdlib Core",
+    section: "Core",
   },
   {
     slug: "module-args",
@@ -244,7 +244,7 @@ export const docs: Doc[] = [
     description: "Process argument count and indexed lookup for hosted command-line programs.",
     path: "/modules/args",
     sourcePath: "/articles/modules/args.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-cli",
@@ -252,7 +252,7 @@ export const docs: Doc[] = [
     description: "Hosted flag and option helpers for command-line programs.",
     path: "/modules/cli",
     sourcePath: "/articles/modules/cli.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-fmt",
@@ -260,7 +260,7 @@ export const docs: Doc[] = [
     description: "Caller-buffer formatting for booleans and integer text.",
     path: "/modules/fmt",
     sourcePath: "/articles/modules/fmt.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-math",
@@ -268,7 +268,7 @@ export const docs: Doc[] = [
     description: "Pure fixed-width integer helpers and small number-theory routines.",
     path: "/modules/math",
     sourcePath: "/articles/modules/math.md",
-    section: "Stdlib Core",
+    section: "Core",
   },
   {
     slug: "module-path",
@@ -276,7 +276,7 @@ export const docs: Doc[] = [
     description: "Fixed-buffer path helpers with explicit storage and target-aware limits.",
     path: "/modules/path",
     sourcePath: "/articles/modules/path.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-str",
@@ -284,7 +284,7 @@ export const docs: Doc[] = [
     description: "Allocation-free byte-string helpers over spans and caller-owned storage.",
     path: "/modules/str",
     sourcePath: "/articles/modules/str.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-testing",
@@ -292,7 +292,7 @@ export const docs: Doc[] = [
     description: "Bool-returning helpers for test blocks and output checks.",
     path: "/modules/testing",
     sourcePath: "/articles/modules/testing.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-text",
@@ -300,7 +300,7 @@ export const docs: Doc[] = [
     description: "ASCII and UTF-8 byte-backed text validation.",
     path: "/modules/text",
     sourcePath: "/articles/modules/text.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-io",
@@ -308,7 +308,7 @@ export const docs: Doc[] = [
     description: "Buffered reader/writer helpers over caller-owned storage.",
     path: "/modules/io",
     sourcePath: "/articles/modules/io.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-fs",
@@ -316,7 +316,7 @@ export const docs: Doc[] = [
     description: "Hosted file reads, writes, and existence checks for CLI programs.",
     path: "/modules/fs",
     sourcePath: "/articles/modules/fs.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-json",
@@ -324,7 +324,7 @@ export const docs: Doc[] = [
     description: "Validation, field lookup, explicit-allocator parsing, and caller-buffer writing.",
     path: "/modules/json",
     sourcePath: "/articles/modules/json.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-toml",
@@ -332,7 +332,7 @@ export const docs: Doc[] = [
     description: "TOML validation, shallow field lookup, and typed scalar decode helpers.",
     path: "/modules/toml",
     sourcePath: "/articles/modules/toml.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-log",
@@ -340,7 +340,7 @@ export const docs: Doc[] = [
     description: "Explicit-buffer structured log record formatting.",
     path: "/modules/log",
     sourcePath: "/articles/modules/log.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-url",
@@ -348,7 +348,7 @@ export const docs: Doc[] = [
     description: "Lexical URL splitting, percent/query encoding, and query helpers.",
     path: "/modules/url",
     sourcePath: "/articles/modules/url.md",
-    section: "Stdlib Text And Data",
+    section: "Text And Data",
   },
   {
     slug: "module-env",
@@ -356,7 +356,7 @@ export const docs: Doc[] = [
     description: "Hosted environment variable lookup.",
     path: "/modules/env",
     sourcePath: "/articles/modules/env.md",
-    section: "Stdlib Programs",
+    section: "Programs",
   },
   {
     slug: "module-time",
@@ -364,7 +364,7 @@ export const docs: Doc[] = [
     description: "Duration math plus target-gated monotonic and wall-clock helpers.",
     path: "/modules/time",
     sourcePath: "/articles/modules/time.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
   {
     slug: "module-rand",
@@ -372,7 +372,7 @@ export const docs: Doc[] = [
     description: "Explicit deterministic random sources and target entropy helpers.",
     path: "/modules/rand",
     sourcePath: "/articles/modules/rand.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
   {
     slug: "module-proc",
@@ -380,7 +380,7 @@ export const docs: Doc[] = [
     description: "Host process status helpers behind explicit process capability boundaries.",
     path: "/modules/proc",
     sourcePath: "/articles/modules/proc.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
   {
     slug: "module-crypto",
@@ -388,7 +388,7 @@ export const docs: Doc[] = [
     description: "Hash, keyed hash, constant-time equality, and target entropy helpers.",
     path: "/modules/crypto",
     sourcePath: "/articles/modules/crypto.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
   {
     slug: "module-net",
@@ -396,7 +396,7 @@ export const docs: Doc[] = [
     description: "Network capability metadata, address builders, timeouts, and bootstrap handles.",
     path: "/modules/net",
     sourcePath: "/articles/modules/net.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
   {
     slug: "module-http",
@@ -404,7 +404,7 @@ export const docs: Doc[] = [
     description: "HTTP envelope writing, request parsing, hosted fetch, and response metadata helpers.",
     path: "/modules/http",
     sourcePath: "/articles/modules/http.md",
-    section: "Stdlib Runtime And Web",
+    section: "Runtime And Web",
   },
 ];
 

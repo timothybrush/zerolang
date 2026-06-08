@@ -1,6 +1,6 @@
 ## Use Commands By Workflow
 
-The Zero CLI is organized around graph-first agent work. Humans ask for a task;
+The Zerolang CLI is organized around graph-first agent work. Humans ask for a task;
 agents inspect and patch the graph; projections are exported only for review or
 manual edits.
 

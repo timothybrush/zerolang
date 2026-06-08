@@ -1,6 +1,6 @@
 ## Human Review Surface
 
-`.0` files are human-readable projections of the graph.
+In Zerolang, `.0` files are human-readable projections of the graph.
 
 They exist for trust. A human can read the program, review a change, and make a
 manual edit when needed. They are also useful for diagnostics because source

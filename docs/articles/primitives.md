@@ -1,6 +1,6 @@
 ## The Pieces The Graph Stores
 
-This page describes the language pieces that appear as graph facts and as `.0`
+Zerolang exposes language pieces as graph facts and as `.0`
 projection syntax. The graph stores the type and layout facts. The projection
 lets humans read them.
 
