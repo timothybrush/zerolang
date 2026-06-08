@@ -48,6 +48,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   ),
   GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
   GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
+  GRAPH_NO_OUT("diff", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true, "diff textconv output does not support --out", "zero diff [graph-input]", "zero diff --out", "diff prints a canonical review projection on stdout; use zero view --out <file.0> when you need to write a projection file"),
   GRAPH_NO_OUT(
     "source-map",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
@@ -117,10 +118,11 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
 }
 
 void z_program_graph_print_command_help(void) {
-  printf("Usage: zero init [project-path]; zero query|view|dump|inspect|validate|source-map|roundtrip [--json] [graph-input]; zero status|verify-projection|import|export|merge [--json] [project|zero.toml|zero.json|file.0]\n\n");
+  printf("Usage: zero init [project-path]; zero query|view|diff|dump|inspect|validate|source-map|roundtrip [--json] [graph-input]; zero status|verify-projection|import|export|merge [--json] [project|zero.toml|zero.json|file.0]\n\n");
   printf("Graph-first project usage: zero init [--json] [--manifest toml|json] [--format text|binary] [project-path]\n");
   printf("Output usage: zero dump|validate|roundtrip [--json] [--format text|binary] --out <program-graph-artifact> [graph-input]; zero import [--json] [--format text|binary] --out <program-graph-artifact> [project|zero.toml|zero.json|file.0]\n");
   printf("View output usage: zero view [--json] [--out <file.0>] [graph-input]\n");
+  printf("Diff textconv usage: zero diff [graph-input]\n");
   printf("Source map usage: zero source-map [--json] [graph-input]\n");
   printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [graph-input]\n");
   printf("Reconcile usage: zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
@@ -141,6 +143,7 @@ void z_program_graph_print_command_help(void) {
   printf("  inspect   report semantic graph and compiler facts\n");
   printf("  validate  read ProgramGraph input and optionally write its normalized artifact form\n");
   printf("  view      render ProgramGraph input as a generated Zero view\n");
+  printf("  diff      print canonical review text for Git textconv diff drivers\n");
   printf("  source-map map graph nodes to source ranges and semantic identity facts\n");
   printf("  reconcile compare a prior graph with edited source and report identity decisions\n");
   printf("  status    report repository graph projection state without writing files\n");

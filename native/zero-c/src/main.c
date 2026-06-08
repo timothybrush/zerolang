@@ -4037,7 +4037,7 @@ static bool cli_arg_is(const char *arg, const char *expected) {
 }
 
 static bool is_program_graph_root_command(const char *command) {
-  static const char *const commands[] = {"init", "dump", "import", "export", "query", "inspect", "validate", "view", "source-map", "reconcile", "status", "verify-projection", "merge", "roundtrip", "patch"};
+  static const char *const commands[] = {"init", "dump", "import", "export", "query", "inspect", "validate", "view", "diff", "source-map", "reconcile", "status", "verify-projection", "merge", "roundtrip", "patch"};
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
     if (cli_arg_is(command, commands[i])) return true;
   }
@@ -13554,6 +13554,7 @@ static int run_graph_subcommand_dispatch(Command *command, const ZTargetInfo *ta
   if (graph_check_text_eq(command->kind, "dump")) return run_graph_dump_input_command(command, target, diag, false);
   if (graph_check_text_eq(command->kind, "import")) return run_graph_dump_input_command(command, target, diag, true);
   if (graph_check_text_eq(command->kind, "view")) return run_graph_view_command(command, diag);
+  if (graph_check_text_eq(command->kind, "diff")) return run_graph_view_command(command, diag);
   if (graph_check_text_eq(command->kind, "query")) return run_graph_query_command(command, target, diag);
   if (graph_check_text_eq(command->kind, "inspect")) return run_graph_inspect_command(command, target, diag);
   if (graph_check_text_eq(command->kind, "source-map")) return run_graph_source_map_command(command, target, diag);
@@ -14218,7 +14219,7 @@ int main(int argc, char **argv) {
   SourceInput input = {0};
   Program program = {0};
   IrProgram graph_prepared_ir = {0};
-  bool root_graph_artifact_input = path_has_program_graph_storage_header(command.input);
+  bool root_graph_artifact_input = !command.repository_graph_input && path_has_program_graph_storage_header(command.input);
   bool graph_build_command = strcmp(command.command, "build") == 0 && root_graph_artifact_input;
   bool graph_run_artifact_command = strcmp(command.command, "run") == 0 && root_graph_artifact_input;
   bool graph_size_artifact_command = strcmp(command.command, "size") == 0 && root_graph_artifact_input;

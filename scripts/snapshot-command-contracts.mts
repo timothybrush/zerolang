@@ -931,7 +931,8 @@ for (const [command, expected] of [
   [["targets", "--help"], /Usage: zero targets/],
   [["tokens", "--help"], /Usage: zero tokens/],
   [["parse", "--help"], /Usage: zero parse/],
-  [["query", "--help"], /Usage: zero init \[project-path\]; zero query\|view\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
+  [["query", "--help"], /Usage: zero init \[project-path\]; zero query\|view\|diff\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
+  [["diff", "--help"], /Diff textconv usage: zero diff \[graph-input\]/],
   [["size", "--help"], /Usage: zero size/],
   [["explain", "--help"], /Usage: zero explain/],
   [["fix", "--help"], /Usage: zero fix/],
@@ -973,6 +974,7 @@ for (const [code, goodExample, stalePattern] of [
 const graphHelp = zero(["query", "--help"]).stdout;
 assert.match(graphHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format text\|binary\] --out <program-graph-artifact> \[graph-input\]; zero import \[--json\] \[--format text\|binary\] --out <program-graph-artifact> \[project\|zero\.toml\|zero\.json\|file\.0\]/);
 assert.match(graphHelp, /zero view \[--json\] \[--out <file\.0>\] \[graph-input\]/);
+assert.match(graphHelp, /zero diff \[graph-input\]/);
 assert.match(graphHelp, /zero source-map \[--json\] \[graph-input\]/);
 assert.match(graphHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[graph-input\]/);
 assert.match(graphHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
@@ -1007,6 +1009,7 @@ assert.match(rootHelp, /zero fix --plan --json \[graph-input\]/);
 assert.match(rootHelp, /zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\)/);
 assert.match(rootHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\]/);
 assert.match(rootHelp, /zero view \[--json\] \[--out <file\.0>\] \[graph-input\]/);
+assert.match(rootHelp, /zero diff \[graph-input\]/);
 assert.match(rootHelp, /zero source-map \[--json\] \[graph-input\]/);
 assert.match(rootHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[graph-input\]/);
 assert.match(rootHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
@@ -3186,6 +3189,7 @@ assert.match(checkedInGraphDriftVerify.body.repairCommands.join("\n"), /zero imp
 assert.match(checkedInGraphDriftVerify.body.repairCommands.join("\n"), /zero export/);
 const graphView = zero(["view", graphDumpPath]).stdout;
 assert.equal(zero(["view", graphDumpPath]).stdout, graphView);
+assert.equal(zero(["diff", graphDumpPath]).stdout, graphView);
 assert.match(graphView, /^pub fn main\(world: World\) -> Void raises \{\n/);
 assert.match(graphView, /check world\.out\.write\("hello from zero\\n"\)/);
 const graphViewJson = json(["view", "--json", graphDumpPath]).body;
@@ -3206,6 +3210,10 @@ assert.notEqual(graphViewWrongOutJson.code, 0);
 assert.equal(graphViewWrongOutJson.body.diagnostics[0].message, "graph view output must use .0 extension");
 assert.equal(graphViewWrongOutJson.body.diagnostics[0].expected, "zero view --out <file.0> [graph-input]");
 assert.equal(existsSync(graphViewWrongOutPath), false);
+const graphDiffOutJson = json(["diff", "--json", "--out", graphViewPath, graphDumpPath], { allowFailure: true });
+assert.notEqual(graphDiffOutJson.code, 0);
+assert.equal(graphDiffOutJson.body.diagnostics[0].message, "diff textconv output does not support --out");
+assert.equal(graphDiffOutJson.body.diagnostics[0].expected, "zero diff [graph-input]");
 assert.equal(zero(["check", graphDumpPath]).stdout, "ok\n");
 const graphCheckJson = json(["check", "--json", graphDumpPath]).body;
 assert.equal(graphCheckJson.ok, true);

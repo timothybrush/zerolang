@@ -50,6 +50,32 @@ needs a readable repository store artifact. The standard library also uses
 binary `std/*.graph` stores for the compile path, while `std/*.0` files remain
 human-readable projections for review.
 
+## Diffing Graph Stores
+
+Use `zero diff [graph-input]` when a human wants a readable Git diff for
+`.graph` files. It prints the canonical source projection on stdout for Git
+textconv drivers. It does not write `.0` files, and it is not the semantic
+inspection, merge, or repair surface. Agents should still use `zero query`,
+`zero inspect`, and `zero patch` for graph work.
+
+This repository marks graph stores with:
+
+```gitattributes
+*.graph diff=zero-graph
+```
+
+Each clone also needs a Git textconv command. In a Zero checkout:
+
+```sh
+git config diff.zero-graph.textconv 'bin/zero diff'
+```
+
+For an installed compiler outside the Zero repository:
+
+```sh
+git config --global diff.zero-graph.textconv 'zero diff'
+```
+
 `zero.graph` remains the authoring and repository compiler-input store.
 Repository graph build, run, test, size, ship, and mem commands, plus
 standalone `.program-graph` build, run, and size commands, may additionally write

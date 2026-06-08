@@ -56,6 +56,7 @@ zero patch [graph-or-package] --op '<operation>'
 zero check [graph-or-package]
 zero test [graph-or-package]
 zero run [graph-or-package] -- <args>
+zero diff [graph-or-package]
 zero explain <diagnostic-code>
 zero fix --plan [graph-or-package]
 ```

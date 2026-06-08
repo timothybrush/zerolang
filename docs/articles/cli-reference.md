@@ -26,6 +26,7 @@ Most commands accept the same input forms:
 | `zero inspect [graph-input]` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
 | `zero size [graph-input]` | Explain artifact size, retained helpers, and profile budgets. |
 | `zero doc [graph-input]` | Emit public API documentation facts. |
+| `zero diff [graph-input]` | Print canonical review text for Git textconv diff drivers. |
 | `zero fix --plan --json [graph-input]` | Ask for a typed repair plan from graph-backed input. |
 | `zero doctor` | Check host and target readiness. |
 
@@ -48,6 +49,7 @@ zero query examples/hello.graph
 zero dump examples/hello.graph
 zero inspect examples/hello.graph
 zero view examples/hello.graph
+zero diff examples/hello.graph
 zero source-map examples/hello.graph
 zero status .
 zero patch examples/hello.graph --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
@@ -80,6 +82,33 @@ graph outside the repository store:
 zero dump --out .zero/out/hello.program-graph examples/hello.graph
 zero check .zero/out/hello.program-graph
 zero view .zero/out/hello.program-graph
+```
+
+## Graph Diffs
+
+`zero diff [graph-input]` renders the same canonical review projection as
+`zero view`, but it is designed for Git textconv. It does not write `.0`
+projection files and it is not a semantic merge or patch command. Use it when a
+human wants a readable `git diff` for binary or text `.graph` stores; use
+`zero query`, `zero inspect`, and `zero patch` for agent work.
+
+This repository marks graph stores with a Git diff driver:
+
+```gitattributes
+*.graph diff=zero-graph
+```
+
+Git does not allow repositories to version the textconv command itself. In a
+Zero checkout, configure the driver locally:
+
+```sh
+git config diff.zero-graph.textconv 'bin/zero diff'
+```
+
+For an installed Zero compiler outside this repository, use:
+
+```sh
+git config --global diff.zero-graph.textconv 'zero diff'
 ```
 
 ## JSON Output
@@ -430,6 +459,7 @@ zero init [--json] [--manifest toml|json] [project-path]
 zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [graph-input]
 zero dump|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] [graph-input]
 zero view [--json] [--out <file.0>] [graph-input]
+zero diff [graph-input]
 zero source-map [--json] [graph-input]
 zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>
 zero status|verify-projection [--json] [project|zero.toml|zero.json|file.0]
