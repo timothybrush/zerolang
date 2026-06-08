@@ -66,7 +66,10 @@ function projectionSidecarPath(sourcePath) {
 function compilerInputPath(inputPath) {
   if (typeof inputPath !== "string" || !inputPath.endsWith(".0")) return inputPath;
   const graphPath = projectionSidecarPath(inputPath);
-  return existsSync(graphPath) ? graphPath : inputPath;
+  if (!existsSync(graphPath)) {
+    throw new Error(`${inputPath}: compiler command requires graph input; missing graph sidecar ${graphPath}`);
+  }
+  return graphPath;
 }
 
 function normalizeZeroCompilerArgs(args) {

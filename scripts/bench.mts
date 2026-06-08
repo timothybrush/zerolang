@@ -52,7 +52,7 @@ const languages = [
   {
     name: "zero",
     tool: "bin/zero",
-    build: (benchCase) => ["bin/zero", ["build", "--json", "--emit", "exe", "--target", directZeroTarget(), sourcePath(benchCase, "zero", ".0"), "--out", `.zero/bench/zero-${benchCase.name}`]],
+    build: (benchCase) => ["bin/zero", ["build", "--json", "--emit", "exe", "--target", directZeroTarget(), graphInputPath(sourcePath(benchCase, "zero", ".0")), "--out", `.zero/bench/zero-${benchCase.name}`]],
     exe: (benchCase) => `.zero/bench/zero-${benchCase.name}`,
   },
 ];
@@ -101,6 +101,13 @@ function flagValue(name) {
 function sourcePath(benchCase, language, extension) {
   if (benchCase.sources?.[language]) return benchCase.sources[language];
   return `benchmarks/${language}/${benchCase.name}${extension}`;
+}
+
+function graphInputPath(path) {
+  if (!path.endsWith(".0")) return path;
+  const graph = `${path.slice(0, -2)}.graph`;
+  if (!existsSync(graph)) throw new Error(`${path}: missing graph sidecar ${graph}; benchmark compiler input must be graph-backed`);
+  return graph;
 }
 
 function directZeroTarget() {

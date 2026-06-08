@@ -28,7 +28,10 @@ function graphSidecarPath(sourcePath: string) {
 function compilerInputPath(inputPath: string) {
   if (typeof inputPath !== "string" || !inputPath.endsWith(".0")) return inputPath;
   const graphPath = graphSidecarPath(inputPath);
-  return existsSync(graphPath) ? graphPath : inputPath;
+  if (!existsSync(graphPath)) {
+    throw new Error(`${inputPath}: compiler command requires graph input; missing graph sidecar ${graphPath}`);
+  }
+  return graphPath;
 }
 
 function normalizeZeroCompilerArgs(args: string[]) {
@@ -4590,13 +4593,13 @@ for (const args of [
   ["abi", "dump", "--json", rawProjectionNoGraph],
   ["fix", "--plan", "--json", rawProjectionNoGraph],
 ] as string[][]) {
-  const rejected = json(args, { allowFailure: true });
+  const rejected = jsonRaw(args, { allowFailure: true });
   assert.notEqual(rejected.code, 0);
   assert.equal(rejected.body.diagnostics[0].code, "BLD002");
   assert.equal(rejected.body.diagnostics[0].message, "compiler command requires graph input");
   assert.equal(rejected.body.diagnostics[0].expected, "package zero.graph store, .graph store, or ProgramGraph artifact");
 }
-const rawProjectionRunRejected = zero(["run", rawProjectionNoGraph], { allowFailure: true });
+const rawProjectionRunRejected = zeroRaw(["run", rawProjectionNoGraph], { allowFailure: true });
 assert.notEqual(rawProjectionRunRejected.code, 0);
 assert.match(rawProjectionRunRejected.stderr, /compiler command requires graph input/);
 assert.match(rawProjectionRunRejected.stderr, /package zero\.graph store, \.graph store, or ProgramGraph artifact/);
