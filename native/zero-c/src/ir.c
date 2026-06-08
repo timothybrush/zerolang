@@ -172,14 +172,14 @@ static const IrTypeName ir_scalar_type_names[] = {
 };
 
 static const IrTypeName ir_builtin_type_names[] = {
-  {"Void", IR_TYPE_VOID}, {"Duration", IR_TYPE_I64}, {"RandSource", IR_TYPE_U32}, {"ProcStatus", IR_TYPE_I32}, {"Net", IR_TYPE_I32}, {"HttpClient", IR_TYPE_I32},
+  {"Void", IR_TYPE_VOID}, {"Duration", IR_TYPE_I64}, {"RandSource", IR_TYPE_U32}, {"ProcStatus", IR_TYPE_I32}, {"Net", IR_TYPE_I32}, {"Conn", IR_TYPE_I32}, {"Listener", IR_TYPE_I32}, {"HttpMethod", IR_TYPE_U32}, {"HttpClient", IR_TYPE_I32}, {"HttpServer", IR_TYPE_I32},
   {"HttpResult", IR_TYPE_U64}, {"HttpError", IR_TYPE_U32}, {"HttpHeaderValue", IR_TYPE_U64}, {"Fs", IR_TYPE_I32}, {"File", IR_TYPE_I32}, {"owned<File>", IR_TYPE_I32},
   {"FixedBufAlloc", IR_TYPE_ALLOC}, {"Vec", IR_TYPE_VEC}, {"BufferedReader", IR_TYPE_BYTE_VIEW}, {"BufferedWriter", IR_TYPE_BYTE_VIEW},
 };
 
-static const char *const ir_byte_view_type_names[] = {"String", "Span<const u8>", "ByteBuf", "owned<ByteBuf>"};
+static const char *const ir_byte_view_type_names[] = {"String", "Span<const u8>", "Address", "ByteBuf", "owned<ByteBuf>"};
 static const char *const ir_maybe_byte_view_type_names[] = {"Maybe<MutSpan<u8>>", "Maybe<Span<u8>>", "Maybe<String>", "Maybe<owned<ByteBuf>>"};
-static const char *const ir_maybe_scalar_type_names[] = {"Maybe<JsonDoc>", "Maybe<Bool>", "Maybe<u8>", "Maybe<u16>", "Maybe<usize>", "Maybe<i32>", "Maybe<u32>", "Maybe<owned<File>>"};
+static const char *const ir_maybe_scalar_type_names[] = {"Maybe<JsonDoc>", "Maybe<Bool>", "Maybe<u8>", "Maybe<u16>", "Maybe<usize>", "Maybe<i32>", "Maybe<u32>", "Maybe<Conn>", "Maybe<Listener>", "Maybe<owned<File>>"};
 
 static IrTypeKind ir_span_element_kind(const char *type) { return ir_type_name_lookup(ir_scalar_type_names, sizeof(ir_scalar_type_names) / sizeof(ir_scalar_type_names[0]), type); }
 

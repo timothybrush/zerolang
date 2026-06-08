@@ -98,17 +98,18 @@ static IrTypeKind ir_type_kind(const char *type) {
   if (ir_text_eq(type, "Duration")) return IR_TYPE_I64;
   if (ir_text_eq(type, "RandSource")) return IR_TYPE_U32;
   if (ir_text_eq(type, "ProcStatus")) return IR_TYPE_I32;
-  if (ir_text_eq(type, "Net") || ir_text_eq(type, "HttpClient")) return IR_TYPE_I32;
+  if (ir_text_eq(type, "Net") || ir_text_eq(type, "HttpClient") || ir_text_eq(type, "Conn") || ir_text_eq(type, "Listener") || ir_text_eq(type, "HttpServer")) return IR_TYPE_I32;
+  if (ir_text_eq(type, "HttpMethod")) return IR_TYPE_U32;
   if (ir_text_eq(type, "HttpResult")) return IR_TYPE_U64;
   if (ir_text_eq(type, "HttpError")) return IR_TYPE_U32;
   if (ir_text_eq(type, "HttpHeaderValue")) return IR_TYPE_U64;
   if (ir_text_eq(type, "Fs") || ir_text_eq(type, "File") || ir_text_eq(type, "owned<File>")) return IR_TYPE_I32;
-  if (ir_text_eq(type, "String") || ir_text_eq(type, "Span<const u8>") || ir_text_eq(type, "ByteBuf") || ir_text_eq(type, "owned<ByteBuf>") || ir_span_type_element(type, NULL, NULL)) return IR_TYPE_BYTE_VIEW;
+  if (ir_text_eq(type, "String") || ir_text_eq(type, "Span<const u8>") || ir_text_eq(type, "Address") || ir_text_eq(type, "ByteBuf") || ir_text_eq(type, "owned<ByteBuf>") || ir_span_type_element(type, NULL, NULL)) return IR_TYPE_BYTE_VIEW;
   if (ir_text_eq(type, "FixedBufAlloc")) return IR_TYPE_ALLOC;
   if (ir_text_eq(type, "Vec")) return IR_TYPE_VEC;
   if (ir_text_eq(type, "BufferedReader") || ir_text_eq(type, "BufferedWriter")) return IR_TYPE_BYTE_VIEW;
   if (ir_text_eq(type, "Maybe<MutSpan<u8>>") || ir_text_eq(type, "Maybe<Span<u8>>") || ir_text_eq(type, "Maybe<String>") || ir_text_eq(type, "Maybe<owned<ByteBuf>>")) return IR_TYPE_MAYBE_BYTE_VIEW;
-  if (ir_text_eq(type, "Maybe<JsonDoc>") || ir_text_eq(type, "Maybe<Bool>") || ir_text_eq(type, "Maybe<u8>") || ir_text_eq(type, "Maybe<u16>") || ir_text_eq(type, "Maybe<usize>") || ir_text_eq(type, "Maybe<i32>") || ir_text_eq(type, "Maybe<u32>") || ir_text_eq(type, "Maybe<owned<File>>")) return IR_TYPE_MAYBE_SCALAR;
+  if (ir_text_eq(type, "Maybe<JsonDoc>") || ir_text_eq(type, "Maybe<Bool>") || ir_text_eq(type, "Maybe<u8>") || ir_text_eq(type, "Maybe<u16>") || ir_text_eq(type, "Maybe<usize>") || ir_text_eq(type, "Maybe<i32>") || ir_text_eq(type, "Maybe<u32>") || ir_text_eq(type, "Maybe<Conn>") || ir_text_eq(type, "Maybe<Listener>") || ir_text_eq(type, "Maybe<owned<File>>")) return IR_TYPE_MAYBE_SCALAR;
   return IR_TYPE_UNSUPPORTED;
 }
 
@@ -1968,8 +1969,128 @@ static int ir_graph_http_error_code(const char *name) {
   return -1;
 }
 
+static unsigned ir_graph_http_method_code(const char *name) {
+  static const char *methods[] = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"};
+  for (unsigned i = 0; name && i < (unsigned)(sizeof(methods) / sizeof(methods[0])); i++) if (ir_text_eq(name, methods[i])) return i + 1;
+  return 0;
+}
+
+static bool ir_graph_discard_typed_arg(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, size_t order, IrTypeKind type) {
+  IrValue *value = NULL; bool ok = ir_graph_lower_ordered_arg(graph, ir, fun, expr, order, type, &value); ir_free_value(value); return ok;
+}
+
+static bool ir_graph_lower_byte_arg_with_discard(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, size_t byte_order, size_t discard_order, IrTypeKind discard_type, IrValue **out) {
+  if (!ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", byte_order), out)) return false;
+  if (ir_graph_discard_typed_arg(graph, ir, fun, expr, discard_order, discard_type)) return true;
+  ir_free_value(*out); *out = NULL; return false;
+}
+
+static IrValue *ir_graph_handle_literal(IrProgram *ir, IrTypeKind type, const ZProgramGraphNode *expr) {
+  return ir_new_integer_literal_value(ir, type, 1, ir_graph_line(expr), ir_graph_column(expr));
+}
+
+static bool ir_graph_lower_net_std_call(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, const char *callee_name, size_t arg_count, bool *handled, IrValue **out) {
+  *handled = true;
+  if (ir_text_eq(callee_name, "std.net.host") && arg_count == 0) {
+    *out = ir_graph_handle_literal(ir, IR_TYPE_I32, expr); return true;
+  }
+  if (ir_text_eq(callee_name, "std.net.localhost") && arg_count == 1) {
+    if (!ir_graph_discard_typed_arg(graph, ir, fun, expr, 0, IR_TYPE_U16)) return false;
+    return ir_make_string_literal_value(ir, "localhost", ir_graph_line(expr), ir_graph_column(expr), out);
+  }
+  if (ir_text_eq(callee_name, "std.net.loopback") && arg_count == 1) {
+    if (!ir_graph_discard_typed_arg(graph, ir, fun, expr, 0, IR_TYPE_U16)) return false;
+    return ir_make_string_literal_value(ir, "127.0.0.1", ir_graph_line(expr), ir_graph_column(expr), out);
+  }
+  if (ir_text_eq(callee_name, "std.net.address") && arg_count == 2) {
+    return ir_graph_lower_byte_arg_with_discard(graph, ir, fun, expr, 0, 1, IR_TYPE_U16, out);
+  }
+  if (ir_text_eq(callee_name, "std.net.withTimeout") && arg_count == 2) {
+    return ir_graph_lower_byte_arg_with_discard(graph, ir, fun, expr, 0, 1, IR_TYPE_I64, out);
+  }
+  if (ir_text_eq(callee_name, "std.net.dnsName") && arg_count == 1) {
+    return ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 0), out);
+  }
+  if ((ir_text_eq(callee_name, "std.net.connect") || ir_text_eq(callee_name, "std.net.listen")) && arg_count == 2) {
+    IrValue *address = NULL;
+    bool ok = ir_graph_discard_typed_arg(graph, ir, fun, expr, 0, IR_TYPE_I32) &&
+              ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 1), &address);
+    ir_free_value(address);
+    if (!ok) return false;
+    *out = ir_new_maybe_scalar_literal(ir, false, IR_TYPE_I32, 0, ir_graph_line(expr), ir_graph_column(expr));
+    return true;
+  }
+  *handled = false;
+  return true;
+}
+
+static bool ir_graph_lower_http_capability_call(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, const char *callee_name, size_t arg_count, bool *handled, IrValue **out) {
+  *handled = true;
+  if (ir_text_eq(callee_name, "std.http.client") && arg_count == 1) {
+    if (!ir_graph_discard_typed_arg(graph, ir, fun, expr, 0, IR_TYPE_I32)) return false;
+    *out = ir_graph_handle_literal(ir, IR_TYPE_I32, expr); return true;
+  }
+  if (ir_text_eq(callee_name, "std.http.server") && arg_count == 2) {
+    IrValue *address = NULL;
+    bool ok = ir_graph_discard_typed_arg(graph, ir, fun, expr, 0, IR_TYPE_I32) &&
+              ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 1), &address);
+    ir_free_value(address);
+    if (!ok) return false;
+    *out = ir_graph_handle_literal(ir, IR_TYPE_I32, expr); return true;
+  }
+  if (ir_text_eq(callee_name, "std.http.parseMethod") && arg_count == 1) {
+    const ZProgramGraphNode *method = ir_graph_ordered_node(graph, expr->id, "arg", 0);
+    IrValue *method_view = NULL;
+    if (!ir_graph_lower_byte_view(graph, ir, fun, method, &method_view)) return false;
+    ir_free_value(method_view);
+    const char *text = method && method->kind == Z_PROGRAM_GRAPH_NODE_LITERAL ? method->value : NULL;
+    *out = ir_new_integer_literal_value(ir, IR_TYPE_U32, ir_graph_http_method_code(text), ir_graph_line(expr), ir_graph_column(expr));
+    return true;
+  }
+  if (ir_text_eq(callee_name, "std.http.tlsBoundary") && arg_count == 0) {
+    return ir_make_string_literal_value(ir, "platform-or-c-library", ir_graph_line(expr), ir_graph_column(expr), out);
+  }
+  *handled = false;
+  return true;
+}
+
+static bool ir_graph_lower_http_fetch_call(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, size_t arg_count, bool *handled, IrValue **out) {
+  *handled = false;
+  if (arg_count != 4) return true;
+  *handled = true;
+  IrValue *client = NULL, *request = NULL, *response = NULL, *timeout = NULL;
+  if (!ir_graph_lower_ordered_arg(graph, ir, fun, expr, 0, IR_TYPE_I32, &client) ||
+      !ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 1), &request) ||
+      !ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 2), &response) ||
+      !ir_graph_lower_ordered_arg(graph, ir, fun, expr, 3, IR_TYPE_I64, &timeout)) {
+    ir_free_value(client); ir_free_value(request); ir_free_value(response); ir_free_value(timeout); return false;
+  }
+  ir_free_value(client);
+  if (!timeout || timeout->type != IR_TYPE_I64) {
+    ir_free_value(request); ir_free_value(response); ir_free_value(timeout);
+    ir_graph_mark_unsupported(ir, ir_graph_ordered_node(graph, expr->id, "arg", 3), "typed graph MIR std.http.fetch timeout must be a Duration", "non-Duration timeout");
+    return false;
+  }
+  IrValue *value = ir_new_value(ir, IR_VALUE_HTTP_FETCH, IR_TYPE_U64, ir_graph_line(expr), ir_graph_column(expr));
+  value->left = request; value->right = response; value->index = timeout;
+  if (ir->direct_runtime_helper_count < 2) ir->direct_runtime_helper_count = 2;
+  if (ir->direct_host_runtime_import_count < 2) ir->direct_host_runtime_import_count = 2;
+  if (ir->direct_http_runtime_import_count < 1) ir->direct_http_runtime_import_count = 1;
+  *out = value;
+  return true;
+}
+
 static bool ir_graph_lower_http_std_call(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, const char *callee_name, size_t arg_count, bool *handled, IrValue **out) {
   *handled = true;
+  bool local_handled = false;
+  if (!ir_graph_lower_net_std_call(graph, ir, fun, expr, callee_name, arg_count, &local_handled, out)) return false;
+  if (local_handled) return true;
+  if (!ir_graph_lower_http_capability_call(graph, ir, fun, expr, callee_name, arg_count, &local_handled, out)) return false;
+  if (local_handled) return true;
+  if (ir_text_eq(callee_name, "std.http.fetch")) {
+    if (!ir_graph_lower_http_fetch_call(graph, ir, fun, expr, arg_count, &local_handled, out)) return false;
+    if (local_handled) return true;
+  }
   int http_error_code = ir_graph_http_error_code(callee_name);
   if (http_error_code >= 0 && arg_count == 0) { *out = ir_new_integer_literal_value(ir, IR_TYPE_U32, (unsigned long long)http_error_code, ir_graph_line(expr), ir_graph_column(expr)); return true; }
   unsigned status_lower = 0;

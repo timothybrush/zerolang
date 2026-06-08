@@ -48,22 +48,6 @@ static bool memory_maybe_binding(const ZProgramGraph *graph, const ZProgramGraph
 
 static bool memory_subject_matches(const ZProgramGraphNode *subject, const char *name) { return subject && subject->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER && memory_text_eq(subject->name, name); }
 
-static bool memory_statement_site(const ZProgramGraph *graph, const ZProgramGraphNode *node, const ZProgramGraphNode **block, size_t *order) {
-  const char *current = node ? node->id : NULL;
-  for (size_t depth = 0; graph && current && depth < graph->node_len; depth++) {
-    const ZProgramGraphEdge *owner = memory_owner_edge(graph, current);
-    const ZProgramGraphNode *owner_node = owner ? memory_node_by_id(graph, owner->from) : NULL;
-    if (!owner_node) return false;
-    if (owner_node->kind == Z_PROGRAM_GRAPH_NODE_BLOCK && memory_text_eq(owner->kind, "statement")) {
-      if (block) *block = owner_node;
-      if (order) *order = owner->order;
-      return true;
-    }
-    current = owner_node->id;
-  }
-  return false;
-}
-
 static bool memory_block_has_direct_return(const ZProgramGraph *graph, const ZProgramGraphNode *block) {
   for (size_t i = 0; graph && block && i < graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &graph->edges[i];
@@ -119,14 +103,24 @@ static bool memory_if_proves_subject_after(const ZProgramGraph *graph, const ZPr
   return memory_block_has_direct_return(graph, memory_child(graph, stmt, "then", 0));
 }
 
-static bool memory_prior_negative_return_guarded(const ZProgramGraph *graph, const ZProgramGraphNode *read, const char *subject_name) {
-  const ZProgramGraphNode *block = NULL;
-  size_t order = 0;
-  if (!memory_statement_site(graph, read, &block, &order)) return false;
+static bool memory_prior_negative_return_guarded_in_block(const ZProgramGraph *graph, const ZProgramGraphNode *block, size_t order, const char *subject_name) {
   for (size_t i = 0; graph && block && i < graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &graph->edges[i];
     if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE || edge->order >= order || !memory_text_eq(edge->from, block->id) || !memory_text_eq(edge->kind, "statement")) continue;
     if (memory_if_proves_subject_after(graph, memory_node_by_id(graph, edge->to), subject_name)) return true;
+  }
+  return false;
+}
+
+static bool memory_prior_negative_return_guarded(const ZProgramGraph *graph, const ZProgramGraphNode *read, const char *subject_name) {
+  const char *current = read ? read->id : NULL;
+  for (size_t depth = 0; graph && current && depth < graph->node_len; depth++) {
+    const ZProgramGraphEdge *owner = memory_owner_edge(graph, current);
+    const ZProgramGraphNode *owner_node = owner ? memory_node_by_id(graph, owner->from) : NULL;
+    if (!owner_node) return false;
+    if (owner_node->kind == Z_PROGRAM_GRAPH_NODE_BLOCK && memory_text_eq(owner->kind, "statement") &&
+        memory_prior_negative_return_guarded_in_block(graph, owner_node, owner->order, subject_name)) return true;
+    current = owner_node->id;
   }
   return false;
 }
@@ -137,8 +131,11 @@ static bool memory_short_circuit_guarded(const ZProgramGraph *graph, const ZProg
     const ZProgramGraphEdge *owner = memory_owner_edge(graph, current);
     const ZProgramGraphNode *parent = owner ? memory_node_by_id(graph, owner->from) : NULL;
     if (!parent) return false;
-    if (parent->kind == Z_PROGRAM_GRAPH_NODE_CALL && memory_text_eq(parent->name, "&&") && memory_text_eq(owner->kind, "right") &&
-        memory_expr_has_guard_for(graph, memory_child(graph, parent, "left", 0), subject_name, 0)) return true;
+    if (parent->kind == Z_PROGRAM_GRAPH_NODE_CALL && memory_text_eq(owner->kind, "right")) {
+      const ZProgramGraphNode *left = memory_child(graph, parent, "left", 0);
+      if (memory_text_eq(parent->name, "&&") && memory_expr_has_guard_for(graph, left, subject_name, 0)) return true;
+      if (memory_text_eq(parent->name, "||") && memory_expr_negative_has_guard_for(graph, left, subject_name)) return true;
+    }
     current = parent->id;
   }
   return false;

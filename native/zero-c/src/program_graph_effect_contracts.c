@@ -151,6 +151,8 @@ static bool fail_missing_return_value(const ZProgramGraphNode *fun, const char *
   return false;
 }
 
+static bool effect_maybe_accepts_present_value(const char *expected, const char *actual) { const char *prefix = "Maybe<"; size_t prefix_len = strlen(prefix), expected_len = expected ? strlen(expected) : 0; if (!expected || !actual || strncmp(expected, prefix, prefix_len) != 0 || expected_len <= prefix_len + 1 || expected[expected_len - 1] != '>') return false; size_t inner_len = expected_len - prefix_len - 1; return strlen(actual) == inner_len && strncmp(expected + prefix_len, actual, inner_len) == 0; }
+
 static bool effect_function_has_return(const ZProgramGraph *graph, const ZProgramGraphNode *fun) {
   for (size_t i = 0; graph && fun && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
@@ -176,6 +178,7 @@ static bool effect_return_contract_ok(const ZProgramGraph *graph, const ZProgram
   const char *actual = effect_expr_type(graph, resolution, expr, actual_scratch, sizeof(actual_scratch));
   if (!expr) actual = "Void";
   if (!effect_text_present(actual) || effect_text_eq(expected, actual)) return true;
+  if (effect_maybe_accepts_present_value(expected, actual)) return true;
   return fail_wrong_return_type(stmt, expected, actual, path, diag);
 }
 

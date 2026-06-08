@@ -138,6 +138,12 @@ async function runExitCode(path, env = {}) {
   }
 }
 
+async function importGraphInput(sourcePath) {
+  const graphPath = `${sourcePath.slice(0, -2)}.graph`;
+  await execFileAsync(zero, ["import", "--format", "binary", "--out", graphPath, sourcePath]);
+  return graphPath;
+}
+
 function assertRuntimeReport(report, targetName) {
   assert.equal(report.generatedCBytes, 0);
   assert.equal(report.objectBackend?.linking?.targetLibraries, "zero-runtime,curl");
@@ -162,7 +168,8 @@ async function buildAndRun(name, source, expectedCode, env = {}) {
   const exe = `${outDir}/${name}`;
   const jsonPath = `${exe}.json`;
   await writeFile(src, source);
-  const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", target, src, "--out", exe], { maxBuffer: 1024 * 1024 });
+  const input = await importGraphInput(src);
+  const build = await execFileAsync(zero, ["build", "--json", "--emit", "exe", "--target", target, input, "--out", exe], { maxBuffer: 1024 * 1024 });
   await writeFile(jsonPath, build.stdout);
   assertRuntimeReport(JSON.parse(build.stdout), target);
   const code = await runExitCode(exe, env);
@@ -171,33 +178,33 @@ async function buildAndRun(name, source, expectedCode, env = {}) {
 
 async function runHttpJsonExample(baseUrl) {
   const exe = `${outDir}/std-http-json-example`;
-  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-json.0", "--", `GET ${baseUrl}/ok\n\n`], { timeout: 5000 });
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-json.graph", "--", `GET ${baseUrl}/ok\n\n`], { timeout: 5000 });
   assert.equal(run.stdout, "http json ok\n");
 }
 
 async function runHttpRequestExample(baseUrl) {
   const exe = `${outDir}/std-http-request-example`;
   const request = `POST ${baseUrl}/echo\ncontent-type: application/json\nx-zero-test: yes\n\n{"ping":1}`;
-  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-request.0", "--", request], { timeout: 5000 });
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-request.graph", "--", request], { timeout: 5000 });
   assert.equal(run.stdout, "http request ok\n");
 }
 
 async function runHttpHeadersExample(baseUrl) {
   const exe = `${outDir}/std-http-headers-example`;
-  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-headers.0", "--", `GET ${baseUrl}/headers\n\n`, "connection"], { timeout: 5000 });
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/std-http-headers.graph", "--", `GET ${baseUrl}/headers\n\n`, "connection"], { timeout: 5000 });
   assert.equal(run.stdout, "http header found\n");
 }
 
 async function runJsonApiClientExample(baseUrl) {
   const exe = `${outDir}/json-api-client-example`;
-  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-client.0", "--", `${baseUrl}/client`], { timeout: 5000 });
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-client.graph", "--", `${baseUrl}/client`], { timeout: 5000 });
   assert.equal(run.stdout, "json api client ok\n");
 }
 
 async function runJsonApiRouterExample() {
   const exe = `${outDir}/json-api-router-example`;
   const request = "POST /users?tenant=demo\ncontent-type: application/json\n\n{\"id\":7}";
-  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-router.0", "--", request], { timeout: 5000 });
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-router.graph", "--", request], { timeout: 5000 });
   assert.equal(run.stdout, "json api router ok\n");
 }
 

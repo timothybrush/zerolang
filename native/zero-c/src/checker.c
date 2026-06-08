@@ -1501,8 +1501,7 @@ static bool actual_storage_value_provenance_under_path(CheckContext *ctx, const 
 static char *provenance_context_type_text(const CheckContext *ctx, const Program *program, const char *type, GenericBinding *bindings, size_t binding_len);
 static void scope_clear_maybe_guards_for_mutating_call_args(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope);
 
-static bool std_source_function_allows_raw_maybe_return(const Program *program, Scope *scope, const Function *fun, const char *expected, const char *actual) {
-  if (!fun || !fun->name || strncmp(fun->name, "__zero_std_", strlen("__zero_std_")) != 0) return false;
+static bool maybe_type_accepts_present_value(const Program *program, Scope *scope, const char *expected, const char *actual) {
   const char *inner = NULL;
   size_t inner_len = 0;
   if (!type_has_generic_arg(expected, "Maybe", &inner, &inner_len)) return false;
@@ -10771,7 +10770,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
   if (stmt->kind == STMT_RETURN) {
     if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, fun->return_type)) return false;
     const char *actual = stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Void";
-    if (!types_compatible_in_scope(program, scope, fun->return_type, actual) && !std_source_function_allows_raw_maybe_return(program, scope, fun, fun->return_type, actual)) {
+    if (!types_compatible_in_scope(program, scope, fun->return_type, actual) && !maybe_type_accepts_present_value(program, scope, fun->return_type, actual)) {
       return set_diag_detail(diag, 3007, "return type does not match function return type", stmt->line, stmt->column, fun->return_type, actual, "return a value compatible with the function signature");
     }
     if (!check_return_reference_escape(ctx, program, stmt->expr, scope, fun->return_type, diag)) return false;
