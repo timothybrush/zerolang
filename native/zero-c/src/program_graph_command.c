@@ -30,7 +30,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "query",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
     "query does not support --out",
-    "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>",
+    "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>",
     "zero query --out",
     "queries are reported on stdout; remove --out"
   ),
@@ -38,7 +38,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "inspect",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
     "inspect does not support --out",
-    "zero inspect [--json] <program-graph-or-source>",
+    "zero inspect [--json] <graph-input>",
     "zero inspect --out",
     "use zero dump or zero import with --out when you need a derived ProgramGraph artifact"
   ),
@@ -48,7 +48,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "source-map",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
     "source-map does not support --out",
-    "zero source-map [--json] <program-graph-or-source>",
+    "zero source-map [--json] <graph-input>",
     "zero source-map --out",
     "source maps are reported on stdout; remove --out"
   ),
@@ -56,7 +56,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     "reconcile",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
     "reconcile does not support --out",
-    "zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.toml|zero.json>",
+    "zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>",
     "zero reconcile --out",
     "reconciliation reports identity decisions on stdout; remove --out"
   ),
@@ -67,6 +67,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("run", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
+  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_NO_OUT(
     "test",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
@@ -106,7 +107,7 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
   static const ZProgramGraphOutputContract check_contract = {
     false,
     "zero check does not support --out",
-    "zero view --out <file.0> <program-graph-or-source>",
+    "zero view --out <file.0> <graph-input>",
     "zero check --out",
     "run zero view to render canonical source, or run zero check without --out to typecheck the ProgramGraph input",
   };
@@ -126,10 +127,10 @@ void z_program_graph_print_command_help(void) {
   printf("Usage: zero init|query|view|status|verify-projection|import|export|dump|inspect|validate|source-map|reconcile|merge|roundtrip [--json] <input>\n\n");
   printf("Graph-first project usage: zero init [--json] <project-path>\n");
   printf("Output usage: zero dump|import|validate|roundtrip [--json] [--format text|binary] --out <program-graph-artifact> <input>\n");
-  printf("View output usage: zero view [--json] [--out <file.0>] <program-graph-or-source>\n");
-  printf("Source map usage: zero source-map [--json] <program-graph-or-source>\n");
-  printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>\n");
-  printf("Reconcile usage: zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.toml|zero.json>\n");
+  printf("View output usage: zero view [--json] [--out <file.0>] <graph-input>\n");
+  printf("Source map usage: zero source-map [--json] <graph-input>\n");
+  printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>\n");
+  printf("Reconcile usage: zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
   printf("Repository projection usage: zero status|verify-projection [--json] <project|zero.toml|zero.json|file.0>; zero import [--json] [--format text|binary] <project|zero.toml|zero.json|file.0>; zero export [--json] <project|zero.toml|zero.json|file.0>; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.toml|zero.json|file.0>\n");
   printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] <program-graph-artifact>\n");
   printf("Patch usage: zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [<input>] (<patch-file>|--op <operation>)\n");

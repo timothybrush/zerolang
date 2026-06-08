@@ -15,26 +15,26 @@ Most commands accept the same input forms:
 
 | Command | Use it for |
 | --- | --- |
-| `zero check <input>` | Parse, typecheck, and report diagnostics. |
-| `zero patch <input>` | Apply checked graph edits. |
-| `zero run <input>` | Build and run a host executable with the selected backend. |
-| `zero test <input>` | Run inline `test` blocks. |
-| `zero fmt <input>` | Print formatted source. Add `--check` in CI. |
-| `zero build <input>` | Emit an executable or object file. |
-| `zero ship <input>` | Produce a release preview with checksums and metadata. |
-| `zero inspect <input>` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
-| `zero size <input>` | Explain artifact size, retained helpers, and profile budgets. |
-| `zero doc <input>` | Emit public API documentation facts. |
-| `zero fix --plan --json <input>` | Ask for a typed repair plan. |
+| `zero check <graph-input>` | Validate graph-backed input, typecheck, and report diagnostics. |
+| `zero patch <graph-input>` | Apply checked graph edits. |
+| `zero run <graph-input>` | Build and run a host executable with the selected backend. |
+| `zero test <graph-input>` | Run inline `test` blocks from graph-backed input. |
+| `zero fmt <source-input>` | Print formatted source projections. Add `--check` in CI. |
+| `zero build <graph-input>` | Emit an executable or object file. |
+| `zero ship <graph-input>` | Produce a release preview with checksums and metadata. |
+| `zero inspect <graph-input>` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
+| `zero size <graph-input>` | Explain artifact size, retained helpers, and profile budgets. |
+| `zero doc <graph-input>` | Emit public API documentation facts. |
+| `zero fix --plan --json <graph-input>` | Ask for a typed repair plan from graph-backed input. |
 | `zero doctor` | Check host and target readiness. |
 
 Copyable examples:
 
 ```sh
-zero check examples/hello.0
-zero run examples/add.0
-zero test conformance/native/pass/test-blocks.0
-zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
+zero check examples/hello.graph
+zero run examples/add.graph
+zero test conformance/native/pass/test-blocks.graph
+zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
 zero init .zero/out/graph-hello
 zero patch .zero/out/graph-hello --op 'addMain' --op 'addCheckWrite fn="main" text="hello from graph\n"'
 zero query .zero/out/graph-hello
@@ -46,17 +46,17 @@ zero query --node '#expr_2cad38f9' .zero/out/graph-hello
 zero run .zero/out/graph-hello
 zero export .zero/out/graph-hello
 zero inspect examples/systems-package
-zero query examples/hello.0
-zero dump examples/hello.0
-zero inspect examples/hello.0
-zero view examples/hello.0
-zero source-map examples/hello.0
+zero query examples/hello.graph
+zero dump examples/hello.graph
+zero inspect examples/hello.graph
+zero view examples/hello.graph
+zero source-map examples/hello.graph
 zero status .
-zero patch examples/hello.0 --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
+zero patch examples/hello.graph --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
 zero patch --op help
-zero roundtrip examples/hello.0
-zero size examples/point.0
-zero ship --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello
+zero roundtrip examples/hello.graph
+zero size examples/point.graph
+zero ship --target linux-musl-x64 examples/hello.graph --out .zero/ship/hello
 zero doctor
 ```
 
@@ -69,7 +69,7 @@ pass `--backend llvm` for explicit LLVM host execution when `clang` is ready.
 Pass program arguments after `--`:
 
 ```sh
-zero run examples/cli-file.0 -- input.txt
+zero run examples/cli-file.graph -- input.txt
 ```
 
 You usually do not need a `.program-graph` file to debug, inspect, diagnose,
@@ -79,7 +79,7 @@ standalone `.program-graph` only when another tool needs a file to carry the
 graph outside the repository store:
 
 ```sh
-zero dump --out .zero/out/hello.program-graph examples/hello.0
+zero dump --out .zero/out/hello.program-graph examples/hello.graph
 zero check .zero/out/hello.program-graph
 zero view .zero/out/hello.program-graph
 ```
@@ -248,9 +248,9 @@ zero patch \
 zero check .
 ```
 
-It can also patch canonical `.0` source without comments; that path rewrites
-the source after lowering, formatting, re-parsing, and semantic graph
-comparison succeeds:
+It can also patch projection-backed `.0` files without comments; that path
+updates the graph sidecar, exports the source projection, and verifies semantic
+graph comparison succeeds:
 
 ```sh
 zero patch \
@@ -416,37 +416,37 @@ document symbols, and quick-fix code actions surfaced from `zero fix` for
 zero --version [--json]
 zero new cli|lib|package <path>
 zero doctor [--json]
-zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] <input>
-zero dev [--json] [--trace] [--target <target>] <input>
-zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
-zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <input>
-zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
-zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
-zero fmt [--check] <input>
+zero check [--json] [--target <target>] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] <graph-input>
+zero dev [--json] [--trace] [--target <target>] <graph-input>
+zero run [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <graph-input> [-- args...]
+zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile dev|release] [--out <file>] <graph-input>
+zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <graph-input>
+zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <graph-input>
+zero fmt [--check] <source-input>
 zero init [--json] [--manifest toml|json] <project-path>
-zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>
+zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>
 zero dump|import|validate|roundtrip [--json] [--format text|binary] [--out <program-graph-artifact>] <input>
-zero view [--json] [--out <file.0>] <program-graph-or-source>
-zero source-map [--json] <program-graph-or-source>
-zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.toml|zero.json>
+zero view [--json] [--out <file.0>] <graph-input>
+zero source-map [--json] <graph-input>
+zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>
 zero status|verify-projection [--json] <project|zero.toml|zero.json|file.0>
 zero import [--json] [--format text|binary] <project|zero.toml|zero.json|file.0>
 zero export [--json] <project|zero.toml|zero.json|file.0>
 zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.toml|zero.json|file.0>
-zero size [--json] [--target <target>] --out <artifact> <program-graph-or-package>
-zero patch [--json] [--check-only|--dry-run] [--out <program-graph-artifact>] [<program-graph-or-source>] (<patch-file>|--op <operation>)
-zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|project|zero.toml|zero.json|program-graph-artifact>
-zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]
-zero test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>
-zero doc [--json] [--target <target>] <input>
-zero size [--json] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--out <artifact>] <input>
+zero size [--json] [--target <target>] --out <artifact> <graph-input>
+zero patch [--json] [--check-only|--dry-run] [--out <program-graph-artifact>] [<graph-input>] (<patch-file>|--op <operation>)
+zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input>
+zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-input> [-- args...]
+zero test [--json] [--filter <name>] [--target <target>] <graph-input>
+zero doc [--json] [--target <target>] <graph-input>
+zero size [--json] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--out <artifact>] <graph-input>
 zero explain [--json] <diagnostic-code>
-zero fix --plan --json [--target <target>] <input>
+zero fix --plan --json [--target <target>] <graph-input>
 zero targets
 zero clean [--all]
-zero mem [--json] [--target <target>] <input>
-zero time --json [--target <target>] <input>
-zero abi check|dump [--json] [--target <target>] <input>
-zero tokens --json <input>
-zero parse --json <input>
+zero mem [--json] [--target <target>] <graph-input>
+zero time --json [--target <target>] <graph-input>
+zero abi check|dump [--json] [--target <target>] <graph-input>
+zero tokens --json <source-input>
+zero parse --json <source-input>
 ```

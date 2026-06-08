@@ -36,7 +36,7 @@ required for the normal path.
 for relevant tools. Native direct emitters are the current artifact path.
 
 ```sh
-zero build --emit exe --target linux-musl-x64 examples/hello.0 --out .zero/out/hello
+zero build --emit exe --target linux-musl-x64 examples/hello.graph --out .zero/out/hello
 ```
 
 To build the compiler from a local checkout instead, use the repository wrapper:

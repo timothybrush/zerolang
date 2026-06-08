@@ -38,8 +38,8 @@ values for ordinary `expect` statements.
 ## Run
 
 ```sh
-zero test conformance/native/pass/test-blocks.0
-zero test --filter addition conformance/native/pass/test-blocks.0
+zero test conformance/native/pass/test-blocks.graph
+zero test --filter addition conformance/native/pass/test-blocks.graph
 zero test conformance/packages/test-app
 ```
 

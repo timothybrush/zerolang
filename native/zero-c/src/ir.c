@@ -5482,7 +5482,7 @@ void z_free_ir_program(IrProgram *program) {
     free(program->external_functions[i].param_types);
   }
   free(program->external_functions);
-  free(program->mir_path);
+  free(program->mir_path); free(program->package_root);
   ir_active_local_restore(program, 0);
   free(program->active_local_names);
   for (size_t i = 0; i < program->data_segment_len; i++) {

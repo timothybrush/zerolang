@@ -22,10 +22,10 @@ Use machine-readable output when a tool needs exact fields:
 ```sh
 zero check --json <input>
 zero explain --json <diagnostic-code>
-zero fix --plan --json <input>
+zero fix --plan --json <graph-input>
 ```
 
-`zero fix` is plan-only in this compiler. It reports candidate repairs but does not edit files.
+`zero fix` reads graph-backed inputs. It reports candidate repairs for graph diagnostics; projection-only source must be imported before repair planning.
 
 ## Diagnostic Shape
 

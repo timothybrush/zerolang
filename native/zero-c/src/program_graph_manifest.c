@@ -25,7 +25,7 @@ bool z_program_graph_manifest_compiler_input_enabled(const char *input_path, boo
 }
 
 bool z_program_graph_manifest_command_can_use_compiler_input(const char *command) {
-  static const char *const graph_commands[] = {"check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "abi"};
+  static const char *const graph_commands[] = {"check", "build", "run", "test", "size", "ship", "mem", "doc", "dev", "time", "abi", "fix"};
   for (size_t i = 0; command && i < sizeof(graph_commands) / sizeof(graph_commands[0]); i++) {
     if (strcmp(command, graph_commands[i]) == 0) return true;
   }

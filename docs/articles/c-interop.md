@@ -13,12 +13,12 @@ export c fn add(a: i32, b: i32) -> i32 {
 Check the ABI surface:
 
 ```sh
-bin/zero check conformance/native/pass/c-abi-export.0
-bin/zero abi dump --json conformance/native/pass/c-abi-export.0
+bin/zero check conformance/native/pass/c-abi-export.graph
+bin/zero abi dump --json conformance/native/pass/c-abi-export.graph
 ```
 
 The ABI dump reports exported C symbols and a small generated header text block.
-For `conformance/native/pass/c-abi-export.0`, `generatedHeader.available` is
+For `conformance/native/pass/c-abi-export.graph`, `generatedHeader.available` is
 `true` and the header contains the `zero_add` declaration.
 
 Invalid export surfaces fail before C emission; use the diagnostic explanation
@@ -32,7 +32,7 @@ Header imports expose typed metadata and scalar C functions are callable through
 the declared import alias:
 
 ```sh
-bin/zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.0
+bin/zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.graph
 ```
 
 The graph JSON exposes `cImports[].typedModel` with imported functions,

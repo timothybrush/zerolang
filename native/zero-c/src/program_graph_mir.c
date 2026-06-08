@@ -1,8 +1,8 @@
 #include "zero.h"
-#include "c_import.h"
 #include "mir_binary.h"
 #include "mir_verify.h"
 #include "program_graph_build.h"
+#include "program_graph_c_import.h"
 #include "program_graph_format.h"
 #include "program_graph.h"
 #include "program_graph_lower.h"
@@ -1104,88 +1104,12 @@ static char *ir_graph_expr_qualified_name(const ZProgramGraph *graph, const ZPro
   return name.data;
 }
 
-static char *ir_graph_dirname_copy(const char *path) {
-  if (!path || !path[0]) return z_strdup(".");
-  const char *slash = strrchr(path, '/');
-  if (!slash) return z_strdup(".");
-  if (slash == path) return z_strdup("/");
-  return z_strndup(path, (size_t)(slash - path));
-}
-
-static char *ir_graph_join_path(const char *dir, const char *path) {
-  if (!path || !path[0]) return z_strdup("");
-  if (path[0] == '/') return z_strdup(path);
-  if (!dir || !dir[0] || ir_text_eq(dir, ".")) return z_strdup(path);
-  ZBuf joined;
-  zbuf_init(&joined);
-  zbuf_append(&joined, dir);
-  if (joined.len > 0 && joined.data[joined.len - 1] != '/') zbuf_append_char(&joined, '/');
-  zbuf_append(&joined, path);
-  return joined.data ? joined.data : z_strdup(path);
-}
-
-static bool ir_graph_read_c_header_candidate(const char *path, char **out_header, char **out_resolved) {
-  if (!path || !path[0] || !out_header || !out_resolved) return false;
-  ZDiag diag = {0};
-  char *header = z_read_file(path, &diag);
-  if (!header) return false;
-  *out_header = header;
-  *out_resolved = z_strdup(path);
-  return true;
-}
-
-static bool ir_graph_read_c_header(const ZProgramGraphNode *c_import, char **out_header, char **out_resolved) {
-  if (!c_import || !c_import->value || !c_import->value[0] || !out_header || !out_resolved) return false;
-  *out_header = NULL;
-  *out_resolved = NULL;
-  if (ir_graph_read_c_header_candidate(c_import->value, out_header, out_resolved)) return true;
-  char *source_dir = ir_graph_dirname_copy(c_import->path);
-  char *source_relative = ir_graph_join_path(source_dir, c_import->value);
-  if (ir_graph_read_c_header_candidate(source_relative, out_header, out_resolved)) {
-    free(source_relative);
-    free(source_dir);
-    return true;
-  }
-  free(source_relative);
-  char *package_dir = ir_graph_dirname_copy(source_dir);
-  char *package_relative = ir_graph_join_path(package_dir, c_import->value);
-  bool ok = ir_graph_read_c_header_candidate(package_relative, out_header, out_resolved);
-  free(package_relative);
-  free(package_dir);
-  free(source_dir);
-  return ok;
-}
-
 static const ZProgramGraphNode *ir_graph_c_import_for_alias(const ZProgramGraph *graph, const char *alias) {
   for (size_t i = 0; graph && alias && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
     if (node->kind == Z_PROGRAM_GRAPH_NODE_C_IMPORT && ir_text_eq(node->name, alias)) return node;
   }
   return NULL;
-}
-
-static bool ir_graph_find_c_import_function(const ZProgramGraphNode *c_import, const ZTargetInfo *target, const char *symbol, ZCImportFunction *out) {
-  if (!c_import || !symbol || !symbol[0] || !out) return false;
-  char *header = NULL;
-  char *resolved_header = NULL;
-  if (!ir_graph_read_c_header(c_import, &header, &resolved_header)) return false;
-  ZCImportFunctionVec functions = {0};
-  z_c_header_parse_functions_for_target(header, target, &functions);
-  free(header);
-  for (size_t i = 0; i < functions.len; i++) {
-    ZCImportFunction *function = &functions.items[i];
-    if (!ir_text_eq(function->name, symbol)) continue;
-    *out = *function;
-    *function = (ZCImportFunction){0};
-    out->import_header = z_strdup(c_import->value);
-    out->import_resolved_header = z_strdup(resolved_header ? resolved_header : c_import->value);
-    z_c_import_function_vec_free(&functions);
-    free(resolved_header);
-    return true;
-  }
-  z_c_import_function_vec_free(&functions);
-  free(resolved_header);
-  return false;
 }
 
 static IrFunction *ir_graph_push_function(IrProgram *ir, const ZProgramGraph *graph, const ZProgramGraphNode *node, const char *name_override, char **generic_param_names, char **generic_arg_types, size_t generic_binding_len) {
@@ -1959,7 +1883,7 @@ static bool ir_graph_lower_c_import_call(const ZProgramGraph *graph, IrProgram *
   if (!c_import) return true;
   if (handled) *handled = true;
   ZCImportFunction function = {0};
-  if (!ir_graph_find_c_import_function(c_import, ir->target, symbol, &function)) {
+  if (!z_program_graph_find_c_import_function(c_import, ir, ir->target, symbol, &function)) {
     ir_graph_mark_unsupported(ir, expr, "direct backend extern c symbol is missing from imported header", symbol);
     return false;
   }
@@ -4349,6 +4273,7 @@ static bool ir_graph_add_reachable_function_order(const ZProgramGraph *graph, Ir
 static IrProgram ir_lower_program_graph(const ZProgramGraph *graph, const SourceInput *input, const ZTargetInfo *target) {
   IrProgram ir = {0};
   ir.target = target;
+  ir.package_root = input && input->package_root ? z_strdup(input->package_root) : NULL;
   ir.mir_valid = true;
   ir.mir_line = 1;
   ir.mir_column = 1;
@@ -4501,6 +4426,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
   if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
 
   z_program_graph_seed_source_metadata(input, &store.graph);
+  if (input && !input->package_root && store.root) input->package_root = z_strdup(store.root);
   if (!require_checked_program) z_program_graph_seed_artifact_source_paths(input, &store.graph, store_path);
   char *mir_cache_path = z_mir_binary_cache_path_for_graph_store(store_path, store.graph.graph_hash, target, emit_kind, requested_backend);
   ZMirBinaryCacheFacts mir_cache = {0};

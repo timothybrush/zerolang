@@ -104,7 +104,7 @@ describe("docs registry", () => {
     assert.match(gettingStarted, /zero patch --op 'addMain'/);
     assert.match(gettingStarted, /`src\/main\.0` is the human-readable projection/);
     assert.match(await readDoc("getting-started"), /zero build --target linux-musl-x64/);
-    assert.match(await readDoc("examples"), /bin\/zero check examples\/hello\.0/);
+    assert.match(await readDoc("examples"), /bin\/zero check examples\/hello\.graph/);
     const learnZero = await readDoc("learn-zero");
     for (const topic of ["main", "let", "Write Functions", "type", "Field Defaults", "Span", "check", "Run Tests", "Cross Targets", "Diagnostics"]) {
       assert.match(learnZero, new RegExp(topic));
@@ -180,26 +180,26 @@ describe("docs registry", () => {
     }
     const examples = await readDoc("examples");
     for (const example of [
-      "examples/hello.0",
-      "examples/add.0",
-      "examples/point.0",
-      "examples/fixed-vec.0",
-      "examples/fallibility.0",
-      "examples/ownership-cleanup.0",
-      "examples/memory-primitives.0",
-      "examples/allocator-collections.0",
-      "examples/compile-time-v1.0",
-      "examples/cli-file.0",
-      "examples/cli-config.0",
-      "examples/grep-scan.0",
-      "examples/std-path-io.0",
-      "examples/std-testing-log.0",
-      "examples/std-data-formats.0",
-      "examples/json-api-client.0",
-      "examples/json-api-router.0",
+      "examples/hello.graph",
+      "examples/add.graph",
+      "examples/point.graph",
+      "examples/fixed-vec.graph",
+      "examples/fallibility.graph",
+      "examples/ownership-cleanup.graph",
+      "examples/memory-primitives.graph",
+      "examples/allocator-collections.graph",
+      "examples/compile-time-v1.graph",
+      "examples/cli-file.graph",
+      "examples/cli-config.graph",
+      "examples/grep-scan.graph",
+      "examples/std-path-io.graph",
+      "examples/std-testing-log.graph",
+      "examples/std-data-formats.graph",
+      "examples/json-api-client.graph",
+      "examples/json-api-router.graph",
       "examples/crm-api/",
-      "examples/std-platform.0",
-      "examples/file-copy.0",
+      "examples/std-platform.graph",
+      "examples/file-copy.graph",
       "examples/zero-hash/",
       "examples/readall-cli/",
       "examples/memory-package/",

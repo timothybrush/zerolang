@@ -63,7 +63,7 @@ zero check examples/resource-cli
 The same hosted filesystem surface fails clearly on a non-host target:
 
 ```sh
-zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 The diagnostic is `TAR002` with repair id `choose-target-with-required-capability`.
@@ -73,7 +73,7 @@ The diagnostic is `TAR002` with repair id `choose-target-with-required-capabilit
 This succeeds on the host target:
 
 ```sh
-zero check conformance/native/pass/std-net-http-breadth.0
+zero check conformance/native/pass/std-net-http-breadth.graph
 ```
 
 The check exercises `std.net` and `std.http` metadata. It expects
@@ -87,7 +87,7 @@ or streaming body API in the current public surface.
 The same network surface fails clearly on a target without `net`:
 
 ```sh
-zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 ## Target-Neutral Memory
@@ -119,5 +119,5 @@ zero explain --json TAR002
 Use fix-plan mode to inspect the canonical repair without editing files:
 
 ```sh
-zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```

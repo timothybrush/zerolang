@@ -20,7 +20,7 @@ For agent planning, `check --json` can also report whether a selected direct
 artifact is expected to build without emitting it:
 
 ```sh
-bin/zero check --json --emit obj --target linux-musl-x64 conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0
+bin/zero check --json --emit obj --target linux-musl-x64 conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.graph
 ```
 
 The top-level result stays about language validity. The nested
@@ -35,17 +35,17 @@ targets or language features report diagnostics rather than silently choosing an
 external backend.
 
 ```sh
-bin/zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.0 --out .zero/out/direct-exe-return
-bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zero/out/direct-call-add.o
+bin/zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.graph --out .zero/out/direct-exe-return
+bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
 Use JSON modes to inspect target support, required capabilities, selected
 emitters, and artifact facts:
 
 ```sh
-bin/zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.0
+bin/zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.graph
 bin/zero inspect --json --target darwin-arm64 examples/memory-package
-bin/zero size --json --target linux-musl-x64 examples/direct-exe-return.0
+bin/zero size --json --target linux-musl-x64 examples/direct-exe-return.graph
 ```
 
 ## Sysroots And C Boundaries

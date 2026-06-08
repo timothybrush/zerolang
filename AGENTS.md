@@ -67,11 +67,11 @@ binary deliberately.
 For focused compiler work:
 
 ```sh
-bin/zero check --json <file-or-package>
-bin/zero graph --json <file-or-package>
-bin/zero size --json <file-or-package>
+bin/zero check --json <graph-input>
+bin/zero inspect --json <graph-input>
+bin/zero size --json <graph-input>
 bin/zero explain <diagnostic-code>
-bin/zero fix --plan --json <file-or-package>
+bin/zero fix --plan --json <graph-backed-file-or-package>
 ```
 
 ## Project Layout

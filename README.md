@@ -58,7 +58,7 @@ For graph-first packages, `zero.graph` is the stored compiler input. ProgramGrap
 Agents do not have to infer every fact from text. The compiler can expose the checked structure of a program directly:
 
 ```bash
-zero graph dump examples/hello.0
+zero dump examples/hello.graph
 ```
 
 Example output:
@@ -81,10 +81,10 @@ The graph gives agents explicit handles such as node IDs, graph hashes, resolved
 
 ## Checked Graph Edits
 
-For graph-first packages and supported canonical `.0` inputs, `zero patch` applies checked edits to the graph and rewrites the target only after validation. The command is intended to collapse the normal agent loop of edit, format, reparse, check, and fix into a compiler-mediated operation:
+For graph-first packages, graph artifacts, and projections with graph sidecars, `zero patch` applies checked edits to the graph and rewrites the target only after validation. The command is intended to collapse the normal agent loop of edit, format, reparse, check, and fix into a compiler-mediated operation:
 
 ```bash
-zero patch examples/hello.0 \
+zero patch examples/hello.graph \
   --expect-graph-hash graph:a7f7e6899a73f3b4 \
   --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello graph\n"'
 ```
@@ -119,10 +119,10 @@ Compiler state is exposed through structured command output instead of prose-onl
 ```bash
 zero tokens --json examples/hello.0
 zero parse --json examples/hello.0
-zero check --json examples/hello.0
-zero graph dump examples/hello.0
-zero graph --json examples/systems-package
-zero size --json examples/point.0
+zero check --json examples/hello.graph
+zero dump examples/hello.graph
+zero inspect --json examples/systems-package
+zero size --json examples/point.graph
 ```
 
 The structured contracts include diagnostic codes and spans, public symbols, import edges, target readiness, compile-time sandbox facts, retained helpers, graph hashes, node IDs, and size retention reasons.
@@ -138,48 +138,44 @@ The inspection and repair surfaces are compiler commands, not editor-only featur
 | `zero skills get language` | Version-matched language rules bundled with the compiler binary. |
 | `zero check --json` | Diagnostics with code, span, expected/actual fields, fix safety, repair metadata, compile-time sandbox facts, target readiness, and safety facts. |
 | `zero parse --json` | A stable parse summary with declarations, function signatures, and body node kinds. |
-| `zero graph --json` | Modules, imports, public symbols, capabilities, effects, ownership facts, safety facts, helper use, and interface fingerprints. |
-| `zero graph dump` | Deterministic ProgramGraph text with graph hashes, node IDs, nodes, and edges. |
+| `zero inspect --json` | Modules, imports, public symbols, capabilities, effects, ownership facts, safety facts, helper use, and interface fingerprints. |
+| `zero dump` | Deterministic ProgramGraph text with graph hashes, node IDs, nodes, and edges. |
 | `zero patch` | Checked graph edits with graph-hash and field-value preconditions. |
 | `zero fix --plan --json` | Typed repair plans that describe proposed fixes without editing files. |
 | `zero size --json` | Retained helpers, size reasons, profile policy, safety facts, backend facts, and artifact budget data. |
 
 ### Repair With Diagnostics
 
-A failing fixture reports a diagnostic with stable fields:
+A graph-backed failing fixture reports a diagnostic with stable fields:
 
 ```bash
-zero check --json conformance/check/fail/unknown-name.0
+zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 Today that output includes fields like:
 
 ```json
 {
-  "code": "NAM003",
-  "message": "unknown identifier 'message'",
-  "expected": "visible local, parameter, function, or builtin",
-  "actual": "no matching visible symbol",
+  "code": "TAR002",
+  "message": "target does not provide hosted filesystem capability",
+  "expected": "target with capability fs",
+  "actual": "linux-musl-x64",
   "repair": {
-    "id": "declare-missing-symbol"
+    "id": "choose-target-with-required-capability"
   }
 }
 ```
 
-Diagnostics can be explained and turned into typed fix plans:
+Diagnostics can be explained, and invalid human projections can be imported for
+repair metadata before the fixed graph is checked:
 
 ```bash
 zero explain --json TYP009
-zero fix --plan --json examples/agent-repair-demo/broken.0
-```
-
-Run the repair demo:
-
-```bash
 pnpm run agent:demo
 ```
 
-See `examples/agent-repair-demo/` for the broken fixture, suggested edit, fixed fixture, and scripted check-explain-plan-rerun flow.
+See `examples/agent-repair-demo/` for the broken projection, suggested edit,
+fixed graph, and scripted import-explain-repair-check flow.
 
 ### Compatibility Policy
 
@@ -187,7 +183,7 @@ zerolang is experimental and intentionally unstable. The repo prefers one curren
 
 ```bash
 zero fmt --check examples/hello.0
-zero check --json examples/hello.0
+zero check --json examples/hello.graph
 ```
 
 The project may make breaking changes to simplify the language, standard library, diagnostics, graph APIs, or inspection surfaces for agent use.
@@ -205,13 +201,13 @@ zero --version
 Check a program:
 
 ```bash
-zero check examples/hello.0
+zero check examples/hello.graph
 ```
 
 Run a small executable:
 
 ```bash
-zero run examples/add.0
+zero run examples/add.graph
 ```
 
 Expected output:
@@ -223,11 +219,11 @@ math works
 ## Common Commands
 
 ```bash
-zero check examples/hello.0
-zero run examples/add.0
-zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
-zero graph --json examples/systems-package
-zero size --json examples/point.0
+zero check examples/hello.graph
+zero run examples/add.graph
+zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
+zero inspect --json examples/systems-package
+zero size --json examples/point.graph
 zero skills get zero --full
 zero doctor --json
 ```

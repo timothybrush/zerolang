@@ -14,8 +14,8 @@ bin/zero --version
 ## Quick Command Loop
 
 ```sh
-bin/zero check examples/hello.0
-bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
+bin/zero check examples/hello.graph
+bin/zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add
 ./.zero/out/add
 ```
 
@@ -30,7 +30,7 @@ bin/zero inspect --json examples/systems-package
 Inspect artifact size metadata:
 
 ```sh
-bin/zero size --json examples/point.0
+bin/zero size --json examples/point.graph
 ```
 
 List known targets:
@@ -61,8 +61,8 @@ native target names:
 - `win32-x64.exe`
 
 ```sh
-bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add-linux-musl
-bin/zero build --emit exe --target win32-x64.exe examples/hello.0 --out .zero/out/hello-win32
+bin/zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add-linux-musl
+bin/zero build --emit exe --target win32-x64.exe examples/hello.graph --out .zero/out/hello-win32
 ```
 
 Unsupported target or feature requests report diagnostics instead of silently
@@ -73,7 +73,7 @@ choosing another backend.
 Build a small object artifact for a foreign native target:
 
 ```sh
-bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zero/out/direct-call-add.o
+bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
 Use `bin/zero check --json --emit obj --target <target> <input>` before a build

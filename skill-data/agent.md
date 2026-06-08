@@ -192,7 +192,7 @@ automation tool needs stable fields or a repair plan, rerun with JSON:
 ```sh
 zero explain <diagnostic-code>
 zero check --json <file-or-package>
-zero fix --plan --json <file-or-package>
+zero fix --plan --json <graph-backed-file-or-package>
 ```
 
 12. If behavior changes, add or update a `test` block or conformance fixture.

@@ -48,8 +48,22 @@ async function zeroText(args) {
 
 async function dumpGraphArtifact(fixture, name) {
   const artifact = `${outDir}/${name}.program-graph`;
+  if (fixture.endsWith(".0") && !existsSync(projectionSidecarPath(fixture))) {
+    await importProjectionSidecar(fixture);
+  }
   await zeroText(["dump", "--out", artifact, fixture]);
   return artifact;
+}
+
+function projectionSidecarPath(sourcePath) {
+  assert(sourcePath.endsWith(".0"), `${sourcePath}: expected a .0 projection path`);
+  return `${sourcePath.slice(0, -2)}.graph`;
+}
+
+async function importProjectionSidecar(sourcePath) {
+  const sidecar = projectionSidecarPath(sourcePath);
+  await zeroText(["import", "--format", "binary", "--out", sidecar, sourcePath]);
+  return sidecar;
 }
 
 function artifactNameForFixture(prefix, fixture) {
@@ -77,13 +91,13 @@ function assertSourceGraphRoute(result, fixture, lowering = "typed-program-graph
     graphHash: result.graphHash,
     lowering: result.check?.lowering,
   };
-  assert(graph.artifact, `${fixture}: source command should report graph compiler input`);
+  assert(graph.artifact, `${fixture}: projection input should report graph compiler input`);
   const sidecar = fixture.endsWith(".0") ? `${fixture.slice(0, -2)}.graph` : fixture;
   const expectedArtifact = existsSync(sidecar) ? sidecar : fixture;
-  assert.equal(graph.artifact, expectedArtifact, `${fixture}: source graph artifact should be the active graph input`);
-  assert.equal(graph.canonicalSource, expectedArtifact === fixture, `${fixture}: source graph should report the active graph input kind`);
-  assert.match(graph.graphHash, /^graph:[0-9a-f]{16}$/, `${fixture}: source graph hash`);
-  if (result.graph?.lowering) assert.equal(graph.lowering, lowering, `${fixture}: source graph lowering`);
+  assert.equal(graph.artifact, expectedArtifact, `${fixture}: projection graph artifact should be the active graph input`);
+  assert.equal(graph.canonicalSource, expectedArtifact === fixture, `${fixture}: projection graph should report the active graph input kind`);
+  assert.match(graph.graphHash, /^graph:[0-9a-f]{16}$/, `${fixture}: projection graph hash`);
+  if (result.graph?.lowering) assert.equal(graph.lowering, lowering, `${fixture}: projection graph lowering`);
 }
 
 function compilerCacheKey(result, name) {
@@ -410,7 +424,7 @@ async function assertRoundtripStable(fixture) {
 async function assertCommandStateContracts() {
   const sourceDump = await zeroJson(["dump", "--json", "examples/hello.0"]);
   const sidecarDump = await zeroJson(["validate", "--json", "examples/hello.graph"]);
-  assert.equal(sourceDump.canonicalSource, false, "graph dump from a checked-in projection should use its graph sidecar");
+  assert.equal(sourceDump.canonicalSource, false, "graph dump from a projection should use its graph sidecar");
   assert.equal(sourceDump.graphHash, sidecarDump.graphHash, "graph dump from a projection should read the sidecar graph");
   assert.equal(sourceDump.validation.state, "shape-valid", "graph dump should produce a shape-valid graph");
   assert.equal(sourceDump.validation.ok, true, "graph dump validation should pass");
@@ -479,7 +493,7 @@ async function assertCommandStateContracts() {
   const sourceMap = await zeroJson(["source-map", "--json", "examples/hello.0"]);
   assert.equal(sourceMap.ok, true, "graph source-map should succeed");
   assert.equal(sourceMap.artifact, "examples/hello.graph", "graph source-map should read the projection sidecar");
-  assert.equal(sourceMap.canonicalSource, false, "graph source-map should report graph artifact input for checked-in projections");
+  assert.equal(sourceMap.canonicalSource, false, "graph source-map should report graph artifact input for projections");
   const mainMapping = sourceMap.mappings.find((mapping) => mapping.kind === "Function" && mapping.name === "main");
   assert(mainMapping && mainMapping.sourceRange.path === "hello.0", "graph source-map should map function nodes to stored graph source ranges");
   assert.equal(mainMapping.sourceAvailable, false, "graph source-map should not tokenize the projection when the sidecar is active");
@@ -498,11 +512,13 @@ async function assertCommandStateContracts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(repeatedTypesFixture);
   const repeatedTypesMap = await zeroJson(["source-map", "--json", repeatedTypesFixture]);
   const repeatedTypeRanges = repeatedTypesMap.mappings
     .filter((mapping) => mapping.kind === "TypeRef" && mapping.type === "i32" && mapping.sourceRange.start.line === 1)
     .map((mapping) => mapping.sourceRange.start);
-  assert.deepEqual(repeatedTypeRanges, [{ line: 1, column: 18 }, { line: 1, column: 26 }], "graph source-map should disambiguate repeated type tokens");
+  assert.deepEqual(repeatedTypeRanges, [{ line: 1, column: 11 }, { line: 1, column: 1 }], "graph source-map should use stored graph ranges without reparsing projection text");
+  assert.equal(repeatedTypesMap.mappings.every((mapping) => mapping.sourceAvailable === false), true, "graph source-map should not tokenize sidecar-backed projection text");
 }
 
 async function assertResolutionFacts() {
@@ -597,6 +613,7 @@ async function assertResolutionFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(staticExplicitFixture);
   const staticExplicit = await zeroJson(["dump", "--json", staticExplicitFixture]);
   assert.equal(staticExplicit.resolution.ok, true, "explicit static generic argument graph resolution");
   const pickTypeArg = findResolutionReference(staticExplicit, (item) => item.kind === "type" && item.name === "Foo" && hasIncomingGraphEdge(staticExplicit, item.node, "typeArg", 0), "type argument in a mixed generic call should resolve as a type");
@@ -626,6 +643,7 @@ async function assertResolutionFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(valueTypeCollisionFixture);
   const valueTypeCollision = await zeroJson(["dump", "--json", valueTypeCollisionFixture]);
   assert.equal(valueTypeCollision.resolution.ok, true, "value/type collision graph resolution");
   const valueFoo = findResolutionReference(valueTypeCollision, (item) => item.kind === "identifier" && item.name === "Foo", "ordinary identifiers should prefer value bindings over same-name type bindings");
@@ -644,6 +662,7 @@ async function assertResolutionFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(builtinShadowFixture);
   const builtinShadow = await zeroJson(["dump", "--json", builtinShadowFixture]);
   assert.equal(builtinShadow.resolution.ok, true, "builtin type shadow graph resolution");
   const shadowedWorld = findResolutionReference(builtinShadow, (item) => item.kind === "type" && item.name === "World" && hasIncomingGraphEdge(builtinShadow, item.node, "declaredType"), "declared types should shadow builtin type names in resolution facts");
@@ -718,6 +737,7 @@ async function assertResolutionFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(stdShadowFixture);
   const stdShadow = await zeroJson(["dump", "--json", stdShadowFixture]);
   assert.equal(stdShadow.resolution.ok, true, "local std shadow graph resolution");
   const stdRef = findResolutionReference(stdShadow, (item) => item.kind === "identifier" && item.name === "std", "local std identifier should be present");
@@ -837,6 +857,7 @@ async function assertSemanticFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(userResourceNameFixture);
   const userResourceNames = await zeroJson(["dump", "--json", userResourceNameFixture]);
   assert.equal(userResourceNames.semantics.resources.length, 0, "user-defined type names containing resource words should not emit resource facts");
   assert(!userResourceNames.semantics.ownership.some((item) => item.type === "File" || item.type === "UserFileRecord" || item.type === "Maybe<File>"), "user-defined type names containing resource words should not emit ownership resource facts");
@@ -855,6 +876,7 @@ async function assertSemanticFacts() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(shadowedStdResourceFixture);
   const shadowedStdResource = await zeroJson(["dump", "--json", shadowedStdResourceFixture]);
   assert(shadowedStdResource.semantics.ownership.some((item) => item.name === "owned_file" && item.type === "owned<File>" && item.ownership === "owned" && item.resource === true), "stdlib File resource facts should survive a user-defined File type");
   assert(!shadowedStdResource.semantics.ownership.some((item) => item.name === "user_file"), "user-defined File binding should not become an ownership fact");
@@ -904,6 +926,7 @@ async function assertUnconstrainedGenericTypeParams() {
     "}",
     "",
   ].join("\n"));
+  await importProjectionSidecar(fixture);
   const check = await zeroJson(["check", "--json", fixture]);
   assert.equal(check.ok, true, "source check should accept unconstrained generic parameters");
   const dump = await zeroJson(["dump", "--json", fixture]);
@@ -982,35 +1005,35 @@ async function assertSourceCommandGraphCompilerPath() {
   assertSourceGraphRoute(helloSize, "examples/hello.0", "mapped-final-mir");
   assert.equal(helloSize.generatedCBytes, 0, "source size should stay on direct backend");
   assert.equal(helloSize.cBridgeFallback, false, "source size should not use C bridge fallback");
-  assert.equal(helloSize.compilerCaches[0].sourceKind, "program-graph", "source size should use graph cache identity");
+  assert.equal(helloSize.compilerCaches[0].sourceKind, "program-graph", "projection size should use graph cache identity");
 
   const helloArtifact = await dumpGraphArtifact("examples/hello.0", "source-command-cache-key");
   const helloGraphSize = await zeroJson(["size", "--json", "--target", "linux-musl-x64", helloArtifact]);
-  assert.equal(compilerCacheKey(helloSize, "parseTree"), compilerCacheKey(helloGraphSize, "parseTree"), "source size and graph artifact size should share graph parse cache key");
-  assert.equal(compilerCacheKey(helloSize, "checkedBody"), compilerCacheKey(helloGraphSize, "checkedBody"), "source size and graph artifact size should share graph check cache key");
+  assert.equal(compilerCacheKey(helloSize, "parseTree"), compilerCacheKey(helloGraphSize, "parseTree"), "projection size and graph artifact size should share graph parse cache key");
+  assert.equal(compilerCacheKey(helloSize, "checkedBody"), compilerCacheKey(helloGraphSize, "checkedBody"), "projection size and graph artifact size should share graph check cache key");
 
   const helloMem = await zeroJson(["mem", "--json", "examples/hello.0"]);
   assertSourceGraphRoute(helloMem, "examples/hello.0", "mapped-final-mir");
-  assert.equal(helloMem.compilerCaches[0].sourceKind, "program-graph", "source mem should use graph cache identity");
-  assert.equal(helloMem.incrementalInvalidation.sourceKind, "program-graph", "source mem invalidation source kind");
+  assert.equal(helloMem.compilerCaches[0].sourceKind, "program-graph", "projection mem should use graph cache identity");
+  assert.equal(helloMem.incrementalInvalidation.sourceKind, "program-graph", "projection mem invalidation source kind");
 
   const packageCheck = await zeroJson(["check", "--json", "conformance/packages/test-app"]);
-  assert(packageCheck.graph, "source package command should report graph compiler input");
-  assert.equal(packageCheck.graph.artifact, "conformance/packages/test-app/zero.graph", "source package should route through repository graph store");
-  assert.equal(packageCheck.graph.canonicalSource, false, "source package graph should not report canonical source");
-  assert.match(packageCheck.graph.graphHash, /^graph:[0-9a-f]{16}$/, "source package graph hash");
-  assert.equal(packageCheck.graph.lowering, "graph-native-check", "source package graph lowering");
-  assert.equal(packageCheck.graph.moduleIdentity, "package:test-app@0.1.0", "source package graph identity");
-  assert.equal(packageCheck.package.name, "test-app", "source package metadata");
+  assert(packageCheck.graph, "package command should report graph compiler input");
+  assert.equal(packageCheck.graph.artifact, "conformance/packages/test-app/zero.graph", "package should route through repository graph store");
+  assert.equal(packageCheck.graph.canonicalSource, false, "package graph should not report canonical source");
+  assert.match(packageCheck.graph.graphHash, /^graph:[0-9a-f]{16}$/, "package graph hash");
+  assert.equal(packageCheck.graph.lowering, "graph-native-check", "package graph lowering");
+  assert.equal(packageCheck.graph.moduleIdentity, "package:test-app@0.1.0", "package graph identity");
+  assert.equal(packageCheck.package.name, "test-app", "package metadata");
 
   const packageTest = await zeroJson(["test", "--json", "conformance/packages/test-app"]);
-  assert(packageTest.graph, "source package test should report graph compiler input");
-  assert.equal(packageTest.graph.artifact, "conformance/packages/test-app/zero.graph", "source package test should route through repository graph store");
-  assert.equal(packageTest.graph.canonicalSource, false, "source package test graph should not report canonical source");
-  assert.match(packageTest.graph.graphHash, /^graph:[0-9a-f]{16}$/, "source package test graph hash");
-  assert.equal(packageTest.graph.lowering, "direct-program-graph", "source package test graph lowering");
-  assert.equal(packageTest.testBackend, "direct-program-graph", "source graph test backend");
-  assert.equal(packageTest.testDiscovery.mode, "package-graph", "source package tests should report graph discovery");
+  assert(packageTest.graph, "package test should report graph compiler input");
+  assert.equal(packageTest.graph.artifact, "conformance/packages/test-app/zero.graph", "package test should route through repository graph store");
+  assert.equal(packageTest.graph.canonicalSource, false, "package test graph should not report canonical source");
+  assert.match(packageTest.graph.graphHash, /^graph:[0-9a-f]{16}$/, "package test graph hash");
+  assert.equal(packageTest.graph.lowering, "direct-program-graph", "package test graph lowering");
+  assert.equal(packageTest.testBackend, "direct-program-graph", "graph test backend");
+  assert.equal(packageTest.testDiscovery.mode, "package-graph", "package tests should report graph discovery");
   assert.equal(packageTest.generatedCBytes, 0, "source graph tests should not use generated C");
   assert.equal(packageTest.cBridgeFallback, false, "source graph tests should not use C bridge fallback");
 }
@@ -1073,9 +1096,12 @@ async function assertProjectionBackedPatchParity() {
   const fixture = `${outDir}/projection-backed-patch.0`;
   const original = await readFile("examples/hello.0", "utf8");
   await writeFile(fixture, original);
+  const sidecar = await importProjectionSidecar(fixture);
 
   const beforeGraph = await zeroJson(["dump", "--json", fixture]);
-  assert.equal(beforeGraph.canonicalSource, true, "projection-backed patch input should import from source projection");
+  const beforeSidecar = await zeroJson(["validate", "--json", sidecar]);
+  assert.equal(beforeGraph.canonicalSource, false, "projection-backed patch input should read the graph sidecar");
+  assert.equal(beforeGraph.graphHash, beforeSidecar.graphHash, "projection-backed patch input should match the graph sidecar");
   assert.equal(beforeGraph.validation.state, "shape-valid", "projection-backed patch input should be shape-valid");
   const literal = findStringLiteral(beforeGraph, "hello from zero\n");
 
@@ -1089,8 +1115,8 @@ async function assertProjectionBackedPatchParity() {
     `set node="${literal.id}" field="value" expect="hello from zero\\n" value="hello projection-backed\\n"`,
   ]);
   assert.equal(patch.ok, true, "projection-backed graph patch should succeed");
-  assert.equal(patch.canonicalSource, true, "projection-backed graph patch should report source input");
-  assert.equal(patch.saved.path, fixture, "projection-backed graph patch should save to the source file");
+  assert.equal(patch.canonicalSource, false, "projection-backed graph patch should report graph input");
+  assert.equal(patch.saved.path, sidecar, "projection-backed graph patch should save to the graph sidecar");
   assert.equal(patch.originalGraphHash, beforeGraph.graphHash, "projection-backed graph patch should check the expected graph hash");
   assert.match(patch.patchedGraphHash, /^graph:[0-9a-f]{16}$/, "projection-backed graph patch should report a graph hash");
   assert.notEqual(patch.patchedGraphHash, beforeGraph.graphHash, "projection-backed graph patch should change graph hash");
@@ -1098,9 +1124,10 @@ async function assertProjectionBackedPatchParity() {
   assert.equal(patch.operations[0].ok, true, "projection-backed graph patch operation should pass");
   assert.equal(patch.operations[0].node, literal.id, "projection-backed graph patch should target the requested node");
 
+  await zeroText(["view", "--out", fixture, sidecar]);
   const patchedSource = await readFile(fixture, "utf8");
-  assert.match(patchedSource, /hello projection-backed\\n/, "projection-backed graph patch should rewrite source text");
-  assert.equal(await zeroText(["check", fixture]), "ok\n", "patched source should check through first-class check command");
+  assert.match(patchedSource, /hello projection-backed\\n/, "projection-backed graph patch should export updated source text");
+  assert.equal(await zeroText(["check", fixture]), "ok\n", "patched sidecar should check through first-class check command");
 
   const artifact = await dumpGraphArtifact(fixture, "projection-backed-patch-run");
   const sourceOut = `${outDir}/projection-backed-patch.source-run`;
@@ -1194,11 +1221,13 @@ async function assertDeclarationSiblingIdentity() {
     "",
   ].join("\n");
   await writeFile(declarationFixture, declarations);
+  await importProjectionSidecar(declarationFixture);
   const beforeDeclarations = await zeroJson(["dump", "--json", declarationFixture]);
   const beforePoint = findNodeByKindAndName(beforeDeclarations, "Shape", "Point");
   const beforeOther = findNodeByKindAndName(beforeDeclarations, "Shape", "Other");
 
   await writeFile(declarationFixture, declarations.replace("type Point", "type Added {\n    z: i32,\n}\n\ntype Point"));
+  await importProjectionSidecar(declarationFixture);
   const prependedDeclarations = await zeroJson(["dump", "--json", declarationFixture]);
   assert.equal(findNodeByKindAndName(prependedDeclarations, "Shape", "Point").id, beforePoint.id, "prepending a declaration should not churn existing shape IDs");
   assert.equal(findNodeByKindAndName(prependedDeclarations, "Shape", "Other").id, beforeOther.id, "prepending a declaration should not churn later shape IDs");
@@ -1222,16 +1251,19 @@ async function assertDeclarationSiblingIdentity() {
     "",
   ].join("\n");
   await writeFile(methodFixture, methods);
+  await importProjectionSidecar(methodFixture);
   const beforeMethods = await zeroJson(["dump", "--json", methodFixture]);
   const beforeRead = findNodeByKindAndName(beforeMethods, "Function", "read");
   const beforeDone = findNodeByKindAndName(beforeMethods, "Function", "done");
 
   await writeFile(methodFixture, methods.replace("    fn read", "    fn zero(self: ref<Self>) -> u32 {\n        return 0_u32\n    }\n    fn read"));
+  await importProjectionSidecar(methodFixture);
   const prependedMethods = await zeroJson(["dump", "--json", methodFixture]);
   assert.equal(findNodeByKindAndName(prependedMethods, "Function", "read").id, beforeRead.id, "prepending a distinct method should not churn existing method IDs");
   assert.equal(findNodeByKindAndName(prependedMethods, "Function", "done").id, beforeDone.id, "prepending a distinct method should not churn later method IDs");
 
   await writeFile(methodFixture, methods.replace("    fn read", "    fn count(self: ref<Self>) -> i32 {\n        return 1\n    }\n    fn read"));
+  await importProjectionSidecar(methodFixture);
   const sameShapeMethods = await zeroJson(["dump", "--json", methodFixture]);
   const sameShapeRead = findNodeByKindAndName(sameShapeMethods, "Function", "read");
   const countMethod = findNodeByKindAndName(sameShapeMethods, "Function", "count");
@@ -1253,6 +1285,7 @@ async function assertSourceEditIdentityBaseline() {
     "",
   ].join("\n");
   await writeFile(fixture, original);
+  await importProjectionSidecar(fixture);
 
   const beforeGraph = await zeroJson(["dump", "--json", fixture]);
   const before = findStringLiteral(beforeGraph, "hello from zero\n");
@@ -1262,6 +1295,7 @@ async function assertSourceEditIdentityBaseline() {
   assert(beforeCheck, "missing check statement before insertion");
 
   await writeFile(fixture, original.replace("hello from zero\\n", "hello from graph\\n"));
+  await importProjectionSidecar(fixture);
   const afterGraph = await zeroJson(["dump", "--json", fixture]);
   const after = findStringLiteral(afterGraph, "hello from graph\n");
 
@@ -1270,6 +1304,7 @@ async function assertSourceEditIdentityBaseline() {
   assert.equal(after.id, before.id, "source-imported node id should survive a local content edit");
 
   await writeFile(fixture, original.replace("fn helper", "fn renamedHelper"));
+  await importProjectionSidecar(fixture);
   const renamedGraph = await zeroJson(["dump", "--json", fixture]);
   const renamedHelper = renamedGraph.nodes.find((node) => node.kind === "Function" && node.name === "renamedHelper");
   assert(renamedHelper, "missing renamed function");
@@ -1279,6 +1314,7 @@ async function assertSourceEditIdentityBaseline() {
   if (requireStableNodeIds) assert.equal(renamedHelper.id, beforeHelper.id, "strict stable node id check");
 
   await writeFile(fixture, original.replace("\npub fn main", "\nfn appendedHelper() -> i32 {\n    return 2\n}\n\npub fn main"));
+  await importProjectionSidecar(fixture);
   const sameShapeSiblingGraph = await zeroJson(["dump", "--json", fixture]);
   const sameShapeHelper = sameShapeSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "helper");
   const insertedHelper = sameShapeSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "appendedHelper");
@@ -1289,6 +1325,7 @@ async function assertSourceEditIdentityBaseline() {
   assertMissingNodeId(sameShapeSiblingGraph, beforeHelper.id, "old ambiguous declaration ID should not target any same-shape sibling");
 
   await writeFile(fixture, original.replace("fn helper", "fn prependedHelper() -> i32 {\n    return 2\n}\n\nfn helper"));
+  await importProjectionSidecar(fixture);
   const prependedSiblingGraph = await zeroJson(["dump", "--json", fixture]);
   const prependedExistingHelper = prependedSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "helper");
   const prependedHelper = prependedSiblingGraph.nodes.find((node) => node.kind === "Function" && node.name === "prependedHelper");
@@ -1299,6 +1336,7 @@ async function assertSourceEditIdentityBaseline() {
   assertMissingNodeId(prependedSiblingGraph, beforeHelper.id, "old ambiguous declaration ID should not target any prepended sibling");
 
   await writeFile(fixture, original.replace("    check world.out.write", "    let marker: i32 = 1\n    check world.out.write"));
+  await importProjectionSidecar(fixture);
   const insertedGraph = await zeroJson(["dump", "--json", fixture]);
   const insertedCheck = insertedGraph.nodes.find((node) => node.kind === "Check");
   const insertedLiteral = findStringLiteral(insertedGraph, "hello from zero\n");
@@ -1306,6 +1344,7 @@ async function assertSourceEditIdentityBaseline() {
   assert.equal(insertedLiteral.id, before.id, "inserting before a statement should not churn nested expression IDs");
 
   await writeFile(fixture, original.replace("    check world.out.write(\"hello from zero\\n\")", "    check world.out.write(\"hello from zero\\n\")\n    check world.out.write(\"inserted\\n\")"));
+  await importProjectionSidecar(fixture);
   const sameKindStatementGraph = await zeroJson(["dump", "--json", fixture]);
   const sameKindExisting = findCheckForStringLiteral(sameKindStatementGraph, "hello from zero\n");
   const sameKindInserted = findCheckForStringLiteral(sameKindStatementGraph, "inserted\n");
@@ -1317,6 +1356,7 @@ async function assertSourceEditIdentityBaseline() {
   assertMissingNodeId(sameKindStatementGraph, before.id, "old ambiguous expression ID should not target any same-kind expression");
 
   await writeFile(fixture, original.replace("    check world.out.write", "    check world.out.write(\"inserted\\n\")\n    check world.out.write"));
+  await importProjectionSidecar(fixture);
   const prependedStatementGraph = await zeroJson(["dump", "--json", fixture]);
   const prependedExisting = findCheckForStringLiteral(prependedStatementGraph, "hello from zero\n");
   const prependedInserted = findCheckForStringLiteral(prependedStatementGraph, "inserted\n");

@@ -26,5 +26,5 @@ Apply the suggested edit:
 Review the fixed projection:
 
 ```sh
-bin/zero check examples/agent-repair-demo/fixed.0
+bin/zero check examples/agent-repair-demo/fixed.graph
 ```

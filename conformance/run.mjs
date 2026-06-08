@@ -104,6 +104,33 @@ async function writeZeroToml(root, manifest) {
   await writeFile(`${root}/zero.toml`, manifestToml(manifest));
 }
 
+function graphSidecarPath(sourcePath) {
+  if (!sourcePath.endsWith(".0")) throw new Error(`${sourcePath}: expected a .0 projection path`);
+  return `${sourcePath.slice(0, -2)}.graph`;
+}
+
+async function writeGraphFixture(sourcePath, source) {
+  await writeFile(sourcePath, source);
+  const graphPath = graphSidecarPath(sourcePath);
+  await execFileAsync(zero, ["import", "--format", "binary", "--out", graphPath, sourcePath]);
+  return graphPath;
+}
+
+async function importGraphFixtureFailure(sourcePath) {
+  const result = await execFileAsync(zero, ["import", "--json", "--format", "binary", "--out", graphSidecarPath(sourcePath), sourcePath]).catch((error) => error);
+  assert.notEqual(result.code, 0);
+  return JSON.parse(result.stdout);
+}
+
+async function writeImportFailureFixture(sourcePath, source) {
+  await writeFile(sourcePath, source);
+  return importGraphFixtureFailure(sourcePath);
+}
+
+async function importPackageGraph(root) {
+  await execFileAsync(zero, ["import", root]);
+}
+
 function isolatedCacheEnv(workerIndex) {
   return {
     ...process.env,
@@ -1016,7 +1043,7 @@ assert.match(agentSurfaceBorrowExplainBody.summary, /lexical scope/);
 
 const agentSurfaceMalformedLocalUseFixture = `${outDir}/malformed-local-use.0`;
 await writeFile(agentSurfaceMalformedLocalUseFixture, 'use local.\n\npub fn main(world: World) -> Void raises {\n    check world.out.write("malformed local use parser fixture\\n")\n}\n');
-const agentSurfaceMalformedLocalUse = await execFileAsync(zero, ["check", "--json", agentSurfaceMalformedLocalUseFixture]).catch((error) => error);
+const agentSurfaceMalformedLocalUse = await execFileAsync(zero, ["parse", "--json", agentSurfaceMalformedLocalUseFixture]).catch((error) => error);
 assert.notEqual(agentSurfaceMalformedLocalUse.code, 0);
 const agentSurfaceMalformedLocalUseBody = JSON.parse(agentSurfaceMalformedLocalUse.stdout);
 assert.equal(agentSurfaceMalformedLocalUseBody.diagnostics[0].code, "PAR100");
@@ -1026,7 +1053,7 @@ assert.equal(agentSurfaceMalformedLocalUseBody.diagnostics[0].column, 11);
 
 const agentSurfaceSplitUseFixture = `${outDir}/split-use-path.0`;
 await writeFile(agentSurfaceSplitUseFixture, 'use std.\ncodec\n\npub fn main(world: World) -> Void raises {\n    check world.out.write("split use parser fixture\\n")\n}\n');
-const agentSurfaceSplitUse = await execFileAsync(zero, ["check", "--json", agentSurfaceSplitUseFixture]).catch((error) => error);
+const agentSurfaceSplitUse = await execFileAsync(zero, ["parse", "--json", agentSurfaceSplitUseFixture]).catch((error) => error);
 assert.notEqual(agentSurfaceSplitUse.code, 0);
 const agentSurfaceSplitUseBody = JSON.parse(agentSurfaceSplitUse.stdout);
 assert.equal(agentSurfaceSplitUseBody.diagnostics[0].code, "PAR100");
@@ -1036,7 +1063,7 @@ assert.equal(agentSurfaceSplitUseBody.diagnostics[0].column, 9);
 
 const agentSurfaceKeywordUseFixture = `${outDir}/keyword-use.0`;
 await writeFile(agentSurfaceKeywordUseFixture, 'use pub\n\npub fn main(world: World) -> Void raises {\n    check world.out.write("keyword use parser fixture\\n")\n}\n');
-const agentSurfaceKeywordUse = await execFileAsync(zero, ["check", "--json", agentSurfaceKeywordUseFixture]).catch((error) => error);
+const agentSurfaceKeywordUse = await execFileAsync(zero, ["parse", "--json", agentSurfaceKeywordUseFixture]).catch((error) => error);
 assert.notEqual(agentSurfaceKeywordUse.code, 0);
 const agentSurfaceKeywordUseBody = JSON.parse(agentSurfaceKeywordUse.stdout);
 assert.equal(agentSurfaceKeywordUseBody.diagnostics[0].code, "PAR100");
@@ -1197,7 +1224,7 @@ await assertLlvmHostExitCode("examples/direct-span-read.0", "llvm-direct-span-re
 
 const llvmShortCircuitSourcePath = `${outDir}/llvm-short-circuit.0`;
 const llvmShortCircuitIrPath = `${outDir}/llvm-short-circuit.ll`;
-await writeFile(llvmShortCircuitSourcePath, `fn rhsAnd() -> Bool {
+await writeGraphFixture(llvmShortCircuitSourcePath, `fn rhsAnd() -> Bool {
     return true
 }
 
@@ -1264,7 +1291,7 @@ assert.match(llvmAddIr, /%v[0-9]+ = call i32 @zero_world_write\(i32 1, ptr %v[0-
 
 const llvmSymbolCollisionSourcePath = `${outDir}/llvm-symbol-collision.0`;
 const llvmSymbolCollisionIrPath = `${outDir}/llvm-symbol-collision.ll`;
-await writeFile(llvmSymbolCollisionSourcePath, `fn foo() -> i32 {
+await writeGraphFixture(llvmSymbolCollisionSourcePath, `fn foo() -> i32 {
     return 1
 }
 
@@ -1293,7 +1320,7 @@ assert.match(llvmSymbolCollisionIr, /call i32 @\.zero\.fn\.[0-9]+\.foo\(\)/);
 assert.equal((llvmSymbolCollisionIr.match(/define i32 @z_fn_0_foo\(\) \{/g) || []).length, 1);
 
 const llvmRuntimeCollisionSourcePath = `${outDir}/llvm-runtime-symbol-collision.0`;
-await writeFile(llvmRuntimeCollisionSourcePath, `export c fn zero_world_write() -> i32 {
+await writeGraphFixture(llvmRuntimeCollisionSourcePath, `export c fn zero_world_write() -> i32 {
     return 7
 }
 
@@ -1336,7 +1363,7 @@ assert.equal(llvmRuntimeCollisionBuildBody.diagnostics[0].backendBlocker.backend
 const llvmLongExportName = `llvm_export_${"a".repeat(200)}`;
 const llvmLongExportSourcePath = `${outDir}/llvm-long-export.0`;
 const llvmLongExportIrPath = `${outDir}/llvm-long-export.ll`;
-await writeFile(llvmLongExportSourcePath, `export c fn ${llvmLongExportName}() -> i32 {
+await writeGraphFixture(llvmLongExportSourcePath, `export c fn ${llvmLongExportName}() -> i32 {
     return 7
 }
 
@@ -1613,7 +1640,7 @@ assert.equal(machoOpenByteSliceBuildBody.objectBackend.objectEmission.path, "dir
 await assertMachOArm64Object(`${outDir}/macho-open-byte-slice.o`, "main");
 
 const aarch64OpenSliceBoundsFixture = `${outDir}/aarch64-open-byte-slice-bounds.0`;
-await writeFile(aarch64OpenSliceBoundsFixture, `export c fn main() -> u32 {
+await writeGraphFixture(aarch64OpenSliceBoundsFixture, `export c fn main() -> u32 {
     let words: [2]u16 = [1_u16, 2_u16]
     let suffix: Span<u16> = words[3_usize..]
     return (std.mem.len(suffix)) as u32
@@ -1649,14 +1676,14 @@ assert(hasAarch64CondBranch(machoOpenSliceBoundsBytes, 9));
 assert(hasAarch64Instruction(machoOpenSliceBoundsBytes, 0xd4200000));
 
 const x64OpenSliceBoundsFixture = `${outDir}/x64-open-u16-slice-bounds.0`;
-await writeFile(x64OpenSliceBoundsFixture, `export c fn main() -> u32 {
+await writeGraphFixture(x64OpenSliceBoundsFixture, `export c fn main() -> u32 {
     let words: [2]u16 = [1_u16, 2_u16]
     let suffix: Span<u16> = words[3_usize..]
     return (std.mem.len(suffix)) as u32
 }
 `);
 const x64SliceLenBoundsFixture = `${outDir}/x64-len-u16-slice-bounds.0`;
-await writeFile(x64SliceLenBoundsFixture, `export c fn main() -> u32 {
+await writeGraphFixture(x64SliceLenBoundsFixture, `export c fn main() -> u32 {
     let words: [2]u16 = [1_u16, 2_u16]
     return (std.mem.len(words[..3_usize])) as u32
 }
@@ -1709,7 +1736,7 @@ await assertX64SliceBoundsObject(x64OpenSliceBoundsFixture, "x64-open-u16-slice-
 await assertX64SliceBoundsObject(x64SliceLenBoundsFixture, "x64-len-u16-slice-bounds");
 
 const x64U16RecordFieldFixture = `${outDir}/x64-u16-record-field.0`;
-await writeFile(x64U16RecordFieldFixture, `type Holder {
+await writeGraphFixture(x64U16RecordFieldFixture, `type Holder {
     values: [3]u16,
 }
 
@@ -1826,7 +1853,7 @@ await assertElfAarch64Object(`${outDir}/direct-call-add-arm64.o`, "main");
 let arm64NestedIndexExpr = "values[idx]";
 for (let i = 0; i < 32; i++) arm64NestedIndexExpr = `(0_u32 + ${arm64NestedIndexExpr})`;
 const arm64NestedIndexFixture = `${outDir}/aarch64-nested-index-scratch-blocked.0`;
-await writeFile(arm64NestedIndexFixture, `export c fn main() -> u32 {
+await writeGraphFixture(arm64NestedIndexFixture, `export c fn main() -> u32 {
     let values: [1]u32 = [7]
     let idx: u32 = 0_u32
     return ${arm64NestedIndexExpr}
@@ -1851,7 +1878,7 @@ await assertArm64NestedScratchBlocked(arm64NestedIndexFixture, /indexed load exc
 let arm64NestedLenExpr = "((std.mem.len(text[start..end])) as u32)";
 for (let i = 0; i < 32; i++) arm64NestedLenExpr = `(0_u32 + ${arm64NestedLenExpr})`;
 const arm64NestedLenFixture = `${outDir}/aarch64-nested-len-scratch-blocked.0`;
-await writeFile(arm64NestedLenFixture, `export c fn main() -> u32 {
+await writeGraphFixture(arm64NestedLenFixture, `export c fn main() -> u32 {
     let text: String = "abcdef"
     let start: usize = 1
     let end: usize = 4
@@ -1862,7 +1889,7 @@ await assertArm64NestedScratchBlocked(arm64NestedLenFixture, /byte-view length e
 let arm64NestedDynamicStartLenExpr = "((std.mem.len(text[(start + 0_usize)..end])) as u32)";
 for (let i = 0; i < 31; i++) arm64NestedDynamicStartLenExpr = `(0_u32 + ${arm64NestedDynamicStartLenExpr})`;
 const arm64NestedDynamicStartLenFixture = `${outDir}/aarch64-nested-dynamic-start-len-scratch-blocked.0`;
-await writeFile(arm64NestedDynamicStartLenFixture, `export c fn main() -> u32 {
+await writeGraphFixture(arm64NestedDynamicStartLenFixture, `export c fn main() -> u32 {
     let text: String = "abcdef"
     let start: usize = 1
     let end: usize = 4
@@ -1873,7 +1900,7 @@ await assertArm64NestedScratchBlocked(arm64NestedDynamicStartLenFixture, /byte-v
 let arm64NestedEndLenExpr = "((std.mem.len(text[1..(end + 0_usize)])) as u32)";
 for (let i = 0; i < 32; i++) arm64NestedEndLenExpr = `(0_u32 + ${arm64NestedEndLenExpr})`;
 const arm64NestedEndLenFixture = `${outDir}/aarch64-nested-end-len-scratch-blocked.0`;
-await writeFile(arm64NestedEndLenFixture, `export c fn main() -> u32 {
+await writeGraphFixture(arm64NestedEndLenFixture, `export c fn main() -> u32 {
     let text: String = "abcdef"
     let end: usize = 4
     return ${arm64NestedEndLenExpr}
@@ -1883,7 +1910,7 @@ await assertArm64NestedScratchBlocked(arm64NestedEndLenFixture, /byte-view lengt
 let arm64NestedDynamicEqlExpr = "std.mem.eqlBytes(text[(start + (0_usize + 0_usize))..end], text[(start + (0_usize + 0_usize))..end])";
 for (let i = 0; i < 29; i++) arm64NestedDynamicEqlExpr = `(true == ${arm64NestedDynamicEqlExpr})`;
 const arm64NestedDynamicEqlFixture = `${outDir}/aarch64-nested-dynamic-eql-scratch-blocked.0`;
-await writeFile(arm64NestedDynamicEqlFixture, `export c fn main() -> Bool {
+await writeGraphFixture(arm64NestedDynamicEqlFixture, `export c fn main() -> Bool {
     let text: String = "abcdef"
     let start: usize = 1
     let end: usize = 4
@@ -1895,7 +1922,7 @@ await assertArm64NestedScratchBlocked(arm64NestedDynamicEqlFixture, /byte-view e
 let arm64WorldWriteSliceStart = "(start + 0_usize)";
 for (let i = 0; i < 31; i++) arm64WorldWriteSliceStart = `(0_usize + ${arm64WorldWriteSliceStart})`;
 const arm64WorldWriteFixture = `${outDir}/aarch64-world-write-dynamic-slice-scratch-blocked.0`;
-await writeFile(arm64WorldWriteFixture, `pub fn main(world: World) -> Void raises {
+await writeGraphFixture(arm64WorldWriteFixture, `pub fn main(world: World) -> Void raises {
     let text: String = "abcdef"
     let start: usize = 1
     check world.out.write(text[${arm64WorldWriteSliceStart}..6])
@@ -1924,7 +1951,7 @@ await assertArm64WorldWriteScratchBlocked(arm64WorldWriteFixture, /expression ne
 let arm64WorldWriteSliceEnd = "(end + 0_usize)";
 for (let i = 0; i < 32; i++) arm64WorldWriteSliceEnd = `(0_usize + ${arm64WorldWriteSliceEnd})`;
 const arm64WorldWriteEndFixture = `${outDir}/aarch64-world-write-dynamic-end-scratch-blocked.0`;
-await writeFile(arm64WorldWriteEndFixture, `pub fn main(world: World) -> Void raises {
+await writeGraphFixture(arm64WorldWriteEndFixture, `pub fn main(world: World) -> Void raises {
     let text: String = "abcdef"
     let end: usize = 6
     check world.out.write(text[1..${arm64WorldWriteSliceEnd}])
@@ -1949,7 +1976,7 @@ assert(arm64PrivateHelperBytes.includes(Buffer.from([0x40, 0x05, 0x80, 0x52, 0xc
 
 const arm64CompareSource = `${outDir}/aarch64-typed-compare.0`;
 const arm64CompareObj = `${outDir}/aarch64-typed-compare.o`;
-await writeFile(arm64CompareSource, `export c fn main() -> u32 {
+await writeGraphFixture(arm64CompareSource, `export c fn main() -> u32 {
     let large: u32 = 4294967295
     if large > 0_u32 {
         return 7
@@ -2256,7 +2283,7 @@ assert(directI64ObjBytes.includes(Buffer.from([0x48, 0x01, 0xc8])));
 
 const directWideMainSource = `${outDir}/direct-exe-wide-main.0`;
 const directWideMainOut = `${outDir}/direct-exe-wide-main`;
-await writeFile(directWideMainSource, `export c fn main() -> usize {
+await writeGraphFixture(directWideMainSource, `export c fn main() -> usize {
     return 8589934590
 }
 `);
@@ -2270,7 +2297,7 @@ assert(directWideMainBytes.includes(Buffer.from([0x89, 0xc7, 0xb8, 0x3c, 0x00, 0
 
 const directI64MainSource = `${outDir}/direct-exe-i64-main.0`;
 const directI64MainOut = `${outDir}/direct-exe-i64-main`;
-await writeFile(directI64MainSource, `export c fn main() -> i64 {
+await writeGraphFixture(directI64MainSource, `export c fn main() -> i64 {
     return 8589934590_i64
 }
 `);
@@ -2281,7 +2308,7 @@ assert.equal(directI64MainBody.objectBackend.objectEmission.path, "direct-elf64-
 
 const directMachOU64LiteralSource = `${outDir}/direct-macho-u64-literal.0`;
 const directMachOU64LiteralOut = `${outDir}/direct-macho-u64-literal.o`;
-await writeFile(directMachOU64LiteralSource, `export c fn main() -> u64 {
+await writeGraphFixture(directMachOU64LiteralSource, `export c fn main() -> u64 {
     let value: u64 = 4294967296
     return value
 }
@@ -2298,7 +2325,7 @@ assert(directMachOU64LiteralBytes.includes(Buffer.from([0x28, 0x00, 0xc0, 0xf2])
 
 const directMachOU64DivSource = `${outDir}/direct-macho-u64-div.0`;
 const directMachOU64DivOut = `${outDir}/direct-macho-u64-div.o`;
-await writeFile(directMachOU64DivSource, `export c fn main(a: u64, b: u64) -> u64 {
+await writeGraphFixture(directMachOU64DivSource, `export c fn main(a: u64, b: u64) -> u64 {
     return a / b
 }
 `);
@@ -2312,7 +2339,7 @@ assert(!directMachOU64DivBytes.includes(Buffer.from([0x00, 0x09, 0xc9, 0x1a])));
 
 const directMachOU64ModSource = `${outDir}/direct-macho-u64-mod.0`;
 const directMachOU64ModOut = `${outDir}/direct-macho-u64-mod.o`;
-await writeFile(directMachOU64ModSource, `export c fn main(a: u64, b: u64) -> u64 {
+await writeGraphFixture(directMachOU64ModSource, `export c fn main(a: u64, b: u64) -> u64 {
     return a % b
 }
 `);
@@ -2359,33 +2386,27 @@ assert.equal(collectionsQueryMemoryBody.collectionFacts.FixedStorage.capacityByt
 assert.equal(collectionsQueryMemoryBody.collectionFacts.FixedStorage.queryCalls, 1);
 
 const interfaceStaticUnsupportedTypeFixture = `${outDir}/interface-static-unsupported-type.0`;
-await writeFile(interfaceStaticUnsupportedTypeFixture, `interface Bad<static N: String> {
+const interfaceStaticUnsupportedTypeBody = await writeImportFailureFixture(interfaceStaticUnsupportedTypeFixture, `interface Bad<static N: String> {
     fn value() -> u8
 }
 
 pub fn main() -> Void {
 }
 `);
-const interfaceStaticUnsupportedTypeJson = await execFileAsync(zero, ["check", "--json", interfaceStaticUnsupportedTypeFixture]).catch((error) => error);
-assert.notEqual(interfaceStaticUnsupportedTypeJson.code, 0);
-const interfaceStaticUnsupportedTypeBody = JSON.parse(interfaceStaticUnsupportedTypeJson.stdout);
 assert.equal(interfaceStaticUnsupportedTypeBody.diagnostics[0].code, "STC001");
 
 const interfaceMethodStaticUnsupportedTypeFixture = `${outDir}/interface-method-static-unsupported-type.0`;
-await writeFile(interfaceMethodStaticUnsupportedTypeFixture, `interface Bad {
+const interfaceMethodStaticUnsupportedTypeBody = await writeImportFailureFixture(interfaceMethodStaticUnsupportedTypeFixture, `interface Bad {
     fn value<static N: String>() -> u8
 }
 
 pub fn main() -> Void {
 }
 `);
-const interfaceMethodStaticUnsupportedTypeJson = await execFileAsync(zero, ["check", "--json", interfaceMethodStaticUnsupportedTypeFixture]).catch((error) => error);
-assert.notEqual(interfaceMethodStaticUnsupportedTypeJson.code, 0);
-const interfaceMethodStaticUnsupportedTypeBody = JSON.parse(interfaceMethodStaticUnsupportedTypeJson.stdout);
 assert.equal(interfaceMethodStaticUnsupportedTypeBody.diagnostics[0].code, "STC001");
 
 const shapeMethodStaticUnsupportedTypeFixture = `${outDir}/shape-method-static-unsupported-type.0`;
-await writeFile(shapeMethodStaticUnsupportedTypeFixture, `type Box {
+const shapeMethodStaticUnsupportedTypeBody = await writeImportFailureFixture(shapeMethodStaticUnsupportedTypeFixture, `type Box {
     value: u8,
     fn value<static N: String>(self: ref<Self>) -> u8 {
         return self.value
@@ -2395,9 +2416,6 @@ await writeFile(shapeMethodStaticUnsupportedTypeFixture, `type Box {
 pub fn main() -> Void {
 }
 `);
-const shapeMethodStaticUnsupportedTypeJson = await execFileAsync(zero, ["check", "--json", shapeMethodStaticUnsupportedTypeFixture]).catch((error) => error);
-assert.notEqual(shapeMethodStaticUnsupportedTypeJson.code, 0);
-const shapeMethodStaticUnsupportedTypeBody = JSON.parse(shapeMethodStaticUnsupportedTypeJson.stdout);
 assert.equal(shapeMethodStaticUnsupportedTypeBody.diagnostics[0].code, "STC001");
 
 const methodUnknownConstraintFixtures = [
@@ -2429,10 +2447,7 @@ pub fn main() -> Void {
 
 for (const fixtureCase of methodUnknownConstraintFixtures) {
   const fixture = `${outDir}/${fixtureCase.name}.0`;
-  await writeFile(fixture, fixtureCase.source);
-  const methodUnknownConstraintJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
-  assert.notEqual(methodUnknownConstraintJson.code, 0);
-  const methodUnknownConstraintBody = JSON.parse(methodUnknownConstraintJson.stdout);
+  const methodUnknownConstraintBody = await writeImportFailureFixture(fixture, fixtureCase.source);
   assert.equal(methodUnknownConstraintBody.diagnostics[0].code, "IFC001");
 }
 
@@ -2508,17 +2523,14 @@ pub fn main() -> Void {
 
 for (const fixtureCase of duplicateStaticGenericFixtures) {
   const fixture = `${outDir}/${fixtureCase.name}.0`;
-  await writeFile(fixture, fixtureCase.source);
-  const duplicateStaticJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
-  assert.notEqual(duplicateStaticJson.code, 0);
-  const duplicateStaticBody = JSON.parse(duplicateStaticJson.stdout);
+  const duplicateStaticBody = await writeImportFailureFixture(fixture, fixtureCase.source);
   assert.equal(duplicateStaticBody.diagnostics[0].code, "NAM004");
   assert.match(duplicateStaticBody.diagnostics[0].message, fixtureCase.message);
 }
 
 for (const value of ["4_", "M"]) {
   const fixture = `${outDir}/interface-static-constraint-${value.replace(/[^A-Za-z0-9]/g, "_")}.0`;
-  await writeFile(fixture, `interface First<T: Type, static N: usize> {
+  const interfaceStaticConstraintBody = await writeImportFailureFixture(fixture, `interface First<T: Type, static N: usize> {
     fn first(self: ref<T>) -> u8
 }
 
@@ -2529,15 +2541,12 @@ fn readFirst<T: First<T, ${value}>>(value: ref<T>) -> u8 {
 pub fn main() -> Void {
 }
 `);
-  const interfaceStaticConstraintJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
-  assert.notEqual(interfaceStaticConstraintJson.code, 0);
-  const interfaceStaticConstraintBody = JSON.parse(interfaceStaticConstraintJson.stdout);
   assert.equal(interfaceStaticConstraintBody.diagnostics[0].code, "STC002");
   assert.equal(interfaceStaticConstraintBody.diagnostics[0].actual, value);
 }
 
 const shapeMethodStaticParamFixture = `${outDir}/shape-method-static-param.0`;
-await writeFile(shapeMethodStaticParamFixture, `type Box {
+await writeGraphFixture(shapeMethodStaticParamFixture, `type Box {
     value: u8,
 
     fn tag<static N: usize>(self: ref<Self>) -> usize {
@@ -2567,7 +2576,7 @@ assert(shapeMethodStaticTag);
 assert(shapeMethodStaticTag.staticParams.some((item) => item.name === "N" && item.type === "usize" && item.staticDispatch === true));
 
 const shapeMethodStaticCanonicalFixture = `${outDir}/shape-method-static-canonical.0`;
-await writeFile(shapeMethodStaticCanonicalFixture, `type Box {
+await writeGraphFixture(shapeMethodStaticCanonicalFixture, `type Box {
     fn take<static N: usize>(a: [N]u8, b: [N]u8) -> usize {
         return N
     }
@@ -2585,7 +2594,7 @@ const shapeMethodStaticCanonicalBody = JSON.parse(shapeMethodStaticCanonicalJson
 assert.equal(shapeMethodStaticCanonicalBody.ok, true);
 
 const interfaceMethodStaticParamFixture = `${outDir}/interface-method-static-param.0`;
-await writeFile(interfaceMethodStaticParamFixture, `interface Width<T: Type> {
+await writeGraphFixture(interfaceMethodStaticParamFixture, `interface Width<T: Type> {
     fn width<static N: usize>(self: ref<T>) -> usize
 }
 
@@ -2623,7 +2632,7 @@ assert(interfaceMethodStaticBytesWidth);
 assert(interfaceMethodStaticBytesWidth.staticParams.some((item) => item.name === "N" && item.type === "usize" && item.staticDispatch === true));
 
 const interfaceMethodStaticRenamedParamFixture = `${outDir}/interface-method-static-renamed-param.0`;
-await writeFile(interfaceMethodStaticRenamedParamFixture, `interface Width<T: Type> {
+await writeGraphFixture(interfaceMethodStaticRenamedParamFixture, `interface Width<T: Type> {
     fn width<static N: usize>(self: ref<T>, bytes: [N]u8) -> [N]u8
 }
 
@@ -2661,7 +2670,7 @@ assert(interfaceMethodStaticRenamedBytesWidth);
 assert(interfaceMethodStaticRenamedBytesWidth.staticParams.some((item) => item.name === "M" && item.type === "usize" && item.staticDispatch === true));
 
 const staticInterfaceReturnMismatchFixture = `${outDir}/static-interface-return-mismatch.0`;
-await writeFile(staticInterfaceReturnMismatchFixture, `interface Sized<T: Type, static N: usize> {
+const staticInterfaceReturnMismatchBody = await writeImportFailureFixture(staticInterfaceReturnMismatchFixture, `interface Sized<T: Type, static N: usize> {
     fn bytes(self: ref<T>) -> [N]u8
 }
 
@@ -2682,15 +2691,12 @@ pub fn main() -> Void {
     let out: [3]u8 = read<Bytes<4>, 3>(&bytes)
 }
 `);
-const staticInterfaceReturnMismatchJson = await execFileAsync(zero, ["check", "--json", staticInterfaceReturnMismatchFixture]).catch((error) => error);
-assert.notEqual(staticInterfaceReturnMismatchJson.code, 0);
-const staticInterfaceReturnMismatchBody = JSON.parse(staticInterfaceReturnMismatchJson.stdout);
 assert.equal(staticInterfaceReturnMismatchBody.diagnostics[0].code, "IFC004");
 assert.match(staticInterfaceReturnMismatchBody.diagnostics[0].expected, /\[3\]u8/);
 assert.match(staticInterfaceReturnMismatchBody.diagnostics[0].actual, /\[4\]u8/);
 
 const shapeMethodGenericConstraintFixture = `${outDir}/shape-method-generic-constraint.0`;
-await writeFile(shapeMethodGenericConstraintFixture, `interface NeedsMethod<T: Type> {
+const shapeMethodGenericConstraintBody = await writeImportFailureFixture(shapeMethodGenericConstraintFixture, `interface NeedsMethod<T: Type> {
     fn need(self: ref<T>) -> u8
 }
 
@@ -2712,13 +2718,10 @@ pub fn main() -> Void {
     let out: u8 = box.accept<Plain>(plain)
 }
 `);
-const shapeMethodGenericConstraintJson = await execFileAsync(zero, ["check", "--json", shapeMethodGenericConstraintFixture]).catch((error) => error);
-assert.notEqual(shapeMethodGenericConstraintJson.code, 0);
-const shapeMethodGenericConstraintBody = JSON.parse(shapeMethodGenericConstraintJson.stdout);
 assert.equal(shapeMethodGenericConstraintBody.diagnostics[0].code, "IFC002");
 
 const interfaceMethodGenericConstraintFixture = `${outDir}/interface-method-generic-constraint.0`;
-await writeFile(interfaceMethodGenericConstraintFixture, `interface NeedsMethod<T: Type> {
+const interfaceMethodGenericConstraintBody = await writeImportFailureFixture(interfaceMethodGenericConstraintFixture, `interface NeedsMethod<T: Type> {
     fn need(self: ref<T>) -> u8
 }
 
@@ -2748,9 +2751,6 @@ pub fn main() -> Void {
     let out: u8 = read<Box>(&box, plain)
 }
 `);
-const interfaceMethodGenericConstraintJson = await execFileAsync(zero, ["check", "--json", interfaceMethodGenericConstraintFixture]).catch((error) => error);
-assert.notEqual(interfaceMethodGenericConstraintJson.code, 0);
-const interfaceMethodGenericConstraintBody = JSON.parse(interfaceMethodGenericConstraintJson.stdout);
 assert.equal(interfaceMethodGenericConstraintBody.diagnostics[0].code, "IFC002");
 
 const interfaceMethodGenericMismatchFixtures = [
@@ -2876,10 +2876,7 @@ pub fn main() -> Void {
 
 for (const fixtureCase of interfaceMethodGenericMismatchFixtures) {
   const fixture = `${outDir}/${fixtureCase.name}.0`;
-  await writeFile(fixture, fixtureCase.source);
-  const interfaceMethodGenericMismatchJson = await execFileAsync(zero, ["check", "--json", fixture]).catch((error) => error);
-  assert.notEqual(interfaceMethodGenericMismatchJson.code, 0);
-  const interfaceMethodGenericMismatchBody = JSON.parse(interfaceMethodGenericMismatchJson.stdout);
+  const interfaceMethodGenericMismatchBody = await writeImportFailureFixture(fixture, fixtureCase.source);
   assert.equal(interfaceMethodGenericMismatchBody.diagnostics[0].code, fixtureCase.code);
   if (fixtureCase.message) assert.match(interfaceMethodGenericMismatchBody.diagnostics[0].message, fixtureCase.message);
 }
@@ -2942,14 +2939,15 @@ await writeFile(`${whitespaceUsePackage}/src/math.0`, 'fn add_one(value: i32) ->
 await writeFile(`${whitespaceUsePackage}/src/math/util.0`, 'fn add_two(value: i32) -> i32 {\n    return value + 2\n}\n');
 await writeFile(`${whitespaceUsePackage}/src/types.0`, 'type Point {\n    value: i32,\n}\n');
 await writeFile(`${whitespaceUsePackage}/src/main.0`, 'use math\nuse math . util\nuse   types   as   model\n\npub fn main(world: World) -> Void raises {\n    let point: Point = Point { value: add_two(40) }\n    if point.value == add_one(41) {\n        check world.out.write("whitespace imports pass\\n")\n    }\n}\n');
+await importPackageGraph(whitespaceUsePackage);
 const whitespaceUseCheck = await execFileAsync(zero, ["check", "--json", whitespaceUsePackage]);
 assert.equal(JSON.parse(whitespaceUseCheck.stdout).ok, true);
 const whitespaceUseGraph = await execFileAsync(zero, ["inspect", "--json", whitespaceUsePackage]);
 const whitespaceUseGraphBody = JSON.parse(whitespaceUseGraph.stdout);
 assert.deepEqual(whitespaceUseGraphBody.useImports.map((item) => `${item.from}->${item.to}:${item.kind}:${item.alias ?? "null"}:${item.sourceRange.end.column}`), [
   "main->math:package-local:null:9",
-  "main->math.util:package-local:null:16",
-  "main->types:package-local:model:25",
+  "main->math.util:package-local:null:14",
+  "main->types:package-local:model:10",
 ]);
 assert.deepEqual(whitespaceUseGraphBody.importEdges.map((item) => `${item.from}->${item.to}`), ["main->math", "main->math.util", "main->types"]);
 
@@ -3652,6 +3650,7 @@ for (const [name, fixture, patterns] of programGraphViewCoverage) {
   assert.doesNotMatch(view, /fn __zero_test_/);
   if (name === "systems-package") {
     assert.doesNotMatch(view, /^use (helpers|types)$/m);
+    await execFileAsync(zero, ["import", "--format", "binary", "--out", graphSidecarPath(viewPath), viewPath]);
     assert.equal((await execFileAsync(zero, ["check", viewPath])).stdout, "ok\n");
   }
   if (name === "std-math") assert.doesNotMatch(view, /fn __zero_std_/);
@@ -4141,7 +4140,7 @@ await writeFile(programGraphDuplicateIdFixture, [
   "}",
   "",
 ].join("\n"));
-const programGraphDuplicateIdDump = await execFileAsync(zero, ["dump", "--out", programGraphDuplicateIdPath, programGraphDuplicateIdFixture]);
+const programGraphDuplicateIdDump = await execFileAsync(zero, ["import", "--format", "text", "--out", programGraphDuplicateIdPath, programGraphDuplicateIdFixture]);
 assert.equal(programGraphDuplicateIdDump.stdout, "");
 assert.equal((await execFileAsync(zero, ["validate", programGraphDuplicateIdPath])).stdout, "program graph ok\n");
 const programGraphDuplicateIdText = await readFile(programGraphDuplicateIdPath, "utf8");
@@ -4150,8 +4149,8 @@ assert.equal(new Set(programGraphDuplicateIds).size, programGraphDuplicateIds.le
 assert(programGraphDuplicateIds.some((id) => /^#[a-z][a-z0-9]*_[0-9a-f]{8}-[0-9a-f]{4}(-[0-9]+)?$/.test(id)));
 
 const programGraphControlFixture = `${outDir}/program-graph-control.0`;
-await writeFile(programGraphControlFixture, "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"\\x01 ok\\n\")\n}\n");
-const programGraphControl = JSON.parse((await execFileAsync(zero, ["inspect", "--json", programGraphControlFixture])).stdout).programGraph;
+const programGraphControlPath = await writeGraphFixture(programGraphControlFixture, "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"\\x01 ok\\n\")\n}\n");
+const programGraphControl = JSON.parse((await execFileAsync(zero, ["inspect", "--json", programGraphControlPath])).stdout).programGraph;
 assert(programGraphControl.nodes.some((item) => item.kind === "Literal" && item.value === "\u0001 ok\n"));
 
 const programGraphMatchRanges = JSON.parse((await execFileAsync(zero, ["inspect", "--json", "conformance/native/pass/match-scalar-guards.0"])).stdout).programGraph;
@@ -4334,6 +4333,7 @@ export c fn main() -> i32 {
     return a.zero_a_add(1, 2) + b.zero_b_add(3, 4)
 }
 `);
+await importPackageGraph(cImportPartialLinkRoot);
 const cImportPartialLinkReadiness = await execFileAsync(zero, ["check", "--json", cImportPartialLinkRoot]);
 const cImportPartialLinkReadinessBody = JSON.parse(cImportPartialLinkReadiness.stdout);
 assert.equal(cImportPartialLinkReadinessBody.ok, true);
@@ -4450,14 +4450,16 @@ export c fn main() -> i32 {
     return c.zero_ext_add(20, 22)
 }
 `);
+await importPackageGraph(externCallRoot);
+await importPackageGraph(externCallScalarRoot);
 const externCallShadowCheck = await execFileAsync(zero, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
 const externCallShadowCheckBody = JSON.parse(externCallShadowCheck.stdout);
 assert.equal(externCallShadowCheckBody.ok, true);
-const externCallDisabledCheck = await execFileAsync(zero, ["check", "--json", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
+const externCallDisabledCheck = await execFileAsync(zero, ["import", "--json", "--format", "binary", "--out", "src/disabled.graph", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
 assert.notEqual(externCallDisabledCheck.code, 0);
 const externCallDisabledCheckBody = JSON.parse(externCallDisabledCheck.stdout);
 assert.equal(externCallDisabledCheckBody.diagnostics[0].code, "CIMP004");
-const externCallCommentedCheck = await execFileAsync(zero, ["check", "--json", "src/commented.0"], { cwd: externCallRoot }).catch((error) => error);
+const externCallCommentedCheck = await execFileAsync(zero, ["import", "--json", "--format", "binary", "--out", "src/commented.graph", "src/commented.0"], { cwd: externCallRoot }).catch((error) => error);
 assert.notEqual(externCallCommentedCheck.code, 0);
 const externCallCommentedCheckBody = JSON.parse(externCallCommentedCheck.stdout);
 assert.equal(externCallCommentedCheckBody.diagnostics[0].code, "CIMP004");
@@ -4478,12 +4480,8 @@ assert(Array.isArray(externCallImport.typedModel.functions));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_commented"));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_block_commented"));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_disabled"));
-const externCallGraphArtifact = `${externCallRoot}/extern-call.program-graph`;
-await execFileAsync(zero, ["dump", "--out", externCallGraphArtifact, externCallRoot]);
-const externCallGraphCheck = await execFileAsync(zero, ["check", "--json", externCallGraphArtifact]);
-assert.equal(JSON.parse(externCallGraphCheck.stdout).ok, true);
 const externCallGraphSizeArtifact = `${externCallRoot}/extern-call-size-metadata.json`;
-const externCallGraphSize = await execFileAsync(zero, ["size", "--json", "--out", externCallGraphSizeArtifact, externCallGraphArtifact]);
+const externCallGraphSize = await execFileAsync(zero, ["size", "--json", "--out", externCallGraphSizeArtifact, externCallRoot]);
 assert.equal(JSON.parse(externCallGraphSize.stdout).graph.moduleIdentity, "package:extern-c-call@0.1.0");
 const externCallBuildOut = `${externCallRoot}/extern-call`;
 const externCallBuild = await execFileAsync(zero, ["build", "--json", externCallRoot, "--out", externCallBuildOut]);
@@ -4509,11 +4507,6 @@ assert.equal(
 );
 assert.equal(externCallBuildBody.releaseTargetContract.selectedEmitter, externCallBuildBody.releaseTargetContract.directObjectEmitter);
 assert.equal(externCallBuildBody.releaseTargetContract.libc.artifactMode, externCallBuildBody.releaseTargetContract.libc.targetMode);
-const externCallGraphBuildOut = `${externCallRoot}/extern-call-graph`;
-const externCallGraphBuild = await execFileAsync(zero, ["build", "--json", externCallGraphArtifact, "--out", externCallGraphBuildOut]);
-const externCallGraphBuildBody = JSON.parse(externCallGraphBuild.stdout);
-assert.equal(externCallGraphBuildBody.emit, "exe");
-assert(externCallGraphBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
 const externCallRun = await execFileAsync(zero, ["run", externCallRoot]);
 assert.equal(externCallRun.stdout, "extern c call ok\n");
 const externCallScalarBuildOut = `${externCallScalarRoot}/extern-scalar`;
@@ -4547,6 +4540,7 @@ pub fn main() -> i32 {
     return c.zero_ext_add(20, 22)
 }
 `);
+await importPackageGraph(unsafeExternLinkRoot);
 const unsafeExternLinkReadiness = await execFileAsync(zero, ["check", "--json", unsafeExternLinkRoot]);
 const unsafeExternLinkReadinessBody = JSON.parse(unsafeExternLinkReadiness.stdout);
 assert.equal(unsafeExternLinkReadinessBody.ok, true);
@@ -4570,6 +4564,7 @@ await writeFile(`${runtimeManifestRoot}/src/main.0`, `pub fn main(world: World) 
     check world.out.write("runtime manifest ignored\\n")
 }
 `);
+await importPackageGraph(runtimeManifestRoot);
 const runtimeManifestBuildOut = `${runtimeManifestRoot}/runtime-manifest`;
 const runtimeManifestBuild = await execFileAsync(zero, ["build", "--json", runtimeManifestRoot, "--out", runtimeManifestBuildOut]);
 const runtimeManifestBuildBody = JSON.parse(runtimeManifestBuild.stdout);

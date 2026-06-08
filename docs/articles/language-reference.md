@@ -830,12 +830,12 @@ Interop declarations should make layout and ABI expectations explicit.
 Common native commands:
 
 ```sh
-zero check examples/hello.0
-zero build examples/hello.0 --out .zero/out/hello
-zero build --emit exe examples/add.0 --out .zero/out/add
-zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add-linux-musl
+zero check examples/hello.graph
+zero build examples/hello.graph --out .zero/out/hello
+zero build --emit exe examples/add.graph --out .zero/out/add
+zero build --emit exe --target linux-musl-x64 examples/add.graph --out .zero/out/add-linux-musl
 zero inspect --json examples/systems-package
-zero size --json examples/point.0
+zero size --json examples/point.graph
 zero targets
 ```
 

@@ -784,6 +784,7 @@ typedef struct {
   char mir_message[256];
   char mir_help[256];
   char *mir_path;
+  char *package_root;
   const unsigned char *mir_binary_storage;
   size_t mir_binary_storage_len;
   bool mir_binary_storage_mapped;

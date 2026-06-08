@@ -133,12 +133,12 @@ projection.
 The examples are still useful for humans learning how Zero reads:
 
 ```sh
-zero check examples/hello.0
-zero check examples/hello-let.0
-zero check examples/functions.0
-zero check examples/branch.0
-zero check examples/point.0
-zero check examples/result-choice.0
+zero check examples/hello.graph
+zero check examples/hello-let.graph
+zero check examples/functions.graph
+zero check examples/branch.graph
+zero check examples/point.graph
+zero check examples/result-choice.graph
 ```
 
 They cover:

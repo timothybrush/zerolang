@@ -46,7 +46,7 @@ logs harder to compare.
 Use:
 
 ```sh
-zero check examples/hello.0
+zero check examples/hello.graph
 ```
 
 ## JSON For Tools
@@ -54,7 +54,7 @@ zero check examples/hello.0
 JSON is explicit. Use `--json` for agents, CI, editors, deep dives, and tools that need stable structured data.
 
 ```sh
-zero check --json examples/hello.0
+zero check --json examples/hello.graph
 ```
 
 The native JSON shape is versioned:
@@ -182,7 +182,7 @@ Standard library modules use the same structured diagnostic contract as compiler
 Hosted filesystem helpers are host-only in the current compiler. This fails clearly on non-host targets:
 
 ```sh
-bin/zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+bin/zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
 The diagnostic uses `TAR002`, `fixSafety: "requires-human-review"`, and repair
@@ -396,7 +396,7 @@ Related static-value diagnostics:
 - `zero check --json <input>`: full diagnostic JSON
 - `zero explain <code>`: human explanation for a diagnostic code
 - `zero explain <code> --json`: machine-readable explanation
-- `zero fix --plan --json <input>`: proposed typed fixes without editing files
+- `zero fix --plan --json <graph-input>`: proposed typed fixes without editing files
 
 Useful examples:
 
@@ -404,5 +404,5 @@ Useful examples:
 zero explain TAR002
 zero explain --json TYP009
 zero explain --json TYP009
-zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```

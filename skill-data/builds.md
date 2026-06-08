@@ -12,6 +12,7 @@ Use this when an agent needs to run, build, cross-build, inspect artifacts, or e
 Most build commands accept one of these graph-backed inputs:
 
 - a single `.0` projection with a sibling `.graph` sidecar
+- a direct `.graph` or `.program-graph` artifact
 - a package directory containing `zero.toml` or `zero.json`
 - a direct path to `zero.toml` or `zero.json`
 
@@ -31,8 +32,8 @@ not a compiler input.
 Use `zero run` for the host development loop:
 
 ```sh
-zero run examples/hello.0
-zero run examples/cli-file.0 -- input.txt
+zero run examples/hello.graph
+zero run examples/cli-file.graph -- input.txt
 ```
 
 Arguments after `--` are passed to the Zero program.
@@ -42,8 +43,8 @@ Arguments after `--` are passed to the Zero program.
 Use direct emitters. The removed generated-C backend is not a fallback path.
 
 ```sh
-zero build --emit exe examples/hello.0 --out .zero/out/hello
-zero build --emit obj examples/hello.0 --out .zero/out/hello.o
+zero build --emit exe examples/hello.graph --out .zero/out/hello
+zero build --emit obj examples/hello.graph --out .zero/out/hello.o
 ```
 
 Use LLVM only when the request is explicit. LLVM is experimental: it is not the
@@ -54,9 +55,9 @@ loops, primitive fixed arrays, byte views, readonly strings, and primitive
 `std.mem` helpers:
 
 ```sh
-zero build --backend llvm --emit llvm-ir examples/hello.0 --out .zero/out/hello.ll
-zero build --backend llvm --emit exe examples/hello.0 --out .zero/out/hello-llvm
-zero run --backend llvm examples/hello.0
+zero build --backend llvm --emit llvm-ir examples/hello.graph --out .zero/out/hello.ll
+zero build --backend llvm --emit exe examples/hello.graph --out .zero/out/hello-llvm
+zero run --backend llvm examples/hello.graph
 ```
 
 Use `--json` when a tool will read exact build fields:
@@ -127,8 +128,8 @@ Hosted APIs such as process args, environment, filesystem, net, and proc are tar
 Common profile names are `debug`, `dev`, `release-fast`, `release-small`, `tiny`, and `audit`.
 
 ```sh
-zero build --profile release-small examples/hello.0
-zero size --profile tiny examples/hello.0
+zero build --profile release-small examples/hello.graph
+zero size --profile tiny examples/hello.graph
 ```
 
 Use `zero size` to explain retained functions, sections, literals, runtime shims, imports, debug metadata, and optimization hints. Add `--json` when a tool needs exact fields.
@@ -139,7 +140,7 @@ Use `zero size --backend llvm` when the question is specifically about the expli
 `zero ship` produces a release preview:
 
 ```sh
-zero ship --target linux-musl-x64 examples/hello.0 \
+zero ship --target linux-musl-x64 examples/hello.graph \
   --out .zero/ship/hello
 ```
 

@@ -1,8 +1,7 @@
 #include "program_graph_size.h"
-
+#include "program_graph_c_import_metadata.h"
 #include <stdlib.h>
 #include <string.h>
-
 static void graph_size_push_string(char ***items, size_t *len, const char *value) {
   *items = z_checked_reallocarray(*items, *len + 1, sizeof(char *)); (*items)[(*len)++] = z_strdup(value ? value : "");
 }
@@ -17,7 +16,6 @@ static bool graph_size_text_eq(const char *left, const char *right) {
   }
   return true;
 }
-
 static char *graph_size_dirname_of(const char *path) {
   if (!path || !path[0]) return z_strdup(".");
   const char *slash = strrchr(path, '/');
@@ -234,7 +232,9 @@ void z_program_graph_seed_source_metadata_facts(SourceInput *input, const ZProgr
   graph_size_clear_module_metadata(input);
   graph_size_clear_import_metadata(input);
   graph_size_clear_symbol_metadata(input);
+  z_program_graph_clear_c_import_metadata(input);
   graph_size_seed_from_graph(input, graph);
+  z_program_graph_seed_c_import_metadata(input, graph);
 }
 
 void z_program_graph_seed_artifact_source_paths(SourceInput *input, const ZProgramGraph *graph, const char *artifact_path) {

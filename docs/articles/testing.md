@@ -1,14 +1,14 @@
 ## Testing And Reliability
 
-`zero test` runs test blocks from a single `.0` file or every source file in a
-package. The test runner is part of the main CLI workflow and reports structured
-JSON for supported test workflows.
+`zero test` runs test blocks from graph inputs, including graph-first packages
+and `.graph` artifacts. The test runner is part of the main CLI workflow and
+reports structured JSON for supported test workflows.
 
 Common commands:
 
 ```sh
-zero test conformance/native/pass/test-blocks.0
-zero test --json --filter addition conformance/native/pass/test-blocks.0
+zero test conformance/native/pass/test-blocks.graph
+zero test --json --filter addition conformance/native/pass/test-blocks.graph
 zero test --json conformance/packages/test-app
 pnpm run reliability:smoke
 pnpm run native:sanitize

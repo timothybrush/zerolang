@@ -1,6 +1,6 @@
 ## A Program Starts With `main`
 
-The smallest example is `examples/hello.0`:
+The smallest example is `examples/hello.graph`:
 
 ```zero
 pub fn main(world: World) -> Void raises {
@@ -16,7 +16,7 @@ pub fn main(world: World) -> Void raises {
 Run:
 
 ```sh
-zero check examples/hello.0
+zero check examples/hello.graph
 ```
 
 ## Effects Use Capabilities
@@ -31,7 +31,7 @@ check world.out.write("hello from zero\n")
 
 ## Bind Values With `let`
 
-`examples/hello-let.0` introduces a local binding:
+`examples/hello-let.graph` introduces a local binding:
 
 ```zero
 pub fn main(world: World) -> Void raises {
@@ -44,7 +44,7 @@ Use `let` when a value should not change. Use `var` only when the value is inten
 
 ## Write Functions
 
-`examples/add.0` defines a helper function and calls it from `main`:
+`examples/add.graph` defines a helper function and calls it from `main`:
 
 ```zero
 fn answer() -> i32 {
@@ -153,7 +153,7 @@ mutates state.
 
 ## Model Data With `type`
 
-Use `type` for named records. `examples/point.0` defines a point and passes it to a helper:
+Use `type` for named records. `examples/point.graph` defines a point and passes it to a helper:
 
 ```zero
 type Point {
@@ -210,7 +210,7 @@ choice Result {
 }
 ```
 
-`examples/result-choice.0` constructs a payload choice and matches it:
+`examples/result-choice.graph` constructs a payload choice and matches it:
 
 ```zero
 let result: Result = Result.ok(42)
@@ -340,8 +340,8 @@ test "addition is stable" {
 Run tests with:
 
 ```sh
-zero test conformance/native/pass/test-blocks.0
-zero test --json --filter addition conformance/native/pass/test-blocks.0
+zero test conformance/native/pass/test-blocks.graph
+zero test --json --filter addition conformance/native/pass/test-blocks.graph
 ```
 
 Failing tests include the failing test name and exit nonzero.
@@ -365,7 +365,7 @@ Diagnostics are stable enough for humans and agents:
 ```sh
 zero explain --json NAM003
 zero explain NAM003
-zero query examples/hello.0
+zero query examples/hello.graph
 ```
 
 Each JSON diagnostic includes a code, span, expected/actual fields, help, fix safety, and repair metadata.

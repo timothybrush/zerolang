@@ -16,11 +16,11 @@ Common profile choices:
 Copyable commands:
 
 ```sh
-bin/zero build --json --profile small --target linux-musl-x64 examples/hello.0 --out .zero/out/hello-small
-bin/zero build --json --profile tiny --target linux-musl-x64 examples/hello.0 --out .zero/out/hello-tiny
-bin/zero size --json --profile debug --target linux-musl-x64 examples/memory-primitives.0
-bin/zero size --json --profile tiny --target linux-musl-x64 examples/fixed-vec.0
-bin/zero mem --json examples/allocator-collections.0
+bin/zero build --json --profile small --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-small
+bin/zero build --json --profile tiny --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-tiny
+bin/zero size --json --profile debug --target linux-musl-x64 examples/memory-primitives.graph
+bin/zero size --json --profile tiny --target linux-musl-x64 examples/fixed-vec.graph
+bin/zero mem --json examples/allocator-collections.graph
 ```
 
 `zero build --json` includes:
