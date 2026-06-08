@@ -129,6 +129,7 @@ const checkedInGraphArtifacts = [
   ...(await findCheckedInFiles("examples", ".graph")),
   ...(await findCheckedInFiles("conformance", ".graph")),
   ...(await findCheckedInFiles("benchmarks", ".graph")),
+  ...(await findCheckedInFiles("std", ".graph")),
 ].sort();
 assert(checkedInGraphArtifacts.length > 0, "expected checked-in graph artifacts");
 for (const graph of checkedInGraphArtifacts) {
@@ -139,10 +140,19 @@ const checkedInProjections = [
   ...(await findCheckedInFiles("examples", ".0")),
   ...(await findCheckedInFiles("conformance", ".0")),
   ...(await findCheckedInFiles("benchmarks", ".0")),
+  ...(await findCheckedInFiles("std", ".0")),
 ].sort();
 assert(checkedInProjections.length > 0, "expected checked-in source projections");
 for (const projection of checkedInProjections) {
   assert.equal(projectionHasGraphAuthority(projection), true, `${projection} must have a graph authority`);
+}
+
+for (const store of checkedInStores) {
+  const root = dirname(store);
+  const status = JSON.parse((await zeroRun(["status", "--json", root])).stdout);
+  assert.equal(status.store.encoding, "binary", `${root}: checked-in repository graph store must be binary`);
+  assert.equal(status.repositoryGraph.projectionValidity, "clean", `${root}: checked-in source projections must be clean`);
+  assert.equal((await zeroRun(["verify-projection", root])).stdout, "repository graph verify-projection ok\n", `${root}: verify-projection`);
 }
 
 const checkedInBinaryStore = await readFile(`${checkedInBinaryRoot}/zero.graph`);
