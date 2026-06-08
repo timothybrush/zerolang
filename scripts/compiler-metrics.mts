@@ -36,7 +36,7 @@ const fileBudgets = {
   "native/zero-c/src/buildability.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_internal.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_context.c": { maxLines: 215, maxStrcmpCalls: 1 },
-  "native/zero-c/src/buildability_targets.c": { maxLines: 190, maxStrcmpCalls: 0 },
+  "native/zero-c/src/buildability_targets.c": { maxLines: 180, maxStrcmpCalls: 0 },
   "native/zero-c/src/buildability_value_targets.c": { maxLines: 560, maxStrcmpCalls: 0 },
   "native/zero-c/src/c_import.c": { maxLines: 750, maxStrcmpCalls: 51 },
   "native/zero-c/src/c_import.h": { maxLines: 40, maxStrcmpCalls: 0 },
@@ -1095,6 +1095,8 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.buildability.sharedHostedRuntimePredicate ||
       !backendFormats.buildability.sharedJsonPredicates ||
       !backendFormats.buildability.sharedByteRuntimePredicate ||
+      !backendFormats.buildability.sharedX64ByteViewCheckers ||
+      !backendFormats.buildability.legacyDuplicatedX64ByteViewCheckersRemoved ||
       backendFormats.buildability.dispatcherLines > 8 ||
       !backendFormats.buildability.targetValueBackendSplit ||
       !backendFormats.buildability.targetValueSharedPairCheck ||
@@ -1292,6 +1294,8 @@ const buildabilitySource = cCodeText(buildabilityRaw);
 const buildabilityValueSupportRaw = texts.get("native/zero-c/src/buildability_value_support.c") ?? "";
 const buildabilityValueSupportSource = cCodeText(buildabilityValueSupportRaw);
 const buildValueSupportedBody = cBlock(buildabilityValueSupportRaw, "bool z_build_value_supported(const ZBuildability *ctx");
+const buildabilityTargetsRaw = texts.get("native/zero-c/src/buildability_targets.c") ?? "";
+const buildabilityTargetsSource = cCodeText(buildabilityTargetsRaw);
 const buildabilityValueTargetsRaw = texts.get("native/zero-c/src/buildability_value_targets.c") ?? "";
 const buildabilityValueTargetsSource = cCodeText(buildabilityValueTargetsRaw);
 const buildTargetValueBody = cBlock(buildabilityValueTargetsRaw, "bool z_build_check_target_value(const ZBuildability *ctx");
@@ -1509,6 +1513,11 @@ const backendFormats = {
     sharedJsonPredicates: /\bbuild_backend_supports_json_parse\s*\(/.test(buildabilityValueSupportSource) &&
       /\bbuild_backend_supports_json_validate\s*\(/.test(buildabilityValueSupportSource),
     sharedByteRuntimePredicate: /\bbuild_backend_has_byte_runtime\s*\(/.test(buildabilityValueSupportSource),
+    sharedX64ByteViewCheckers: /\bbuild_check_x64_byte_view_ptr\s*\(/.test(buildabilityTargetsSource) &&
+      /\bbuild_check_x64_byte_view_len\s*\(/.test(buildabilityTargetsSource) &&
+      /\bBuildX64ByteViewDiagText\b/.test(buildabilityTargetsSource),
+    legacyDuplicatedX64ByteViewCheckersRemoved: !/\bbuild_check_coff_byte_view_ptr\s*\(/.test(buildabilityTargetsSource) &&
+      !/\bbuild_check_macho_x64_byte_view_ptr\s*\(/.test(buildabilityTargetsSource),
     dispatcherLines: lineCount(buildValueSupportedBody),
     targetValueBackendSplit: /\bbuild_check_linear_byte_view_target\s*\(/.test(buildabilityValueTargetsSource) &&
       /\bbuild_check_macho64_target_value\s*\(/.test(buildabilityValueTargetsSource) &&
