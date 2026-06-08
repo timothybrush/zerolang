@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.2.1
+## 0.3.0
 
 <!-- release:start -->
+
+- Makes graph-first package authoring the normal workflow: repository `zero.graph` stores are the compiler input, `.0` files are human-readable projections, `zero init` owns project creation, `zero diff` supports graph review, and source projection inputs are rejected at the compiler boundary.
+- Adds binary repository graph stores and graph-backed standard-library modules, with source-free status/verify, import/export, merge, query, patch, source-map, reconciliation, metadata, drift detection, and checked-in binary graph fixtures for examples, stdlib, and conformance.
+- Advances graph-native compiler execution across check, build, run, test, size, doc, dev, time, package dependency, benchmark, and validation paths, including typed graph-to-MIR lowering, mapped final-MIR cache reuse, graph semantic/resolution/ownership facts, and graph-native test execution.
+- Introduces explicit experimental LLVM backend support with backend selection contracts, textual LLVM IR emission, host executable builds, toolchain diagnostics, profile facts, and no-fallback release policy.
+- Expands web API support in `std.http` with routing, JSON response/body validation, CORS, OPTIONS, path segment, bearer token, cookie/session helpers, HTTP listener/client graph lowering, and CRM/router/ping-pong examples.
+- Hardens direct backend and compiler internals with C API contracts, unsafe C link validation, target manifest matching, ABI layout tables, direct emit-kind handling, buildability value/target checks, TOML manifests, and stricter metrics guardrails.
+- Refreshes public docs, README, bundled skills, graph-first examples, command contracts, conformance, docs tests, aggregate validation, and sandboxed conformance workers around the current agent-facing workflow.
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.2.1
 
 - Adds extern C call support with target-aware header preprocessing, stricter link-plan validation, direct object linking, graph metadata fixes, and diagnostics for missing or unsafe C import inputs.
 - Expands the standard library across memory, collections, search, sort, ASCII, formatting, text, parsing, math, random, time, codec, JSON, URL, hosted I/O, filesystem, HTTP, testing, and logging helpers.
@@ -16,8 +32,6 @@
 - @ctate
 - @ihasq
 - @PeterXMR
-
-<!-- release:end -->
 
 ## 0.2.0
 
