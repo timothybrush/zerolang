@@ -340,6 +340,7 @@ static bool store_diag(ZDiag *diag, const char *path, size_t line, const char *m
 static bool store_read_file_bytes(const char *path, unsigned char **out, size_t *out_len, ZDiag *diag) {
   *out = NULL;
   *out_len = 0;
+  if (store_path_is_dir(path)) return store_diag(diag, path, 1, "failed to read repository graph store", "is a directory");
   FILE *file = fopen(path, "rb");
   if (!file) {
     if (diag) {
