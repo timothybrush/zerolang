@@ -208,8 +208,11 @@ jobs:
       - name: Graph build perf report
         run: |
           mkdir -p .zero
-          pnpm run graph:perf > .zero/graph-build-perf.json
+          set +e
+          pnpm run graph:perf:budgets > .zero/graph-build-perf.json
+          status=$?
           cat .zero/graph-build-perf.json
+          exit $status
 
   workspace-checks:
     name: Workspace Checks

@@ -26,10 +26,79 @@ type CommandRun = {
   stderr: string;
 };
 
+type PerformanceBudget = {
+  name: string;
+  fixture: string;
+  pass: "cold" | "warm";
+  command: "build" | "check";
+  metric: string;
+  maxMs: number;
+};
+
 const fixtures: Fixture[] = [
   { name: "hello-artifact", input: "examples/hello.graph" },
   { name: "stdlib-heavy-artifact", input: "conformance/native/pass/stdlib-target-neutral.graph" },
   { name: "crm-api-package", input: "examples/crm-api" },
+];
+
+const budgetMode = process.env.ZERO_GRAPH_BUILD_PERF_BUDGET || "warn";
+
+function envNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const performanceBudgets: PerformanceBudget[] = [
+  {
+    name: "simple graph cold build",
+    fixture: "hello-artifact",
+    pass: "cold",
+    command: "build",
+    metric: "compilerElapsedMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_SIMPLE_COLD_MAX_MS", 5000),
+  },
+  {
+    name: "simple graph warm build",
+    fixture: "hello-artifact",
+    pass: "warm",
+    command: "build",
+    metric: "compilerElapsedMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_SIMPLE_WARM_MAX_MS", 3000),
+  },
+  {
+    name: "stdlib-heavy cold build",
+    fixture: "stdlib-heavy-artifact",
+    pass: "cold",
+    command: "build",
+    metric: "compilerElapsedMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_STDLIB_HEAVY_COLD_MAX_MS", 120000),
+  },
+  {
+    name: "stdlib-heavy warm build",
+    fixture: "stdlib-heavy-artifact",
+    pass: "warm",
+    command: "build",
+    metric: "compilerElapsedMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_STDLIB_HEAVY_WARM_MAX_MS", 120000),
+  },
+  {
+    name: "stdlib-heavy warm graph load",
+    fixture: "stdlib-heavy-artifact",
+    pass: "warm",
+    command: "build",
+    metric: "timings.graphLoadMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_STDLIB_HEAVY_GRAPH_LOAD_MAX_MS", 30000),
+  },
+  {
+    name: "stdlib-heavy warm stdlib merge",
+    fixture: "stdlib-heavy-artifact",
+    pass: "warm",
+    command: "build",
+    metric: "timings.stdlibMergeMs",
+    maxMs: envNumber("ZERO_GRAPH_BUILD_PERF_STDLIB_HEAVY_STDLIB_MERGE_MAX_MS", 70000),
+  },
 ];
 
 function selectedFixtures() {
@@ -111,6 +180,57 @@ function cacheFacts(body: any) {
       programReconstructed: mapped.programReconstructed ?? null,
     } : null,
   };
+}
+
+function valueAtPath(value: any, path: string) {
+  return path.split(".").reduce((current, part) => current?.[part], value);
+}
+
+function evaluateBudgets(results: any[]) {
+  const mode = budgetMode === "fail" || budgetMode === "warn" || budgetMode === "off" ? budgetMode : "warn";
+  if (mode === "off") {
+    return { schemaVersion: 1, mode, status: "off", ok: true, overCount: 0, skippedCount: 0, items: [] };
+  }
+  const items = performanceBudgets.map((budget) => {
+    const fixture = results.find((item) => item.name === budget.fixture);
+    const run = fixture?.[budget.pass]?.[budget.command];
+    const actualMs = valueAtPath(run, budget.metric);
+    if (!fixture) {
+      return { ...budget, status: "skipped", actualMs: null, reason: "fixture not selected" };
+    }
+    if (typeof actualMs !== "number") {
+      return { ...budget, status: "skipped", actualMs: null, reason: "metric missing" };
+    }
+    return {
+      ...budget,
+      status: actualMs <= budget.maxMs ? "ok" : "over",
+      actualMs,
+      overByMs: Number(Math.max(0, actualMs - budget.maxMs).toFixed(3)),
+      ratio: Number((actualMs / budget.maxMs).toFixed(3)),
+    };
+  });
+  const overCount = items.filter((item) => item.status === "over").length;
+  const skippedCount = items.filter((item) => item.status === "skipped").length;
+  return {
+    schemaVersion: 1,
+    mode,
+    status: overCount === 0 ? "ok" : mode === "fail" ? "fail" : "warn",
+    ok: overCount === 0,
+    overCount,
+    skippedCount,
+    items,
+  };
+}
+
+function writeBudgetMessages(budget: any) {
+  if (!budget || budget.mode === "off") return;
+  for (const item of budget.items || []) {
+    if (item.status === "over") {
+      process.stderr.write(
+        `graph perf budget ${budget.status}: ${item.name} ${item.actualMs}ms > ${item.maxMs}ms (${item.metric})\n`,
+      );
+    }
+  }
 }
 
 async function runJson(args: string[], env: Record<string, string | undefined>): Promise<CommandRun> {
@@ -236,6 +356,7 @@ async function main() {
   const results = [];
   for (const fixture of cases) results.push(await runFixture(fixture));
   const elapsedMs = Number((performance.now() - started).toFixed(3));
+  const budgets = evaluateBudgets(results);
   const report = {
     schemaVersion: 1,
     kind: "zero-graph-build-perf",
@@ -245,9 +366,12 @@ async function main() {
     outDir: outRoot,
     nativeBuildMs,
     elapsedMs,
+    budgets,
     cases: results,
   };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  writeBudgetMessages(budgets);
+  if (budgets.status === "fail") process.exit(1);
 }
 
 main().catch((error) => {
