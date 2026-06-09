@@ -4488,7 +4488,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
   if (input) input->graph_load_ms += ir_graph_now_ms() - phase_started;
 
   phase_started = ir_graph_now_ms();
-  if (!z_std_source_path_is_module_artifact(artifact_path) && !z_program_graph_merge_embedded_std_graph_modules(&graph, input, diag)) {
+  if (!z_std_source_path_is_module_artifact(artifact_path) && !z_program_graph_merge_embedded_std_graph_modules_timed(&graph, input, diag)) {
     if (input) input->graph_stdlib_merge_ms += ir_graph_now_ms() - phase_started;
     z_program_graph_free(&graph);
     return false;
@@ -4578,7 +4578,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
   if (!z_program_graph_store_load_path(store_path, &store, diag)) return false;
   if (input) input->graph_load_ms += ir_graph_now_ms() - phase_started;
   phase_started = ir_graph_now_ms();
-  if (!z_program_graph_merge_embedded_std_graph_modules(&store.graph, input, diag)) {
+  if (!z_program_graph_merge_embedded_std_graph_modules_timed(&store.graph, input, diag)) {
     if (input) input->graph_stdlib_merge_ms += ir_graph_now_ms() - phase_started;
     z_program_graph_store_free(&store);
     return false;

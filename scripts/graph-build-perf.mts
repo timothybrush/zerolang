@@ -51,6 +51,12 @@ function graphBuildTimings(body: any) {
   return {
     graphLoadMs: timings.graphLoadMs ?? null,
     stdlibMergeMs: timings.stdlibMergeMs ?? null,
+    stdlibReferenceScanMs: timings.stdlibReferenceScanMs ?? null,
+    stdlibCleanupMs: timings.stdlibCleanupMs ?? null,
+    stdlibModuleLoadMs: timings.stdlibModuleLoadMs ?? null,
+    stdlibNodeMergeMs: timings.stdlibNodeMergeMs ?? null,
+    stdlibEdgeMergeMs: timings.stdlibEdgeMergeMs ?? null,
+    stdlibFinalizeMs: timings.stdlibFinalizeMs ?? null,
     readinessCheckMs: timings.readinessCheckMs ?? null,
     mirCacheLoadMs: timings.mirCacheLoadMs ?? null,
     mirLowerMs: timings.mirLowerMs ?? null,
@@ -61,6 +67,15 @@ function graphBuildTimings(body: any) {
     codegenMs: timings.codegenMs ?? phaseMs(body, "codegen"),
     objectMs: timings.objectMs ?? phaseMs(body, "object"),
     linkMs: timings.linkMs ?? phaseMs(body, "link"),
+  };
+}
+
+function graphBuildStdlibMergeFacts(body: any) {
+  const merge = body?.graphBuild?.stdlibMerge || {};
+  return {
+    modulesMerged: merge.modulesMerged ?? null,
+    nodesMerged: merge.nodesMerged ?? null,
+    edgesMerged: merge.edgesMerged ?? null,
   };
 }
 
@@ -154,6 +169,7 @@ function normalizeBuild(run: CommandRun) {
     artifactBytes: run.body?.artifactBytes ?? null,
     loweredIrBytes: run.body?.loweredIrBytes ?? null,
     timings: graphBuildTimings(run.body),
+    stdlibMerge: graphBuildStdlibMergeFacts(run.body),
     caches: cacheFacts(run.body),
   };
 }

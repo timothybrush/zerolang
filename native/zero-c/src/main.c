@@ -2225,6 +2225,12 @@ static void append_graph_build_timing_facts_json(ZBuf *buf, const SourceInput *i
   zbuf_append(buf, ",\"timings\":{");
   zbuf_appendf(buf, "\"graphLoadMs\":%lld", input ? input->graph_load_ms : 0);
   zbuf_appendf(buf, ",\"stdlibMergeMs\":%lld", input ? input->graph_stdlib_merge_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibReferenceScanMs\":%lld", input ? input->graph_stdlib_reference_scan_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibCleanupMs\":%lld", input ? input->graph_stdlib_cleanup_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibModuleLoadMs\":%lld", input ? input->graph_stdlib_module_load_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibNodeMergeMs\":%lld", input ? input->graph_stdlib_node_merge_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibEdgeMergeMs\":%lld", input ? input->graph_stdlib_edge_merge_ms : 0);
+  zbuf_appendf(buf, ",\"stdlibFinalizeMs\":%lld", input ? input->graph_stdlib_finalize_ms : 0);
   zbuf_appendf(buf, ",\"readinessCheckMs\":%lld", input ? input->graph_readiness_check_ms : 0);
   zbuf_appendf(buf, ",\"mirCacheLoadMs\":%lld", input ? input->graph_mir_cache_load_ms : 0);
   zbuf_appendf(buf, ",\"mirLowerMs\":%lld", input ? input->graph_mir_lower_ms : 0);
@@ -2236,6 +2242,10 @@ static void append_graph_build_timing_facts_json(ZBuf *buf, const SourceInput *i
   zbuf_appendf(buf, ",\"objectMs\":%lld", input ? input->object_ms : 0);
   zbuf_appendf(buf, ",\"linkMs\":%lld", input ? input->link_ms : 0);
   zbuf_append(buf, "}");
+  zbuf_appendf(buf, ",\"stdlibMerge\":{\"modulesMerged\":%zu,\"nodesMerged\":%zu,\"edgesMerged\":%zu}",
+               input ? input->graph_stdlib_modules_merged : 0,
+               input ? input->graph_stdlib_nodes_merged : 0,
+               input ? input->graph_stdlib_edges_merged : 0);
   if (input && input->mapped_mir_cache_path) {
     zbuf_append(buf, ",\"mappedFinalMir\":{\"path\":");
     append_json_string(buf, input->mapped_mir_cache_path);

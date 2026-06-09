@@ -4,6 +4,13 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+
+static long long std_merge_now_ms(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+}
 
 static bool std_merge_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
@@ -275,8 +282,9 @@ static const char *std_merge_mapped_node_id(const ZProgramGraph *module_graph, c
   return id;
 }
 
-static void std_merge_graph(ZProgramGraph *graph, const ZProgramGraph *module_graph) {
+static void std_merge_graph(ZProgramGraph *graph, const ZProgramGraph *module_graph, SourceInput *profile) {
   char **mapped_ids = z_checked_calloc(module_graph && module_graph->node_len ? module_graph->node_len : 1, sizeof(char *));
+  long long node_started = std_merge_now_ms();
   for (size_t i = 0; graph && module_graph && i < module_graph->node_len; i++) {
     const ZProgramGraphNode *node = &module_graph->nodes[i];
     const ZProgramGraphNode *existing = std_merge_find_node(graph, node->id);
@@ -292,6 +300,11 @@ static void std_merge_graph(ZProgramGraph *graph, const ZProgramGraph *module_gr
     mapped_ids[i] = std_merge_strdup(node->id);
     std_merge_append_node_copy(graph, node);
   }
+  if (profile) {
+    profile->graph_stdlib_node_merge_ms += std_merge_now_ms() - node_started;
+    profile->graph_stdlib_nodes_merged += module_graph ? module_graph->node_len : 0;
+  }
+  long long edge_started = std_merge_now_ms();
   for (size_t i = 0; graph && module_graph && i < module_graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &module_graph->edges[i];
     ZProgramGraphEdge mapped = {
@@ -317,6 +330,10 @@ static void std_merge_graph(ZProgramGraph *graph, const ZProgramGraph *module_gr
     std_merge_append_edge_copy(graph, &mapped);
     std_merge_free_edge_fields(&mapped);
   }
+  if (profile) {
+    profile->graph_stdlib_edge_merge_ms += std_merge_now_ms() - edge_started;
+    profile->graph_stdlib_edges_merged += module_graph ? module_graph->edge_len : 0;
+  }
   for (size_t i = 0; module_graph && i < module_graph->node_len; i++) free(mapped_ids[i]);
   free(mapped_ids);
 }
@@ -335,7 +352,7 @@ static bool std_merge_module_name_seen(char **items, size_t len, const char *mod
   return false;
 }
 
-bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, const SourceInput *input, ZDiag *diag) {
+static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, const SourceInput *input, SourceInput *profile, ZDiag *diag) {
   bool merged = false;
   char **merged_modules = z_checked_calloc(z_std_source_module_count() ? z_std_source_module_count() : 1, sizeof(char *));
   size_t merged_module_len = 0;
@@ -345,13 +362,24 @@ bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, cons
     for (size_t i = 0; i < z_std_source_module_count(); i++) {
       const ZStdSourceModule *module = z_std_source_module_at(i);
       if (!module) continue;
-      if (!std_merge_source_imports_module(input, module->module) &&
-          !z_program_graph_references_std_module(graph, module->module)) continue;
+      bool source_imports = std_merge_source_imports_module(input, module->module);
+      bool graph_references = false;
+      if (!source_imports) {
+        long long reference_started = std_merge_now_ms();
+        graph_references = z_program_graph_references_std_module(graph, module->module);
+        if (profile) profile->graph_stdlib_reference_scan_ms += std_merge_now_ms() - reference_started;
+      }
+      if (!source_imports && !graph_references) continue;
       if (std_merge_module_name_seen(merged_modules, merged_module_len, module->module)) continue;
       merged_modules[merged_module_len++] = std_merge_strdup(module->module);
+      if (profile) profile->graph_stdlib_modules_merged++;
+      long long cleanup_started = std_merge_now_ms();
       std_merge_remove_module_path_nodes(graph, module);
+      if (profile) profile->graph_stdlib_cleanup_ms += std_merge_now_ms() - cleanup_started;
       ZProgramGraph module_graph = {0};
+      long long load_started = std_merge_now_ms();
       bool ok = z_std_source_module_load_graph(module, &module_graph, diag);
+      if (profile) profile->graph_stdlib_module_load_ms += std_merge_now_ms() - load_started;
       if (!ok) {
         if (diag && !diag->path) diag->path = module->path;
         for (size_t j = 0; j < merged_module_len; j++) free(merged_modules[j]);
@@ -359,7 +387,7 @@ bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, cons
         return false;
       }
       std_merge_canonicalize_module_root(&module_graph, module);
-      std_merge_graph(graph, &module_graph);
+      std_merge_graph(graph, &module_graph, profile);
       z_program_graph_free(&module_graph);
       merged = true;
       pass_merged = true;
@@ -367,6 +395,18 @@ bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, cons
   }
   for (size_t i = 0; i < merged_module_len; i++) free(merged_modules[i]);
   free(merged_modules);
-  if (merged) z_program_graph_finalize_identities(graph);
+  if (merged) {
+    long long finalize_started = std_merge_now_ms();
+    z_program_graph_finalize_identities(graph);
+    if (profile) profile->graph_stdlib_finalize_ms += std_merge_now_ms() - finalize_started;
+  }
   return true;
+}
+
+bool z_program_graph_merge_embedded_std_graph_modules(ZProgramGraph *graph, const SourceInput *input, ZDiag *diag) {
+  return std_merge_embedded_std_graph_modules_impl(graph, input, NULL, diag);
+}
+
+bool z_program_graph_merge_embedded_std_graph_modules_timed(ZProgramGraph *graph, SourceInput *input, ZDiag *diag) {
+  return std_merge_embedded_std_graph_modules_impl(graph, input, input, diag);
 }
