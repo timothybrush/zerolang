@@ -994,6 +994,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !programGraph.repositoryStoreMetadataSerialized ||
       !programGraph.repositoryStoreMetadataValidated ||
       !programGraph.repositoryStoreReadHardening ||
+      !programGraph.graphPatchFileReadHardening ||
       !programGraph.repositoryStatusCompilerStoreFacts ||
       !programGraph.repositoryStatusProjectionValidity) {
     violations.push({
@@ -1447,6 +1448,8 @@ const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c"
 const programGraphStoreHeaderRaw = texts.get("native/zero-c/src/program_graph_store.h") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphStoreReadBody = cCodeText(cBlock(programGraphStoreRaw, "static bool store_read_file_bytes"));
+const programGraphPatchRaw = texts.get("native/zero-c/src/program_graph_patch.c") ?? "";
+const programGraphPatchReadBody = cCodeText(cBlock(programGraphPatchRaw, "static char *patch_read_file"));
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
 const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
 const programGraphProjectionRaw = texts.get("native/zero-c/src/program_graph_projection.c") ?? "";
@@ -1961,6 +1964,14 @@ const programGraph = {
     /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphStoreReadBody) &&
     /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
     !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphStoreReadBody),
+  graphPatchFileReadHardening: /#include\s+<errno\.h>/.test(programGraphPatchRaw) &&
+    /#include\s+<stdint\.h>/.test(programGraphPatchRaw) &&
+    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
+    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
+    /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(programGraphPatchReadBody) &&
+    /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphPatchReadBody) &&
+    /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
+    !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphPatchReadBody),
   repositoryStatusCompilerStoreFacts: /compilerStore/.test(programGraphRepositoryRaw) &&
     /sourceFreeInspection/.test(programGraphRepositoryRaw) &&
     /z_program_graph_store_append_table_counts_json\s*\(/.test(programGraphRepositorySource),

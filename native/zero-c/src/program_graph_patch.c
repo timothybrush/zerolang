@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,24 +72,32 @@ static char *patch_read_file(const char *path, size_t *out_len, ZDiag *diag) {
     return NULL;
   }
   long size = ftell(file);
-  if (size < 0) {
+  if (size < 0 || (size_t)size > SIZE_MAX - 1) {
+    if (size >= 0) errno = EFBIG;
     patch_io_fail(diag, path, "read");
     fclose(file);
     return NULL;
   }
-  rewind(file);
+  if (fseek(file, 0, SEEK_SET) != 0) {
+    patch_io_fail(diag, path, "read");
+    fclose(file);
+    return NULL;
+  }
   char *data = z_checked_malloc((size_t)size + 1);
-  size_t read = fread(data, 1, (size_t)size, file);
-  if (read != (size_t)size) {
-    if (!ferror(file)) errno = EIO;
+  if (size > 0 && fread(data, 1, (size_t)size, file) != (size_t)size) {
+    if (errno == 0) errno = EIO;
     patch_io_fail(diag, path, "read");
     fclose(file);
     free(data);
     return NULL;
   }
-  fclose(file);
-  data[read] = '\0';
-  if (out_len) *out_len = read;
+  if (fclose(file) != 0) {
+    patch_io_fail(diag, path, "read");
+    free(data);
+    return NULL;
+  }
+  data[(size_t)size] = '\0';
+  if (out_len) *out_len = (size_t)size;
   return data;
 }
 
