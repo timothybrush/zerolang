@@ -1,7 +1,6 @@
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
-
 #include "zero.h"
 #include "manifest_toml.h"
 #include "process_exec.h"
@@ -179,11 +178,14 @@ static bool mkdir_parent_one(const char *path, const char *diag_path, ZDiag *dia
 }
 
 char *z_read_file(const char *path, ZDiag *diag) {
-  FILE *file = fopen(path, "rb");
-  if (!file) {
+  struct stat st;
+  if (path && stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+    errno = EACCES;
     diag_io(diag, path, "read");
     return NULL;
   }
+  FILE *file = fopen(path, "rb");
+  if (!file) { diag_io(diag, path, "read"); return NULL; }
   if (fseek(file, 0, SEEK_END) != 0) {
     if (errno == 0) errno = EIO;
     diag_io(diag, path, "read");
