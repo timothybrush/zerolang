@@ -1104,6 +1104,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.atomicWriteTempFile ||
       !backendFormats.fileIo.atomicWriteRenameChecked ||
       !backendFormats.fileIo.atomicWriteCleanup ||
+      !backendFormats.fileIo.noDirectWriteFopenOutsideFs ||
       !backendFormats.fileIo.textWriteChecked ||
       !backendFormats.fileIo.binaryWriteChecked ||
       !backendFormats.fileIo.closeChecked ||
@@ -1460,6 +1461,11 @@ const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c")
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const fsRaw = texts.get("native/zero-c/src/fs.c") ?? "";
 const fsSource = cCodeText(fsRaw);
+const directWriteFopenFiles = [...texts.entries()]
+  .filter(([path]) => path.startsWith("native/zero-c/src/") && path !== "native/zero-c/src/fs.c")
+  .filter(([, text]) => /\bfopen\s*\([^,\n]+,\s*"w[ab]?"/.test(cCodeText(text)))
+  .map(([path]) => path)
+  .sort((a, b) => a.localeCompare(b));
 const processExecRaw = texts.get("native/zero-c/src/process_exec.c") ?? "";
 const nativeTestRaw = auditTexts.get("scripts/test-native.sh") ?? "";
 const mirBinaryRaw = texts.get("native/zero-c/src/mir_binary.c") ?? "";
@@ -1628,6 +1634,8 @@ const backendFormats = {
     atomicWriteRenameChecked: /rename\s*\(\s*temp_path\s*,\s*path\s*\)\s*!=\s*0/.test(atomicCloseBody),
     atomicWriteCleanup: countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /remove\s*\(\s*temp_path\s*\)/g) >= 4 &&
       countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /free\s*\(\s*temp_path\s*\)/g) >= 5,
+    noDirectWriteFopenOutsideFs: directWriteFopenFiles.length === 0,
+    directWriteFopenFiles,
     textWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&
       !/\bfputs\s*\(\s*text\s*,\s*file\s*\)\s*;/.test(writeFileBody),
     binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&

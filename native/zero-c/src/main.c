@@ -2174,17 +2174,22 @@ static bool json_array_nonempty_literal(const char *json) {
 }
 
 static bool compiler_cache_touch(const char *kind, uint64_t key) {
+  if (!kind || !kind[0]) return false;
   const char *cache_dir = getenv("ZERO_CACHE_DIR");
-  if (cache_dir && cache_dir[0]) zero_mkdir(cache_dir);
-  else { cache_dir = ".zero/cache/native"; zero_mkdir(".zero"); zero_mkdir(".zero/cache"); zero_mkdir(cache_dir); }
-  char path[1024];
-  snprintf(path, sizeof(path), "%s/%s-%016llx.cache", cache_dir, kind, (unsigned long long)key);
-  bool hit = path_exists(path);
-  FILE *file = fopen(path, "wb");
-  if (file) {
-    fprintf(file, "%s %016llx\n", kind, (unsigned long long)key);
-    fclose(file);
-  }
+  if (!cache_dir || !cache_dir[0]) cache_dir = ".zero/cache/native";
+  ZBuf path;
+  zbuf_init(&path);
+  zbuf_append(&path, cache_dir);
+  if (path.len > 0 && path.data[path.len - 1] != '/' && path.data[path.len - 1] != '\\') zbuf_append_char(&path, '/');
+  zbuf_appendf(&path, "%s-%016llx.cache", kind, (unsigned long long)key);
+  ZBuf text;
+  zbuf_init(&text);
+  zbuf_appendf(&text, "%s %016llx\n", kind, (unsigned long long)key);
+  bool hit = path.data && path_exists(path.data);
+  ZDiag ignored = {0};
+  if (path.data && text.data) z_write_file(path.data, text.data, &ignored);
+  zbuf_free(&text);
+  zbuf_free(&path);
   return hit;
 }
 
