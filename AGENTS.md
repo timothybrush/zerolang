@@ -39,18 +39,31 @@ where they will run.
 - Keep examples runnable and docs copyable.
 - Prefer small, direct changes over broad refactors.
 - Use direct emitters for compiler output.
+- For broad local validation, run `pnpm run agent:checks`. It mirrors the CI
+  buckets in parallel, including conformance, command contracts, native test
+  shards, sanitizer smoke, and workspace checks. It uses isolated `/tmp`
+  workspaces so agents can validate uncommitted changes without local artifact
+  races.
 - Before ending any agent turn that changes the repository, run
-  `pnpm run conformance`; if it cannot complete, report the blocker and the
+  `pnpm run conformance` unless `pnpm run agent:checks` already passed for the
+  same changes. If validation cannot complete, report the blocker and the
   failing command.
 
 ## Useful Checks
 
 ```sh
+pnpm run agent:checks
 pnpm run docs:build
 pnpm run conformance
 pnpm run native:test
 pnpm run command-contracts
 ```
+
+`pnpm run agent:checks` already includes conformance. Do not run conformance
+again after it passes unless you need to recheck later changes.
+
+Shard native tests locally with `ZERO_NATIVE_TEST_SHARD=1/4 pnpm run
+native:test:local`. CI currently runs four native shards.
 
 `pnpm run conformance:local` and `pnpm run command-contracts:local` use the
 aggregate validation runner. Add `-- --shard 1/4` to run one conformance phase

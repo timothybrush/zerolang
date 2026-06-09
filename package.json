@@ -10,6 +10,7 @@
   },
   "scripts": {
     "check": "pnpm --silent run native:smoke",
+    "agent:checks": "bash scripts/agent-checks.sh",
     "build": "turbo run build",
     "build:scripts": "tsc -p scripts/tsconfig.json",
     "build:test": "tsc -p tests/tsconfig.json",
@@ -30,6 +31,7 @@
     "command-contracts": "pnpm run command-contracts:sandbox",
     "command-contracts:local": "ZERO_NATIVE_TEST_ALLOW_LOCAL=1 node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/validation-suite.mts command-contracts",
     "command-contracts:sandbox": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/native-test-sandbox.mts -- pnpm run command-contracts:local",
+    "workspace:checks": "bash scripts/workspace-checks.sh",
     "docs:install": "pnpm install",
     "docs:dev": "turbo run dev --filter=./docs",
     "docs:build": "turbo run build --filter=./docs",

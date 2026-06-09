@@ -74,9 +74,8 @@ jobs:
         with:
           node-version: 24
 
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
+      - name: Install pinned Zig
+        run: bash scripts/install-zig.sh
 
       - name: Extract changelog entry
         run: |

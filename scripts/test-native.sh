@@ -14,59 +14,111 @@ if [[ "${ZERO_NATIVE_TEST_SANDBOX:-}" != "1" && "${ZERO_NATIVE_TEST_ALLOW_LOCAL:
   exit 1
 fi
 
-make -C native/zero-c
+native_test_shard="${ZERO_NATIVE_TEST_SHARD:-1/1}"
+if [[ "$native_test_shard" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+  native_test_shard_index="${BASH_REMATCH[1]}"
+  native_test_shard_count="${BASH_REMATCH[2]}"
+else
+  echo "ZERO_NATIVE_TEST_SHARD must be formatted as index/count, for example 1/4" >&2
+  exit 1
+fi
 
-bin/zero check --json std/path.graph >/dev/null
-bin/zero check --json std/str.graph >/dev/null
-bin/zero check --json std/testing.graph >/dev/null
-bin/zero check --json std/log.graph >/dev/null
-bin/zero check --json std/math.graph >/dev/null
-bin/zero check --json std/time.graph >/dev/null
-node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stdlib-target-matrix.mts
+if (( native_test_shard_count < 1 || native_test_shard_index < 1 || native_test_shard_index > native_test_shard_count )); then
+  echo "ZERO_NATIVE_TEST_SHARD index must be between 1 and count" >&2
+  exit 1
+fi
+
+native_test_case_index=0
+
+native_phase_selected() {
+  local phase="$1"
+  local target
+  case "$phase" in
+    preflight)
+      target=1
+      ;;
+    metadata-and-reports)
+      if (( native_test_shard_count >= 2 )); then
+        target=2
+      else
+        target=1
+      fi
+      ;;
+    direct-backend-artifacts)
+      target="$native_test_shard_count"
+      ;;
+    *)
+      echo "unknown native test phase: $phase" >&2
+      exit 1
+      ;;
+  esac
+
+  [[ "$native_test_shard_index" -eq "$target" ]]
+}
+
+native_case_selected() {
+  native_test_case_index=$((native_test_case_index + 1))
+  local selected=$(( (native_test_case_index - 1) % native_test_shard_count + 1 ))
+  [[ "$selected" -eq "$native_test_shard_index" ]]
+}
+
+echo "native test shard ${native_test_shard_index}/${native_test_shard_count}"
+
+make -C native/zero-c
 
 mkdir -p .zero/native-test .zero/conformance
 
-host_runtime_target=""
-case "$(uname -s):$(uname -m)" in
-  Darwin:arm64) host_runtime_target="darwin-arm64" ;;
-  Linux:x86_64) host_runtime_target="linux-x64" ;;
-esac
+if native_phase_selected "preflight"; then
+  bin/zero check --json std/path.graph >/dev/null
+  bin/zero check --json std/str.graph >/dev/null
+  bin/zero check --json std/testing.graph >/dev/null
+  bin/zero check --json std/log.graph >/dev/null
+  bin/zero check --json std/math.graph >/dev/null
+  bin/zero check --json std/time.graph >/dev/null
+  node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stdlib-target-matrix.mts
 
-if [[ -n "$host_runtime_target" ]] && command -v cc >/dev/null 2>&1; then
-  runtime_cwd_dir="/tmp/zero-runtime-cwd-$$"
-  runtime_cwd_out="$runtime_cwd_dir/std-json-bytes"
-  rm -rf "$runtime_cwd_dir"
-  mkdir -p "$runtime_cwd_dir"
-  (
-    cd "$runtime_cwd_dir"
-    "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.graph" --out "$runtime_cwd_out" > "$runtime_cwd_out.json"
-  )
-  set +e
-  "$runtime_cwd_out"
-  runtime_cwd_status=$?
-  set -e
-  test "$runtime_cwd_status" = "0"
-  test ! -f "$runtime_cwd_out.zero.o"
-  test ! -f "$runtime_cwd_out.zero-runtime.o"
-  test ! -f "$runtime_cwd_out.zero-runtime.o.zero_runtime.c"
-  test ! -e "$runtime_cwd_out.zero-runtime.o.include"
-  node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.objectBackend.linking.targetLibraries!=="zero-runtime" || report.objectBackend.linking.externalToolchain!=="cc" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o") || report.objectBackend.directFacts.runtimeHelperCount!==1) process.exit(1);' "$runtime_cwd_out.json"
-  set +e
-  ZERO_CC=/usr/bin/false "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.graph" --out "$runtime_cwd_out-bad" > "$runtime_cwd_out-bad.json" 2>/dev/null
-  runtime_zero_cc_status=$?
-  set -e
-  test "$runtime_zero_cc_status" != "0"
-  grep -q "host runtime object build failed" "$runtime_cwd_out-bad.json"
-  rm -rf "$runtime_cwd_dir"
-fi
+  host_runtime_target=""
+  case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) host_runtime_target="darwin-arm64" ;;
+    Linux:x86_64) host_runtime_target="linux-x64" ;;
+  esac
 
-if command -v zig >/dev/null 2>&1; then
-  json_cross_out=".zero/native-test/std-json-bytes-linux-musl"
-  rm -f "$json_cross_out" "$json_cross_out.json" "$json_cross_out.zero.o" "$json_cross_out.zero-runtime.o"
-  bin/zero build --json --emit exe --target linux-musl-x64 conformance/native/pass/std-json-bytes.graph --out "$json_cross_out" > "$json_cross_out.json"
-  node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.target!=="linux-musl-x64" || report.objectBackend.linking.targetLibraries!=="zero-runtime" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o")) process.exit(1);' "$json_cross_out.json"
-  test ! -f "$json_cross_out.zero.o"
-  test ! -f "$json_cross_out.zero-runtime.o"
+  if [[ -n "$host_runtime_target" ]] && command -v cc >/dev/null 2>&1; then
+    runtime_cwd_dir="/tmp/zero-runtime-cwd-$$"
+    runtime_cwd_out="$runtime_cwd_dir/std-json-bytes"
+    rm -rf "$runtime_cwd_dir"
+    mkdir -p "$runtime_cwd_dir"
+    (
+      cd "$runtime_cwd_dir"
+      "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.graph" --out "$runtime_cwd_out" > "$runtime_cwd_out.json"
+    )
+    set +e
+    "$runtime_cwd_out"
+    runtime_cwd_status=$?
+    set -e
+    test "$runtime_cwd_status" = "0"
+    test ! -f "$runtime_cwd_out.zero.o"
+    test ! -f "$runtime_cwd_out.zero-runtime.o"
+    test ! -f "$runtime_cwd_out.zero-runtime.o.zero_runtime.c"
+    test ! -e "$runtime_cwd_out.zero-runtime.o.include"
+    node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.objectBackend.linking.targetLibraries!=="zero-runtime" || report.objectBackend.linking.externalToolchain!=="cc" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o") || report.objectBackend.directFacts.runtimeHelperCount!==1) process.exit(1);' "$runtime_cwd_out.json"
+    set +e
+    ZERO_CC=/usr/bin/false "$root/.zero/bin/zero" build --json --emit exe --target "$host_runtime_target" "$root/conformance/native/pass/std-json-bytes.graph" --out "$runtime_cwd_out-bad" > "$runtime_cwd_out-bad.json" 2>/dev/null
+    runtime_zero_cc_status=$?
+    set -e
+    test "$runtime_zero_cc_status" != "0"
+    grep -q "host runtime object build failed" "$runtime_cwd_out-bad.json"
+    rm -rf "$runtime_cwd_dir"
+  fi
+
+  if command -v zig >/dev/null 2>&1; then
+    json_cross_out=".zero/native-test/std-json-bytes-linux-musl"
+    rm -f "$json_cross_out" "$json_cross_out.json" "$json_cross_out.zero.o" "$json_cross_out.zero-runtime.o"
+    bin/zero build --json --emit exe --target linux-musl-x64 conformance/native/pass/std-json-bytes.graph --out "$json_cross_out" > "$json_cross_out.json"
+    node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.generatedCBytes!==0 || report.target!=="linux-musl-x64" || report.objectBackend.linking.targetLibraries!=="zero-runtime" || !report.objectBackend.linkerPlan.staticLibraries.includes("zero_runtime.o")) process.exit(1);' "$json_cross_out.json"
+    test ! -f "$json_cross_out.zero.o"
+    test ! -f "$json_cross_out.zero-runtime.o"
+  fi
 fi
 
 expected_output() {
@@ -161,6 +213,10 @@ run_native_or_gap() {
   local expected="$3"
   shift 3
 
+  if ! native_case_selected; then
+    return 0
+  fi
+
   bin/zero check "$input" >/dev/null
   if bin/zero build --json --emit exe --target linux-musl-x64 "$input" --out "$out" > "$out.json"; then
     local native_output
@@ -239,6 +295,8 @@ run_native_or_gap conformance/native/pass/rescue-check.graph .zero/native-test/r
 run_native_or_gap conformance/native/pass/std-fs-fallible.graph .zero/native-test/std-fs-fallible "fs named errors ok"
 run_native_or_gap conformance/native/pass/std-fs-fallible-resources.graph .zero/native-test/std-fs-fallible-resources "fs fallible resources ok"
 run_native_or_gap conformance/native/pass/std-cli-helpers.graph .zero/native-test/std-cli-helpers "cli helpers ok"
+
+if native_phase_selected "metadata-and-reports"; then
 std_args_run_exe="/tmp/zero-std-args-run-$$"
 std_args_run_output="$(bin/zero run --out "$std_args_run_exe" conformance/native/pass/std-args.graph -- agent-arg extra)"
 rm -f "$std_args_run_exe"
@@ -555,6 +613,9 @@ if bin/zero build --json --legacy-backend --target linux-musl-x64 examples/hello
   exit 1
 fi
 node -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (report.diagnostics?.[0]?.code!=="BLD003") process.exit(1);' .zero/native-test/removed-legacy-backend.json
+fi
+
+if native_phase_selected "direct-backend-artifacts"; then
 rm -f .zero/native-test/direct-obj-add.o .zero/native-test/direct-obj-add.o.c
 bin/zero build --json --emit obj --target linux-musl-x64 examples/direct-obj-add.graph --out .zero/native-test/direct-obj-add.o > .zero/native-test/direct-obj-add.json
 node <<'NODE'
@@ -1051,5 +1112,6 @@ grep -q '"driverKind": "target-cc"' .zero/native-test/doctor.json
 grep -q '"sysrootStatus":' .zero/native-test/doctor.json
 bin/zero doctor > .zero/native-test/doctor.txt
 grep -q "target toolchains:" .zero/native-test/doctor.txt
+fi
 
 echo "native conformance ok"
