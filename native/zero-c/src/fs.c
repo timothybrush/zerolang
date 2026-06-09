@@ -78,6 +78,7 @@ void zbuf_append(ZBuf *buf, const char *text) {
 }
 
 void zbuf_appendf(ZBuf *buf, const char *fmt, ...) {
+  if (!fmt) return;
   va_list args;
   va_start(args, fmt);
   va_list copy;
@@ -89,8 +90,9 @@ void zbuf_appendf(ZBuf *buf, const char *fmt, ...) {
     return;
   }
   char *tmp = z_checked_malloc((size_t)needed + 1);
-  vsnprintf(tmp, (size_t)needed + 1, fmt, args);
+  int written = vsnprintf(tmp, (size_t)needed + 1, fmt, args);
   va_end(args);
+  if (written < 0 || written > needed) { free(tmp); return; }
   zbuf_append(buf, tmp);
   free(tmp);
 }

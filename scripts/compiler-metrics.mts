@@ -1099,6 +1099,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.textWriteChecked ||
       !backendFormats.fileIo.binaryWriteChecked ||
       !backendFormats.fileIo.closeChecked ||
+      !backendFormats.fileIo.bufferFormatChecked ||
       !backendFormats.fileIo.diagnosticsNullSafe) {
     violations.push({
       kind: "file-io-hardening",
@@ -1483,6 +1484,7 @@ const readFilePrefixBody = cCodeText(cBlock(main, "static bool read_file_prefix"
 const programGraphStorageHeaderBody = cCodeText(cBlock(main, "static bool path_has_program_graph_storage_header"));
 const programGraphPatchHeaderBody = cCodeText(cBlock(main, "static bool path_has_program_graph_patch_header"));
 const directFileExistsBody = cCodeText(cBlock(main, "static bool direct_file_exists"));
+const zbufAppendfBody = cCodeText(cBlock(fsRaw, "void zbuf_appendf"));
 const readFileBody = cCodeText(cBlock(fsRaw, "char *z_read_file"));
 const writeFileBody = cCodeText(cBlock(fsRaw, "bool z_write_file"));
 const writeBinaryFileBody = cCodeText(cBlock(fsRaw, "bool z_write_binary_file"));
@@ -1569,6 +1571,10 @@ const backendFormats = {
     binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(writeBinaryFileBody),
     closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeFileBody) &&
       /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeBinaryFileBody),
+    bufferFormatChecked: /if\s*\(\s*!fmt\s*\)\s*return\s*;/.test(zbufAppendfBody) &&
+      /int\s+written\s*=\s*vsnprintf\s*\(\s*tmp\s*,\s*\(size_t\)\s*needed\s*\+\s*1\s*,\s*fmt\s*,\s*args\s*\)/.test(zbufAppendfBody) &&
+      /written\s*<\s*0\s*\|\|\s*written\s*>\s*needed/.test(zbufAppendfBody) &&
+      /free\s*\(\s*tmp\s*\)/.test(zbufAppendfBody),
     diagnosticsNullSafe: /if\s*\(\s*!diag\s*\)\s*return\s*;/.test(cBlock(fsRaw, "static void diag_io_at")),
   },
   targetManifest: {
