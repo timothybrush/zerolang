@@ -10,6 +10,7 @@
 #include "std_source.h"
 #include "zero.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,11 @@ static bool store_path_is_dir(const char *path) {
 bool z_program_graph_store_file_exists(const char *path) {
   struct stat st;
   return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+bool z_program_graph_store_path_exists(const char *path) {
+  struct stat st;
+  return path && stat(path, &st) == 0;
 }
 
 const char *z_program_graph_store_format_name(ZProgramGraphStoreFormat format) {
@@ -347,25 +353,35 @@ static bool store_read_file_bytes(const char *path, unsigned char **out, size_t 
     return false;
   }
   if (fseek(file, 0, SEEK_END) != 0) {
+    if (errno == 0) errno = EIO;
     fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", "seek failed");
+    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
   }
   long size = ftell(file);
-  if (size < 0) {
+  if (size < 0 || (size_t)size > SIZE_MAX - 1) {
+    if (errno == 0) errno = EIO;
     fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", "size unavailable");
+    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
   }
-  rewind(file);
+  if (fseek(file, 0, SEEK_SET) != 0) {
+    if (errno == 0) errno = EIO;
+    fclose(file);
+    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
+  }
   unsigned char *data = z_checked_malloc((size_t)size + 1);
-  size_t read = fread(data, 1, (size_t)size, file);
-  fclose(file);
-  if (read != (size_t)size) {
+  if (size > 0 && fread(data, 1, (size_t)size, file) != (size_t)size) {
+    if (errno == 0) errno = EIO;
     free(data);
-    return store_diag(diag, path, 1, "failed to read repository graph store", "short read");
+    fclose(file);
+    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
   }
-  data[read] = 0;
+  data[(size_t)size] = 0;
+  if (fclose(file) != 0) {
+    free(data);
+    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
+  }
   *out = data;
-  *out_len = read;
+  *out_len = (size_t)size;
   return true;
 }
 

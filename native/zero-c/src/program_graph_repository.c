@@ -62,7 +62,7 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
   RepositoryGraphState state = {.input = input && input[0] ? input : ".", .compiler_input_valid = true};
   state.root = z_program_graph_store_root_for_input(state.input);
   state.store_path = z_program_graph_store_path_for_root(state.root);
-  state.store_present = z_program_graph_store_file_exists(state.store_path);
+  state.store_present = z_program_graph_store_path_exists(state.store_path);
   ZDiag compiler_input_diag = {0};
   state.compiler_input_valid = z_program_graph_manifest_compiler_input_enabled(state.input, &state.compiler_input_enabled, &compiler_input_diag);
   if (!state.compiler_input_valid) state.compiler_input_diag = compiler_input_diag;

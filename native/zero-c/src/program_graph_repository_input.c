@@ -61,7 +61,7 @@ static RepositoryGraphInputState input_state(const char *input, const ZTargetInf
   RepositoryGraphInputState state = {.input = input && input[0] ? input : "."};
   state.root = z_program_graph_store_root_for_input(state.input);
   state.store_path = z_program_graph_store_path_for_root(state.root);
-  state.store_present = z_program_graph_store_file_exists(state.store_path);
+  state.store_present = z_program_graph_store_path_exists(state.store_path);
   if (state.store_present) {
     ZProgramGraphStore store;
     ZDiag diag = {0};

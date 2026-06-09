@@ -3000,6 +3000,21 @@ assert.equal(invalidRepoGraphStoreCheck.body.repositoryGraph.storeValid, false);
 assert.equal(invalidRepoGraphStoreCheck.body.diagnostics[0].code, "RGP003");
 assert.equal(invalidRepoGraphStoreCheck.body.diagnostics[0].path, invalidRepoGraphStoreRoot);
 assert.match(invalidRepoGraphStoreCheck.body.repairCommands.join("\n"), /zero import/);
+const directoryRepoGraphStoreRoot = join(outDir, "repository-graph-directory-store");
+rmSync(directoryRepoGraphStoreRoot, { recursive: true, force: true });
+mkdirSync(join(directoryRepoGraphStoreRoot, "zero.graph"), { recursive: true });
+writeZeroTomlSync(directoryRepoGraphStoreRoot, {
+  package: { name: "repository-graph-directory-store", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "main.0" } },
+});
+writeFileSync(join(directoryRepoGraphStoreRoot, "main.0"), "pub fn main() -> i32 { return 0 }\n");
+const directoryRepoGraphStoreCheck = json(["check", "--json", directoryRepoGraphStoreRoot], { allowFailure: true });
+assert.notEqual(directoryRepoGraphStoreCheck.code, 0);
+assert.equal(directoryRepoGraphStoreCheck.body.ok, false);
+assert.equal(directoryRepoGraphStoreCheck.body.repositoryGraph.storePresent, true);
+assert.equal(directoryRepoGraphStoreCheck.body.repositoryGraph.projectionState, "store-invalid");
+assert.equal(directoryRepoGraphStoreCheck.body.diagnostics[0].code, "RGP003");
+assert.equal(directoryRepoGraphStoreCheck.body.diagnostics[0].actual, "failed to read repository graph store");
 const sourceFreeGraphPackageRoot = join(outDir, "source-free-graph-package");
 rmSync(sourceFreeGraphPackageRoot, { recursive: true, force: true });
 mkdirSync(join(sourceFreeGraphPackageRoot, "src"), { recursive: true });

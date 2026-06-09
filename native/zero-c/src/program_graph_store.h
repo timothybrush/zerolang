@@ -28,6 +28,7 @@ void z_program_graph_store_init(ZProgramGraphStore *store);
 void z_program_graph_store_free(ZProgramGraphStore *store);
 char *z_program_graph_store_root_for_input(const char *input);
 char *z_program_graph_store_path_for_root(const char *root);
+bool z_program_graph_store_path_exists(const char *path);
 bool z_program_graph_store_file_exists(const char *path);
 const char *z_program_graph_store_format_name(ZProgramGraphStoreFormat format);
 bool z_program_graph_store_format_from_name(const char *name, ZProgramGraphStoreFormat *out);

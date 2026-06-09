@@ -161,12 +161,12 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_repository_repair.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_binary.c": { maxLines: 706, maxStrcmpCalls: 3 },
   "native/zero-c/src/program_graph_store_binary.h": { maxLines: 10, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_store.c": { maxLines: 1282, maxStrcmpCalls: 6 },
+  "native/zero-c/src/program_graph_store.c": { maxLines: 1300, maxStrcmpCalls: 6 },
   "native/zero-c/src/program_graph_store_prune.c": { maxLines: 168, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_store_prune.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_tables.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_tables.h": { maxLines: 40, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_store.h": { maxLines: 49, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_store.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test.c": { maxLines: 700, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.c": { maxLines: 230, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.h": { maxLines: 10, maxStrcmpCalls: 0 },
@@ -993,6 +993,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
   if (!programGraph.repositoryStoreCompilerTables ||
       !programGraph.repositoryStoreMetadataSerialized ||
       !programGraph.repositoryStoreMetadataValidated ||
+      !programGraph.repositoryStoreReadHardening ||
       !programGraph.repositoryStatusCompilerStoreFacts ||
       !programGraph.repositoryStatusProjectionValidity) {
     violations.push({
@@ -1443,7 +1444,9 @@ const programGraphBuildHeaderRaw = texts.get("native/zero-c/src/program_graph_bu
 const programGraphCommandRaw = texts.get("native/zero-c/src/program_graph_command.c") ?? "";
 const programGraphCommandHeaderRaw = texts.get("native/zero-c/src/program_graph_command.h") ?? "";
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
+const programGraphStoreHeaderRaw = texts.get("native/zero-c/src/program_graph_store.h") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
+const programGraphStoreReadBody = cCodeText(cBlock(programGraphStoreRaw, "static bool store_read_file_bytes"));
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
 const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
 const programGraphProjectionRaw = texts.get("native/zero-c/src/program_graph_projection.c") ?? "";
@@ -1948,6 +1951,16 @@ const programGraph = {
     /compilerTables schema:/.test(programGraphStoreTablesRaw) &&
     /compilerHashInputs graphHashExcludes:/.test(programGraphStoreTablesRaw),
   repositoryStoreMetadataValidated: /z_program_graph_store_compiler_metadata_matches\s*\(/.test(programGraphStoreSource),
+  repositoryStoreReadHardening: /#include\s+<errno\.h>/.test(programGraphStoreRaw) &&
+    /z_program_graph_store_path_exists\s*\(/.test(programGraphStoreHeaderRaw) &&
+    /z_program_graph_store_path_exists\s*\(/.test(programGraphRepositoryRaw) &&
+    /z_program_graph_store_path_exists\s*\(/.test(programGraphRepositoryInputRaw) &&
+    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
+    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
+    /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(programGraphStoreReadBody) &&
+    /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphStoreReadBody) &&
+    /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
+    !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphStoreReadBody),
   repositoryStatusCompilerStoreFacts: /compilerStore/.test(programGraphRepositoryRaw) &&
     /sourceFreeInspection/.test(programGraphRepositoryRaw) &&
     /z_program_graph_store_append_table_counts_json\s*\(/.test(programGraphRepositorySource),
