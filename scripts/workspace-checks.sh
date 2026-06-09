@@ -30,12 +30,15 @@ else
 fi
 
 bin/zero check --target linux-musl-x64 examples/memory-package
-bin/zero build --emit obj --target linux-musl-x64 examples/direct-obj-add.0 --out .zero/out/direct-obj-add-linux-musl.o
-bin/zero build --target linux-musl-x64 examples/hello.0 --out .zero/out/hello-linux-musl
-bin/zero build --target win32-x64.exe examples/hello.0 --out .zero/out/hello-win32
+bin/zero build --emit obj --target linux-musl-x64 examples/direct-obj-add.graph --out .zero/out/direct-obj-add-linux-musl.o
+bin/zero build --target linux-musl-x64 examples/hello.graph --out .zero/out/hello-linux-musl
+bin/zero build --target win32-x64.exe examples/hello.graph --out .zero/out/hello-win32
 
 mkdir -p .zero/ci-release
 node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts
 ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc -target x86_64-linux-musl -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Inative/zero-c/include native/zero-c/src/*.c -o .zero/ci-release/zero-linux-musl-x64
-./.zero/ci-release/zero-linux-musl-x64 --version
-./.zero/ci-release/zero-linux-musl-x64 skills list --json
+test -s .zero/ci-release/zero-linux-musl-x64
+if [[ "$(uname -s):$(uname -m)" == "Linux:x86_64" ]]; then
+  ./.zero/ci-release/zero-linux-musl-x64 --version
+  ./.zero/ci-release/zero-linux-musl-x64 skills list --json
+fi

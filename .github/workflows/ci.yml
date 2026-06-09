@@ -25,6 +25,9 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.1.3 --activate
 
+      - name: Install pinned Zig
+        run: bash scripts/install-zig.sh
+
       - run: pnpm install --frozen-lockfile
 
       - name: Conformance suite
