@@ -34,6 +34,18 @@ pub fn main(world: World) -> Void raises {
     if !std.time.isZero(std.time.zero()) {
         ok = false
     }
+    if std.time.asNs(std.time.abs(negative_tick)) != 1_i64 {
+        ok = false
+    }
+    if std.time.asSecondsFloor(std.time.between(std.time.seconds(5), std.time.seconds(2))) != 3_i64 {
+        ok = false
+    }
+    if !std.time.hasElapsed(std.time.seconds(10), std.time.seconds(13), std.time.seconds(3)) {
+        ok = false
+    }
+    if std.time.hasElapsed(std.time.seconds(10), std.time.seconds(12), std.time.seconds(3)) {
+        ok = false
+    }
     var rng: RandSource = std.rand.seed(7_u32)
     let first: u32 = std.rand.nextU32(&mut rng)
     let bit: Bool = std.rand.nextBool(&mut rng)

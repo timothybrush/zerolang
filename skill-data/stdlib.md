@@ -37,9 +37,9 @@ Call functions with their module path, such as `std.mem.len(value)`.
 - `std.path`: target-neutral lexical path basename, dirname, extension, join, normalize, and relative helpers.
 - `std.codec`: byte reads, endian reads/writes, varint sizing/encode/decode, base64/hex encode/decode, CRC helpers, and byte checksums.
 - `std.parse`: byte scanners and integer/bool parsers returning `Maybe<T>`.
-- `std.time`: duration construction, conversion, comparison, clamp, and target-gated clock helpers.
-- `std.rand`: explicit deterministic random sources, random bits, and target entropy helpers.
-- `std.crypto`: small hash and byte-oriented crypto helpers.
+- `std.time`: duration construction, conversion, comparison, elapsed-window helpers, and target-gated clock helpers.
+- `std.rand`: explicit deterministic random sources, random bits, target entropy helpers, and caller-buffer entropy IDs.
+- `std.crypto`: small hash, fixed-width hash text, byte-oriented crypto helpers, and caller-buffer IDs.
 - `std.json`: explicit-buffer JSON validation, structured status codes, shallow field lookup, typed scalar decode, parsing, and string/object writing helpers.
 - `std.toml`: no-allocation TOML validation, shallow/dotted field lookup, and typed scalar decode helpers.
 - `std.url`: target-neutral URL splitting, percent/query/form encoding and decoding, query/form lookup, and query append helpers.
@@ -328,6 +328,11 @@ hash32(arg0: Span<u8>) -> u32
 hmac32(arg0: Span<u8>, arg1: Span<u8>) -> u32
 constantTimeEql(arg0: Span<u8>, arg1: Span<u8>) -> Bool
 secureRandomU32() -> u32
+fixedHex32(arg0: MutSpan<u8>, arg1: u32) -> Maybe<Span<u8>>
+hashHex32(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+hmacHex32(arg0: MutSpan<u8>, arg1: Span<u8>, arg2: Span<u8>) -> Maybe<Span<u8>>
+stableId32(arg0: MutSpan<u8>, arg1: Span<u8>) -> Maybe<Span<u8>>
+randomId32(arg0: MutSpan<u8>) -> Maybe<Span<u8>>
 ```
 
 ### std.env
@@ -686,6 +691,7 @@ nextU32(arg0: mutref<RandSource>) -> u32
 nextBool(arg0: mutref<RandSource>) -> Bool
 entropyU32() -> u32
 entropySeed() -> RandSource
+entropyHex32(arg0: MutSpan<u8>) -> Maybe<Span<u8>>
 ```
 
 ### std.search
@@ -781,6 +787,9 @@ max(arg0: Duration, arg1: Duration) -> Duration
 clamp(arg0: Duration, arg1: Duration, arg2: Duration) -> Duration
 lessThan(arg0: Duration, arg1: Duration) -> Bool
 isZero(arg0: Duration) -> Bool
+abs(arg0: Duration) -> Duration
+between(arg0: Duration, arg1: Duration) -> Duration
+hasElapsed(arg0: Duration, arg1: Duration, arg2: Duration) -> Bool
 ```
 
 ### std.url

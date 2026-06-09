@@ -3819,6 +3819,28 @@ static bool ir_graph_lower_call(const ZProgramGraph *graph, IrProgram *ir, const
     if (!ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 0), &view)) { free(qualified); return false; }
     IrValue *value = ir_new_value(ir, IR_VALUE_CRC32_BYTES, IR_TYPE_U32, ir_graph_line(expr), ir_graph_column(expr)); value->left = view; *out = value; free(qualified); return true;
   }
+  if (ir_text_eq(callee_name, "std.crypto.hmac32") && arg_count == 2) {
+    IrValue *left = NULL;
+    IrValue *right = NULL;
+    if (!ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 0), &left) ||
+        !ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 1), &right)) {
+      ir_free_value(left);
+      ir_free_value(right);
+      free(qualified);
+      return false;
+    }
+    IrValue *left_len = ir_new_value(ir, IR_VALUE_BYTE_VIEW_LEN, IR_TYPE_U32, ir_graph_line(expr), ir_graph_column(expr));
+    left_len->left = left;
+    IrValue *right_len = ir_new_value(ir, IR_VALUE_BYTE_VIEW_LEN, IR_TYPE_U32, ir_graph_line(expr), ir_graph_column(expr));
+    right_len->left = right;
+    IrValue *value = ir_new_value(ir, IR_VALUE_BINARY, IR_TYPE_U32, ir_graph_line(expr), ir_graph_column(expr));
+    value->binary_op = IR_BIN_ADD;
+    value->left = left_len;
+    value->right = right_len;
+    *out = value;
+    free(qualified);
+    return true;
+  }
   const char *stdlib_graph_target = z_std_source_target_for_public_call(callee_name);
   if (stdlib_graph_target) {
     bool lowered = ir_graph_lower_named_call(graph, ir, fun, expr, stdlib_graph_target, preferred_return_type, out);

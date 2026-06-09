@@ -69,3 +69,25 @@ fn __zero_std_time_as_seconds_floor(value: Duration) -> i64 {
 fn __zero_std_time_is_zero(value: Duration) -> Bool {
     return std.time.asNs(value) == 0
 }
+
+fn __zero_std_time_abs(value: Duration) -> Duration {
+    if std.time.lessThan(value, std.time.zero()) {
+        return std.time.sub(std.time.zero(), value)
+    }
+    return value
+}
+
+fn __zero_std_time_between(start: Duration, end: Duration) -> Duration {
+    if std.time.lessThan(end, start) {
+        return std.time.sub(start, end)
+    }
+    return std.time.sub(end, start)
+}
+
+fn __zero_std_time_has_elapsed(start: Duration, now: Duration, timeout: Duration) -> Bool {
+    if std.time.lessThan(now, start) {
+        return false
+    }
+    let elapsed: Duration = std.time.sub(now, start)
+    return !std.time.lessThan(elapsed, timeout)
+}

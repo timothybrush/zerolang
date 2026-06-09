@@ -26,6 +26,9 @@ Runnable today:
 | `std.time.min(a, b)` | `Duration` | Returns the smaller duration. |
 | `std.time.max(a, b)` | `Duration` | Returns the larger duration. |
 | `std.time.clamp(value, low, high)` | `Duration` | Clamps a duration between normalized bounds. |
+| `std.time.abs(value)` | `Duration` | Returns a non-negative duration magnitude. |
+| `std.time.between(start, end)` | `Duration` | Returns the non-negative duration between two values. |
+| `std.time.hasElapsed(start, now, timeout)` | `Bool` | Reports whether a timeout window has elapsed. |
 | `std.time.asNs(value)` | `i64` | Converts to nanoseconds. |
 | `std.time.asUsFloor(value)` | `i64` | Converts to whole microseconds. |
 | `std.time.asMsFloor(value)` | `i32` | Converts to whole milliseconds. |
@@ -57,7 +60,8 @@ pub fn main(world: World) -> Void raises {
     let a: Duration = std.time.ms(250)
     let b: Duration = std.time.seconds(1)
     let total: Duration = std.time.add(a, b)
-    if std.time.asMsFloor(total) == 1250 {
+    let span: Duration = std.time.between(std.time.seconds(2), std.time.ms(250))
+    if std.time.asMsFloor(total) == 1250 && std.time.asMsFloor(span) == 1750 {
         check world.out.write("duration ok\n")
     }
 }
