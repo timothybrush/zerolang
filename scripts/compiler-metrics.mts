@@ -1087,6 +1087,16 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       directTarget: backendFormats.directTarget,
     });
   }
+  if (!backendFormats.fileIo.parentCreationChecked ||
+      !backendFormats.fileIo.textWriteChecked ||
+      !backendFormats.fileIo.binaryWriteChecked ||
+      !backendFormats.fileIo.closeChecked ||
+      !backendFormats.fileIo.diagnosticsNullSafe) {
+    violations.push({
+      kind: "file-io-write-hardening",
+      fileIo: backendFormats.fileIo,
+    });
+  }
   if (!backendFormats.targetManifest.exactKeyMatcher ||
       !backendFormats.targetManifest.exactListMatcher ||
       !backendFormats.targetManifest.noAliasSubstringLookup ||
@@ -1421,6 +1431,8 @@ const coffX64Source = cCodeText(texts.get("native/zero-c/src/emit_coff.c") ?? ""
 const coffAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_coff_aarch64.c") ?? "");
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
+const fsRaw = texts.get("native/zero-c/src/fs.c") ?? "";
+const fsSource = cCodeText(fsRaw);
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
 const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ?? "";
 const programGraphBuildRaw = texts.get("native/zero-c/src/program_graph_build.c") ?? "";
@@ -1453,6 +1465,8 @@ const repositoryGraphCheckJsonRawBody = cBlock(main, "static void append_reposit
 const repositoryGraphCheckJsonBody = cCodeText(cBlock(main, "static void append_repository_graph_compiler_path_json"));
 const repositoryGraphDefaultReadinessRawBody = cBlock(main, "static void append_repository_graph_default_readiness_json");
 const directManifestGraphInputBody = cCodeText(cBlock(main, "static int resolve_direct_command_manifest_graph_input"));
+const writeFileBody = cCodeText(cBlock(fsRaw, "bool z_write_file"));
+const writeBinaryFileBody = cCodeText(cBlock(fsRaw, "bool z_write_binary_file"));
 const artifactGraphMirPrepRawBody = cTextWithoutComments(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_artifact_mir_input"));
 const artifactGraphMirPrepBody = cCodeText(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_artifact_mir_input"));
 const repositoryGraphMirPrepRawBody = cTextWithoutComments(cBlock(programGraphMirRaw, "bool z_program_graph_prepare_repository_store_mir_input"));
@@ -1504,6 +1518,18 @@ const hasRawX64PointerMemoryBytes = (text: string) =>
   rawX64PointerMemoryReg.test(text) ||
   rawX64PointerMemoryMovzx.test(text);
 const backendFormats = {
+  fileIo: {
+    parentCreationChecked: /\bstatic\s+bool\s+mkdir_parents\s*\(\s*const\s+char\s+\*path\s*,\s*ZDiag\s+\*diag\s*\)/.test(fsSource) &&
+      /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(writeFileBody) &&
+      /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(writeBinaryFileBody) &&
+      !/\bzero_mkdir\s*\(\s*copy\s*\)\s*;/.test(fsSource),
+    textWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(writeFileBody) &&
+      !/\bfputs\s*\(\s*text\s*,\s*file\s*\)\s*;/.test(writeFileBody),
+    binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(writeBinaryFileBody),
+    closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeFileBody) &&
+      /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeBinaryFileBody),
+    diagnosticsNullSafe: /if\s*\(\s*!diag\s*\)\s*return\s*;/.test(cBlock(fsRaw, "static void diag_io_at")),
+  },
   targetManifest: {
     exactKeyMatcher: /\bmanifest_key_equals\s*\(/.test(targetSource),
     exactListMatcher: /\bmanifest_list_contains_token\s*\(/.test(targetSource),

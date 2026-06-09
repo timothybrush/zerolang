@@ -115,12 +115,17 @@ char *z_strndup(const char *text, size_t len) {
   return copy;
 }
 
-static void diag_io(ZDiag *diag, const char *path, const char *action) {
+static void diag_io_at(ZDiag *diag, const char *diag_path, const char *io_path, const char *action) {
+  if (!diag) return;
   diag->code = 1;
-  diag->path = path;
+  diag->path = diag_path;
   diag->line = 1;
   diag->column = 1;
-  snprintf(diag->message, sizeof(diag->message), "failed to %s '%s': %s", action, path, strerror(errno));
+  snprintf(diag->message, sizeof(diag->message), "failed to %s '%s': %s", action, io_path ? io_path : "", strerror(errno));
+}
+
+static void diag_io(ZDiag *diag, const char *path, const char *action) {
+  diag_io_at(diag, path, path, action);
 }
 
 static int zero_mkdir(const char *path) {
@@ -129,6 +134,34 @@ static int zero_mkdir(const char *path) {
 #else
   return mkdir(path, 0777);
 #endif
+}
+
+static bool existing_path_is_directory(const char *path, const char *diag_path, ZDiag *diag) {
+  struct stat st;
+  if (stat(path, &st) != 0) {
+    diag_io_at(diag, diag_path, path, "inspect");
+    return false;
+  }
+  if (!S_ISDIR(st.st_mode)) {
+    if (diag) {
+      diag->code = 1;
+      diag->path = diag_path;
+      diag->line = 1;
+      diag->column = 1;
+      diag->length = 1;
+      snprintf(diag->message, sizeof(diag->message), "path component is not a directory: '%s'", path ? path : "");
+    }
+    return false;
+  }
+  return true;
+}
+
+static bool mkdir_parent_one(const char *path, const char *diag_path, ZDiag *diag) {
+  if (!path || !path[0]) return true;
+  if (zero_mkdir(path) == 0) return true;
+  if (errno == EEXIST) return existing_path_is_directory(path, diag_path, diag);
+  diag_io_at(diag, diag_path, path, "create directory");
+  return false;
 }
 
 char *z_read_file(const char *path, ZDiag *diag) {
@@ -152,12 +185,15 @@ char *z_read_file(const char *path, ZDiag *diag) {
   return data;
 }
 
-static bool mkdir_parents(const char *path) {
+static bool mkdir_parents(const char *path, ZDiag *diag) {
   char *copy = z_strdup(path);
   for (char *cursor = copy + 1; *cursor; cursor++) {
     if (*cursor == '/') {
       *cursor = 0;
-      zero_mkdir(copy);
+      if (!mkdir_parent_one(copy, path, diag)) {
+        free(copy);
+        return false;
+      }
       *cursor = '/';
     }
   }
@@ -166,30 +202,44 @@ static bool mkdir_parents(const char *path) {
 }
 
 bool z_write_file(const char *path, const char *text, ZDiag *diag) {
-  mkdir_parents(path);
+  if (!mkdir_parents(path, diag)) return false;
   FILE *file = fopen(path, "wb");
   if (!file) {
     diag_io(diag, path, "write");
     return false;
   }
-  fputs(text, file);
-  fclose(file);
+  const char *data = text ? text : "";
+  size_t len = strlen(data);
+  if (len > 0 && fwrite(data, 1, len, file) != len) {
+    if (errno == 0) errno = EIO;
+    diag_io(diag, path, "write");
+    fclose(file);
+    return false;
+  }
+  if (fclose(file) != 0) {
+    diag_io(diag, path, "write");
+    return false;
+  }
   return true;
 }
 
 bool z_write_binary_file(const char *path, const unsigned char *data, size_t len, ZDiag *diag) {
-  mkdir_parents(path);
+  if (!mkdir_parents(path, diag)) return false;
   FILE *file = fopen(path, "wb");
   if (!file) {
     diag_io(diag, path, "write");
     return false;
   }
   if (len > 0 && fwrite(data, 1, len, file) != len) {
+    if (errno == 0) errno = EIO;
     diag_io(diag, path, "write");
     fclose(file);
     return false;
   }
-  fclose(file);
+  if (fclose(file) != 0) {
+    diag_io(diag, path, "write");
+    return false;
+  }
   return true;
 }
 
