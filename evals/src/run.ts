@@ -115,7 +115,8 @@ const systemPrompt = [
   "Use the local ./bin/zero compiler as your source of Zero-specific guidance and verification.",
   "First run ./bin/zero skills get zero --full.",
   "Load any additional skills recommended by that skill before writing code.",
-  "Use ./bin/zero check --json to inspect diagnostics, then ./bin/zero run to verify stdout.",
+  "Use the graph-first workflow from the loaded skills. If you write a source projection for the final answer, import it to a graph before check/run.",
+  "Use ./bin/zero check --json to inspect diagnostics, then ./bin/zero run to verify stdout and stderr.",
   "For the final answer, output code only: exactly the verified source bytes.",
   "Do not summarize success, mention stdout, add a preamble, or use Markdown fences.",
 ].join("\n");
@@ -135,11 +136,19 @@ async function main() {
       sandboxTimeoutMs: options.sandboxTimeoutMs,
       mode: options.fixture ? "fixture" : "sandbox",
       cases: selectedCases.map(
-        ({ id, title, prompt, expectedStdout, requiredSourcePatterns }) => ({
+        ({
           id,
           title,
           prompt,
           expectedStdout,
+          expectedStderr,
+          requiredSourcePatterns,
+        }) => ({
+          id,
+          title,
+          prompt,
+          expectedStdout,
+          expectedStderr: expectedStderr ?? "",
           requiredSourcePatternCount: requiredSourcePatterns.length,
         }),
       ),
@@ -301,11 +310,14 @@ async function runCase(
     ? []
     : getAgentRequirementFailures(agentRun.metrics, options.maxTurns);
   const actualStdout = run?.stdout ?? "";
+  const actualStderr = run?.stderr ?? "";
+  const expectedStderr = evalCase.expectedStderr ?? "";
   const passed =
     agentRun.error === null &&
     check.code === 0 &&
     run?.code === 0 &&
     actualStdout === evalCase.expectedStdout &&
+    actualStderr === expectedStderr &&
     patternFailures.length === 0 &&
     responseFormatFailures.length === 0 &&
     agentRequirementFailures.length === 0;
@@ -314,7 +326,9 @@ async function runCase(
     error = failureReason({
       run,
       actualStdout,
+      actualStderr,
       expectedStdout: evalCase.expectedStdout,
+      expectedStderr,
       patternFailures,
       responseFormatFailures,
       agentRequirementFailures,
@@ -340,7 +354,9 @@ async function runCase(
     check,
     run,
     expectedStdout: evalCase.expectedStdout,
+    expectedStderr,
     actualStdout,
+    actualStderr,
     sourcePatternFailures: patternFailures,
     responseFormatFailures,
     agentRequirementFailures,
@@ -459,20 +475,33 @@ function buildClaudePrompt(
     `Repository root: ${projectDir}`,
     `You have at most ${options.maxTurns} agent turns before the evaluator marks the run failed.`,
     "Use shell commands from the repository root. Prefer ./bin/zero, not any global zero binary.",
-    "After ./bin/zero check and ./bin/zero run confirm the expected output, return code only.",
+    "After graph import, ./bin/zero check, and ./bin/zero run confirm the expected output, return code only.",
     "Do not include a success sentence, explanation, or Markdown fence.",
   ].join("\n");
 }
 
 async function validateSourceLocally(sourcePath: string) {
-  const check = await runLocalCommand(zero, ["check", "--json", sourcePath]);
+  const graphPath = join(dirname(sourcePath), "candidate.graph");
+  const imported = await runLocalCommand(zero, [
+    "import",
+    "--format",
+    "binary",
+    "--out",
+    graphPath,
+    sourcePath,
+  ]);
+  if (imported.code !== 0) {
+    return { check: imported, run: null, remoteSourcePath: null };
+  }
+
+  const check = await runLocalCommand(zero, ["check", "--json", graphPath]);
   let run: CommandResult | null = null;
   if (check.code === 0) {
     run = await runLocalCommand(zero, [
       "run",
       "--out",
       join(dirname(sourcePath), "program"),
-      sourcePath,
+      graphPath,
     ]);
   }
   return { check, run, remoteSourcePath: null };
@@ -489,6 +518,7 @@ async function validateSourceInSandbox(
     evalCase.id
   }`;
   const remoteSourcePath = `${remoteCaseDir}/candidate.0`;
+  const remoteGraphPath = `${remoteCaseDir}/candidate.graph`;
   await runSandboxCommandChecked(
     context.sandbox,
     { cmd: "mkdir", args: ["-p", remoteCaseDir] },
@@ -501,11 +531,27 @@ async function validateSourceInSandbox(
     },
   ]);
 
+  const imported = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "bash",
+      args: [
+        "-lc",
+        `./bin/zero import --format binary --out ${shellQuote(remoteGraphPath)} ${shellQuote(remoteSourcePath)}`,
+      ],
+      cwd: projectDir,
+    },
+    "zero import",
+  );
+  if (imported.code !== 0) {
+    return { check: imported, run: null, remoteSourcePath };
+  }
+
   const check = await runSandboxCommand(
     context.sandbox,
     {
       cmd: "bash",
-      args: ["-lc", `./bin/zero check --json ${shellQuote(remoteSourcePath)}`],
+      args: ["-lc", `./bin/zero check --json ${shellQuote(remoteGraphPath)}`],
       cwd: projectDir,
     },
     "zero check",
@@ -518,7 +564,7 @@ async function validateSourceInSandbox(
         cmd: "bash",
         args: [
           "-lc",
-          `./bin/zero run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteSourcePath)}`,
+          `./bin/zero run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteGraphPath)}`,
         ],
         cwd: projectDir,
       },
@@ -1094,7 +1140,9 @@ async function runLocalCommand(
 function failureReason(input: {
   run: CommandResult | null;
   actualStdout: string;
+  actualStderr: string;
   expectedStdout: string;
+  expectedStderr: string;
   patternFailures: string[];
   responseFormatFailures: string[];
   agentRequirementFailures: string[];
@@ -1103,6 +1151,9 @@ function failureReason(input: {
   if (input.run.code !== 0) return `zero run exited ${input.run.code}`;
   if (input.actualStdout !== input.expectedStdout) {
     return "stdout did not match expected output";
+  }
+  if (input.actualStderr !== input.expectedStderr) {
+    return "stderr did not match expected output";
   }
   if (input.patternFailures.length > 0) {
     return "source did not match required patterns";
