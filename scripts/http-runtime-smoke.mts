@@ -331,6 +331,9 @@ async function runHttpListenExample() {
     assert.match(badRequest, /^HTTP\/1\.1 400 Bad Request/);
     assert.match(badRequest, /\r\nconnection: close\r\n/i);
     assert.match(badRequest, /\{"error":"bad_request"\}/);
+    const tooLarge = await rawZeroListenerRequest(port, "POST /echo\r\ncontent-length: 999999\r\n\r\n");
+    assert.match(tooLarge, /^HTTP\/1\.1 413 Payload Too Large/);
+    assert.match(tooLarge, /\{"error":"payload_too_large"\}/);
     if (port3000Occupied) await assertExplicitPortConflict();
   } finally {
     await stopZeroListener(child);

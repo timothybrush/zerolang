@@ -253,8 +253,9 @@ static ParsedContentLength parse_content_length(const char *buf, size_t header_l
   return result;
 }
 
-static bool read_http_request(int fd, char *buf, size_t cap, size_t *out_len) {
+static bool read_http_request(int fd, char *buf, size_t cap, size_t *out_len, unsigned *out_status) {
   if (out_len) *out_len = 0;
+  if (out_status) *out_status = 400;
   if (!buf || cap < 2) return false;
   size_t total = 0;
   size_t header_end = 0;
@@ -274,13 +275,18 @@ static bool read_http_request(int fd, char *buf, size_t cap, size_t *out_len) {
         ParsedContentLength parsed = parse_content_length(buf, header_end);
         if (!parsed.valid) return false;
         content_len = parsed.present ? parsed.value : 0;
-        if (content_len > cap - header_end - 1) return false;
+        if (content_len > cap - header_end - 1) {
+          if (out_status) *out_status = 413;
+          return false;
+        }
       }
     }
     if (header_end > 0 && total >= header_end + content_len) break;
   }
   if (out_len) *out_len = total;
-  return total > 0 && header_end_offset(buf, total) > 0 && total >= header_end + content_len;
+  bool complete = total > 0 && header_end_offset(buf, total) > 0 && total >= header_end + content_len;
+  if (!complete && out_status && total + 1 >= cap) *out_status = 413;
+  return complete;
 }
 
 static bool write_request_file(const char *path, const char *request, size_t request_len) {
@@ -428,8 +434,9 @@ int z_http_listen_run(const ZHttpListenRunConfig *config, ZDiag *diag) {
     }
     char request[Z_HTTP_LISTEN_REQUEST_CAP];
     size_t request_len = 0;
-    if (!read_http_request(client_fd, request, sizeof(request), &request_len)) {
-      send_json_error(client_fd, 400, "Bad Request", "{\"error\":\"bad_request\"}");
+    unsigned request_status = 400;
+    if (!read_http_request(client_fd, request, sizeof(request), &request_len, &request_status)) {
+      send_json_error(client_fd, request_status, request_status == 413 ? "Payload Too Large" : "Bad Request", request_status == 413 ? "{\"error\":\"payload_too_large\"}" : "{\"error\":\"bad_request\"}");
       close(client_fd);
       continue;
     }
