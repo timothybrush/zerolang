@@ -741,6 +741,10 @@ static void store_normalize_graph_paths_preserving_ids_for_root(ZProgramGraph *g
   z_program_graph_finalize_identities(graph);
 }
 
+void z_program_graph_store_normalize_source_graph(ZProgramGraph *graph, const char *root) {
+  store_normalize_graph_paths_for_root(graph, root && root[0] ? root : ".");
+}
+
 static bool store_normalized_source_graph(const char *root, const ZProgramGraph *source_graph, ZProgramGraph *out) {
   if (!source_graph || !out) return false;
   store_copy_graph(source_graph, out); store_normalize_graph_paths_for_root(out, root && root[0] ? root : ".");

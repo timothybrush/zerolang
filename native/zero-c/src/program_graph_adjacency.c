@@ -41,6 +41,44 @@ static int adjacency_child_entry_cmp(const void *left, const void *right) {
   return cmp;
 }
 
+ZProgramGraphAdjacencyNodeEntry *z_program_graph_id_index_build(const char *const *ids, size_t len) {
+  ZProgramGraphAdjacencyNodeEntry *entries = z_checked_calloc(len ? len : 1, sizeof(ZProgramGraphAdjacencyNodeEntry));
+  for (size_t i = 0; i < len; i++) {
+    entries[i] = (ZProgramGraphAdjacencyNodeEntry){.id = ids ? ids[i] : NULL, .node_index = i};
+  }
+  qsort(entries, len, sizeof(ZProgramGraphAdjacencyNodeEntry), adjacency_node_entry_cmp);
+  return entries;
+}
+
+static size_t id_index_lower_bound(const ZProgramGraphAdjacencyNodeEntry *entries, size_t len, const char *id) {
+  size_t low = 0;
+  size_t high = len;
+  while (low < high) {
+    size_t mid = low + (high - low) / 2;
+    if (adjacency_text_cmp(entries[mid].id, id) < 0) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+size_t z_program_graph_id_index_find(const ZProgramGraphAdjacencyNodeEntry *entries, size_t len, const char *id) {
+  if (!entries || len == 0 || !id) return SIZE_MAX;
+  size_t low = id_index_lower_bound(entries, len, id);
+  if (low < len && adjacency_text_cmp(entries[low].id, id) == 0) return entries[low].node_index;
+  return SIZE_MAX;
+}
+
+void z_program_graph_id_index_run(const ZProgramGraphAdjacencyNodeEntry *entries, size_t len, const char *id, size_t *start, size_t *run_len) {
+  if (start) *start = 0;
+  if (run_len) *run_len = 0;
+  if (!entries || len == 0 || !id) return;
+  size_t low = id_index_lower_bound(entries, len, id);
+  size_t high = low;
+  while (high < len && adjacency_text_cmp(entries[high].id, id) == 0) high++;
+  if (start) *start = low;
+  if (run_len) *run_len = high - low;
+}
+
 void z_program_graph_adjacency_init(ZProgramGraphAdjacency *adjacency, const ZProgramGraph *graph) {
   if (!adjacency) return;
   *adjacency = (ZProgramGraphAdjacency){.graph = graph};

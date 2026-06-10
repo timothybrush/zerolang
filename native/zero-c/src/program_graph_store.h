@@ -42,6 +42,7 @@ bool z_program_graph_store_write_generated_path_format(const char *path, const Z
 bool z_program_graph_store_save_path(const char *path, const ZProgramGraph *graph, ZDiag *diag);
 bool z_program_graph_store_save_path_format(const char *path, const ZProgramGraph *graph, ZProgramGraphStoreFormat format, ZDiag *diag);
 bool z_program_graph_store_save_for_input(const char *input, const ZProgramGraph *graph, ZProgramGraphStore *out, ZDiag *diag);
+void z_program_graph_store_normalize_source_graph(ZProgramGraph *graph, const char *root);
 bool z_program_graph_store_save_for_input_format(const char *input, const ZProgramGraph *graph, ZProgramGraphStoreFormat format, ZProgramGraphStore *out, ZDiag *diag);
 bool z_program_graph_store_graph_matches_source(const ZProgramGraphStore *store, const ZProgramGraph *source_graph);
 bool z_program_graph_store_source_path_is_local(const char *path);

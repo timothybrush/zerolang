@@ -12576,8 +12576,19 @@ static int run_graph_reconcile_command(const Command *command, const ZTargetInfo
     return 1;
   }
 
+  char *reconcile_package_input = NULL;
+  if (is_zero_source_path(command->reconcile_source) && direct_file_exists(command->reconcile_source)) {
+    char *package_root = z_program_graph_store_root_for_input(command->reconcile_source);
+    char *package_manifest = package_root ? z_manifest_path_for_root(package_root) : NULL;
+    if (package_manifest) {
+      reconcile_package_input = package_root;
+      package_root = NULL;
+    }
+    free(package_manifest);
+    free(package_root);
+  }
   Command edited_command = *command;
-  edited_command.input = command->reconcile_source;
+  edited_command.input = reconcile_package_input ? reconcile_package_input : command->reconcile_source;
   edited_command.out = NULL;
   SourceInput edited_input = {0};
   Program edited_program = {0};
@@ -12588,8 +12599,17 @@ static int run_graph_reconcile_command(const Command *command, const ZTargetInfo
     z_free_program(&base_program);
     z_free_source(&base_input);
     z_program_graph_free(&base_graph);
+    free(reconcile_package_input);
     return 1;
   }
+
+  char *edited_normalize_root = z_program_graph_store_root_for_input(edited_command.input);
+  if (edited_normalize_root) {
+    char *edited_normalize_manifest = z_manifest_path_for_root(edited_normalize_root);
+    if (edited_normalize_manifest) z_program_graph_store_normalize_source_graph(&edited_graph, edited_normalize_root);
+    free(edited_normalize_manifest);
+  }
+  free(edited_normalize_root);
 
   ZProgramGraphIdentityReconcile identity = {0};
   (void)z_program_graph_preserve_source_node_ids(&base_graph, &edited_graph, &identity);
@@ -12617,6 +12637,7 @@ static int run_graph_reconcile_command(const Command *command, const ZTargetInfo
   z_free_program(&base_program);
   z_free_source(&base_input);
   z_program_graph_free(&base_graph);
+  free(reconcile_package_input);
   (void)base_kind;
   (void)edited_kind;
   return summary.ok ? 0 : 1;

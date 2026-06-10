@@ -21,6 +21,9 @@ typedef struct {
   size_t node_edge_len;
 } ZProgramGraphAdjacency;
 
+ZProgramGraphAdjacencyNodeEntry *z_program_graph_id_index_build(const char *const *ids, size_t len);
+size_t z_program_graph_id_index_find(const ZProgramGraphAdjacencyNodeEntry *entries, size_t len, const char *id);
+void z_program_graph_id_index_run(const ZProgramGraphAdjacencyNodeEntry *entries, size_t len, const char *id, size_t *start, size_t *run_len);
 void z_program_graph_adjacency_init(ZProgramGraphAdjacency *adjacency, const ZProgramGraph *graph);
 void z_program_graph_adjacency_free(ZProgramGraphAdjacency *adjacency);
 size_t z_program_graph_adjacency_node_index(const ZProgramGraphAdjacency *adjacency, const char *id);
