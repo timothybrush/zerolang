@@ -40,7 +40,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/cli_help.h": { maxLines: 8, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.c": { maxLines: 600, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.h": { maxLines: 22, maxStrcmpCalls: 0 },
-  "native/zero-c/src/http_listen_temp.c": { maxLines: 120, maxStrcmpCalls: 0 },
+  "native/zero-c/src/http_listen_temp.c": { maxLines: 200, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_temp.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/init_template.c": { maxLines: 310, maxStrcmpCalls: 13 },
   "native/zero-c/src/init_template.h": { maxLines: 15, maxStrcmpCalls: 0 },
@@ -1141,6 +1141,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
   if (!backendFormats.httpListen.sendAllChecked ||
       !backendFormats.httpListen.jsonErrorNoTruncation ||
       !backendFormats.httpListen.handlerCaptureStrict ||
+      !backendFormats.httpListen.tempDirWindowsPortable ||
       !backendFormats.httpListen.nativeSmokeWired) {
     violations.push({
       kind: "http-listen-hardening",
@@ -1505,6 +1506,7 @@ const runtimeOpenReadonlyBody = cCodeText(cBlock(runtimeRaw, "static int zero_ru
 const runtimeReadFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_read_fd"));
 const runtimeCloseFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_close_fd"));
 const httpListenRunnerRaw = texts.get("native/zero-c/src/http_listen_runner.c") ?? "";
+const httpListenTempRaw = texts.get("native/zero-c/src/http_listen_temp.c") ?? "";
 const httpListenRunnerSmokeRaw = auditTexts.get("native/zero-c/tests/http_listen_runner_smoke.c") ?? "";
 const listenSendAllBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_all"));
 const listenJsonErrorBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_json_error"));
@@ -1783,6 +1785,14 @@ const backendFormats = {
       /bool\s+handler_ok\s*=\s*WIFEXITED\s*\(\s*status\s*\)\s*&&\s*WEXITSTATUS\s*\(\s*status\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
       /memcmp\s*\(\s*response\s*,\s*"HTTP\/"\s*,\s*5\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
       /read_ok\s*&&\s*!\s*overflow\s*&&\s*handler_ok\s*&&\s*response_ok/.test(httpListenRunnerRaw),
+    tempDirWindowsPortable: /#include\s*<direct\.h>/.test(httpListenTempRaw) &&
+      /#include\s*<process\.h>/.test(httpListenTempRaw) &&
+      /listen_create_unique_temp_dir/.test(httpListenTempRaw) &&
+      /_mkdir\s*\(\s*out\s*\)/.test(httpListenTempRaw) &&
+      /listen_stat_path/.test(httpListenTempRaw) &&
+      /return\s+stat\s*\(\s*path\s*,\s*st\s*\)/.test(httpListenTempRaw) &&
+      /listen_remove_dir/.test(httpListenTempRaw) &&
+      /_rmdir\s*\(\s*path\s*\)/.test(httpListenTempRaw),
     nativeSmokeWired: /http_listen_runner_smoke\.c/.test(nativeTestRaw) &&
       /http-listen-runner-smoke/.test(nativeTestRaw) &&
       /smoke_json_error/.test(httpListenRunnerSmokeRaw) &&
