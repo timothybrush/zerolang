@@ -825,6 +825,7 @@ typedef struct {
   char **active_local_names;
   size_t active_local_len;
   size_t active_local_cap;
+  size_t const_lower_depth;
 } IrProgram;
 
 typedef struct {

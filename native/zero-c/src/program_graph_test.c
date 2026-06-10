@@ -481,6 +481,12 @@ static bool pgt_eval_expr(const ZProgramGraph *graph, PgtEnv *env, const ZProgra
   }
   if (expr->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER) {
     if (pgt_env_get(env, expr->name, out)) return true;
+    for (size_t i = 0; expr->name && i < graph->node_len; i++) {
+      const ZProgramGraphNode *node = &graph->nodes[i];
+      if (node->kind == Z_PROGRAM_GRAPH_NODE_CONST && pgt_eq(node->name, expr->name)) {
+        return pgt_eval_expr(graph, env, pgt_child(graph, node->id, "value", 0), out, failure);
+      }
+    }
     pgt_fail(failure, expr, "zero test unknown identifier");
     return false;
   }

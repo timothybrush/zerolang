@@ -1663,9 +1663,38 @@ static bool ir_graph_lower_record_initializer(const ZProgramGraph *graph, IrProg
   return true;
 }
 
-static bool ir_graph_lower_identifier(const ZProgramGraphNode *expr, IrProgram *ir, const IrFunction *fun, IrValue **out) {
+static const ZProgramGraphNode *ir_graph_find_const(const ZProgramGraph *graph, const char *name) {
+  for (size_t i = 0; graph && name && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind == Z_PROGRAM_GRAPH_NODE_CONST && ir_text_eq(node->name, name)) return node;
+  }
+  return NULL;
+}
+
+static bool ir_graph_lower_const_reference(const ZProgramGraph *graph, IrProgram *ir, const IrFunction *fun, const ZProgramGraphNode *expr, const ZProgramGraphNode *const_decl, IrValue **out) {
+  const ZProgramGraphNode *const_value = ir_graph_ordered_node(graph, const_decl->id, "value", 0);
+  if (!const_value) {
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR const declaration has no value", expr->name);
+    return false;
+  }
+  if (ir->const_lower_depth >= 16) {
+    ir_graph_mark_unsupported(ir, expr, "typed graph MIR const reference chain is too deep", expr->name);
+    return false;
+  }
+  ir->const_lower_depth++;
+  IrTypeKind const_type = ir_type_kind(const_decl->type);
+  bool lowered = (ir_type_is_value(const_type) || const_type == IR_TYPE_BOOL)
+    ? ir_graph_lower_expr_for_type(graph, ir, fun, const_value, const_type, IR_TYPE_UNSUPPORTED, false, ir_graph_line(expr), ir_graph_column(expr), out)
+    : ir_graph_lower_expr(graph, ir, fun, const_value, out);
+  ir->const_lower_depth--;
+  return lowered;
+}
+
+static bool ir_graph_lower_identifier(const ZProgramGraph *graph, const ZProgramGraphNode *expr, IrProgram *ir, const IrFunction *fun, IrValue **out) {
   const IrLocal *local = ir_function_find_local(fun, expr ? expr->name : NULL);
   if (!local) {
+    const ZProgramGraphNode *const_decl = expr ? ir_graph_find_const(graph, expr->name) : NULL;
+    if (const_decl) return ir_graph_lower_const_reference(graph, ir, fun, expr, const_decl, out);
     ir_graph_mark_unsupported(ir, expr, "typed graph MIR identifier is not a local", expr && expr->name ? expr->name : "unknown identifier");
     return false;
   }
@@ -3935,7 +3964,7 @@ static bool ir_graph_lower_expr(const ZProgramGraph *graph, IrProgram *ir, const
     case Z_PROGRAM_GRAPH_NODE_LITERAL:
       return ir_graph_lower_literal(expr, ir, out);
     case Z_PROGRAM_GRAPH_NODE_IDENTIFIER:
-      return ir_graph_lower_identifier(expr, ir, fun, out);
+      return ir_graph_lower_identifier(graph, expr, ir, fun, out);
     case Z_PROGRAM_GRAPH_NODE_FIELD_ACCESS:
       return ir_graph_lower_field_access(graph, ir, fun, expr, out);
     case Z_PROGRAM_GRAPH_NODE_INDEX_ACCESS:

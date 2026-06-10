@@ -2792,6 +2792,20 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
     case EXPR_IDENT: {
       const IrLocal *local = ir_function_find_local(fun, expr->text);
       if (!local) {
+        const ConstDecl *const_decl = NULL;
+        for (size_t i = 0; expr->text && i < program->consts.len; i++) {
+          if (program->consts.items[i].name && strcmp(program->consts.items[i].name, expr->text) == 0) { const_decl = &program->consts.items[i]; break; }
+        }
+        if (const_decl && const_decl->expr) {
+          if (ir->const_lower_depth >= 16) {
+            ir_mark_unsupported(ir, "direct backend const reference chain is too deep", expr->line, expr->column, expr->text);
+            return false;
+          }
+          ir->const_lower_depth++;
+          bool lowered = ir_lower_expr(program, ir, fun, const_decl->expr, out);
+          ir->const_lower_depth--;
+          return lowered;
+        }
         ir_mark_unsupported(ir, "direct backend identifier is not a local", expr->line, expr->column, expr->text);
         return false;
       }
@@ -5318,8 +5332,7 @@ static void ir_lower_direct_backend_subset(IrProgram *ir, const Program *program
   snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct backend MVP subset");
   snprintf(ir->mir_help, sizeof(ir->mir_help), "restrict this program to exported primitive arithmetic functions or choose another supported direct target");
   ir->mir_bytes = sizeof(IrProgram);
-  if (program->choices.len > 0 || program->interfaces.len > 0 || program->aliases.len > 0 ||
-      program->consts.len > 0) {
+  if (program->choices.len > 0 || program->interfaces.len > 0 || program->aliases.len > 0) {
     ir_mark_unsupported(ir, "direct backend MVP does not support declarations other than functions", 1, 1, "unsupported top-level declaration");
     return;
   }
