@@ -484,6 +484,45 @@ bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, c
     return false;
   }
   if (!z_program_graph_projection_store_matches_graph(store, target, diag)) return false;
+  return z_program_graph_projection_source_files_match(store, matches, diag);
+}
+
+static long long projection_path_mtime_ns(const char *path) {
+  struct stat st;
+  if (!path || !path[0] || stat(path, &st) != 0) return -1;
+#if defined(__APPLE__)
+  return (long long)st.st_mtime * 1000000000ll + (long long)st.st_mtimensec;
+#elif defined(_WIN32)
+  return (long long)st.st_mtime * 1000000000ll;
+#else
+  return (long long)st.st_mtim.tv_sec * 1000000000ll + (long long)st.st_mtim.tv_nsec;
+#endif
+}
+
+bool z_program_graph_projection_source_files_edited_after_store(const ZProgramGraphStore *store, bool *edited_after_store, ZDiag *diag) {
+  if (edited_after_store) *edited_after_store = false;
+  if (!store || store->projection_len == 0) return false;
+  long long store_mtime = projection_path_mtime_ns(store->path);
+  if (store_mtime < 0) return false;
+  bool any_changed = false;
+  bool all_changed_newer = true;
+  for (size_t i = 0; i < store->projection_len; i++) {
+    bool file_matches = false;
+    if (!projection_source_text_matches(store, store->projection_paths[i], &file_matches, diag)) return false;
+    if (file_matches) continue;
+    any_changed = true;
+    char *path = projection_join_path(store->root, store->projection_paths[i]);
+    long long file_mtime = projection_path_mtime_ns(path);
+    free(path);
+    if (file_mtime < 0 || file_mtime <= store_mtime) all_changed_newer = false;
+  }
+  if (edited_after_store) *edited_after_store = any_changed && all_changed_newer;
+  return true;
+}
+
+bool z_program_graph_projection_source_files_match(const ZProgramGraphStore *store, bool *matches, ZDiag *diag) {
+  if (matches) *matches = false;
+  if (!store || store->projection_len == 0) return false;
   bool all_match = true;
   for (size_t i = 0; i < store->projection_len; i++) {
     bool file_matches = false;
@@ -512,7 +551,7 @@ const char *z_program_graph_projection_state_label(const ZProgramGraphStore *sto
   if (!z_program_graph_projection_store_matches_graph(store, target, diag)) return "conflict";
   if (z_program_graph_projection_sources_missing(store)) return "missing";
   bool matches = false;
-  bool ok = z_program_graph_projection_sources_match(store, target, &matches, diag);
+  bool ok = z_program_graph_projection_source_files_match(store, &matches, diag);
   if (checked) *checked = ok;
   if (current) *current = ok && matches;
   if (!ok) return "conflict";

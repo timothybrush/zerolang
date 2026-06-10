@@ -54,13 +54,12 @@ want a no-write drift check.
 
 ## No Silent Divergence
 
-`zero status` reports whether the projection is clean, missing, stale,
-conflicting, or unavailable. Normal graph-first commands compile from
-`zero.graph`; they do not silently choose edited text because it happened to be
-present.
+`zero status` reports whether the projection is clean, missing, stale, conflicting, or unavailable.
+When the checked-in `.0` sources were edited after `zero.graph` was written, compiler-input commands such as `zero check`, `zero build`, `zero run`, and `zero test` refresh the store from the edited source before compiling and report the refresh on stderr.
+When the graph is the newer side, for example right after `zero patch`, those commands keep compiling `zero.graph` until `zero export` syncs the projection.
+Set `ZERO_STALE=fail` to fail with an `RGP008` diagnostic instead of refreshing automatically.
 
-That separation prevents the worst ambiguity: an agent thinking it changed the
-program by editing text while the compiler is actually using the graph.
+That rule prevents the worst ambiguity: an agent editing text, seeing `zero check` pass, and then running a binary built from different code.
 
 ## Human Escape Hatch
 

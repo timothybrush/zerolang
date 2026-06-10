@@ -632,6 +632,29 @@ int z_repository_graph_import_export_command(const char *input, const ZTargetInf
   return rc;
 }
 
+int z_repository_graph_refresh_compiler_store(const char *input, const ZTargetInfo *target, bool json, const ZProgramGraph *source_graph) {
+  ZProgramGraphStore saved;
+  ZDiag diag = {0};
+  if (!z_program_graph_store_save_for_input(input, source_graph, &saved, &diag)) {
+    RepositoryGraphState state = repo_graph_state(input, target);
+    bool identity_error = repo_diag_is_identity_reconcile_error(&diag);
+    bool module_identity_error = identity_error && ((strncmp(diag.expected, "module:", 7) == 0) || (strncmp(diag.expected, "package:", 8) == 0));
+    int rc = repo_graph_error(&state,
+                              json,
+                              "import",
+                              identity_error ? "RGP007" : "RGP003",
+                              identity_error ? diag.message : "repository graph store could not be refreshed from the edited source projection",
+                              module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
+                              diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
+                              module_identity_error ? "import from the original source path, or recreate zero.graph after reviewing the module rename or package identity change" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
+                              identity_error ? REPO_GRAPH_REPAIR_NONE : REPO_GRAPH_REPAIR_STATUS);
+    repo_graph_state_free(&state);
+    return rc;
+  }
+  z_program_graph_store_free(&saved);
+  return 0;
+}
+
 static int repo_graph_merge_direction_error(const RepositoryGraphState *state, bool json, const char *actual) {
   if (json) {
     ZBuf buf;

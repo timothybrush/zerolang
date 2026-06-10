@@ -1470,6 +1470,84 @@ assert.equal(packageForeignCheck.body.diagnostics[0].code, "RGP007");
 rmSync(packageRefreshStore, { force: true });
 assert.equal(json(["import", "--json", packageRefreshRoot]).body.ok, true);
 assert.equal(zero(["run", packageRefreshRoot]).stdout, "package refresh three\n");
+const staleRunRoot = join("/tmp", `zero-repo-graph-stale-run-${process.pid}`);
+const staleRunSource = join(staleRunRoot, "src", "main.0");
+const staleRunStore = join(staleRunRoot, "zero.graph");
+rmSync(staleRunRoot, { force: true, recursive: true });
+assert.equal(json(["init", "--json", staleRunRoot]).body.ok, true);
+mkdirSync(join(staleRunRoot, "src"), { recursive: true });
+writeFileSync(staleRunSource, 'pub fn main(world: World) -> Void raises {\n    check world.out.write("stale run one\\n")\n}\n');
+assert.equal(json(["import", "--json", staleRunRoot]).body.ok, true);
+assert.equal(zero(["run", staleRunRoot]).stdout, "stale run one\n");
+writeFileSync(staleRunSource, 'pub fn main(world: World) -> Void raises {\n    check world.out.write("stale run two\\n")\n}\n');
+assert.equal(json(["status", "--json", staleRunRoot]).body.repositoryGraph.projectionState, "source-stale");
+const staleRunStoreHashBefore = sha256File(staleRunStore);
+assert.equal(zero(["run", staleRunRoot]).stdout, "stale run two\n");
+assert.notEqual(sha256File(staleRunStore), staleRunStoreHashBefore);
+assert.equal(json(["status", "--json", staleRunRoot]).body.repositoryGraph.projectionState, "clean");
+writeFileSync(staleRunSource, 'pub fn main(world: World) -> Void raises {\n    check world.out.write("stale run three\\n")\n}\n');
+assert.equal(zero(["check", staleRunRoot]).stdout, "ok\n");
+assert.equal(json(["status", "--json", staleRunRoot]).body.repositoryGraph.projectionState, "clean");
+assert.equal(zero(["run", staleRunRoot]).stdout, "stale run three\n");
+const staleRunGoodSource = readFileSync(staleRunSource, "utf8");
+writeFileSync(staleRunSource, `${staleRunGoodSource}fn broken( {\n`);
+const staleRunBrokenCheck = zero(["check", staleRunRoot], { allowFailure: true });
+assert.notEqual(staleRunBrokenCheck.code, 0);
+const staleRunBrokenRun = zero(["run", staleRunRoot], { allowFailure: true });
+assert.notEqual(staleRunBrokenRun.code, 0);
+writeFileSync(staleRunSource, staleRunGoodSource);
+assert.equal(zero(["run", staleRunRoot]).stdout, "stale run three\n");
+writeFileSync(staleRunSource, 'pub fn main(world: World) -> Void raises {\n    check world.out.write("stale run four\\n")\n}\n');
+const staleRunStrictHash = sha256File(staleRunStore);
+const staleRunStrict = json(["build", "--json", staleRunRoot], { allowFailure: true, env: { ZERO_STALE: "fail" } });
+assert.notEqual(staleRunStrict.code, 0);
+assert.equal(staleRunStrict.body.diagnostics[0].code, "RGP008");
+assert.deepEqual(staleRunStrict.body.repairCommands, [`zero import ${staleRunRoot}`]);
+assert.equal(sha256File(staleRunStore), staleRunStrictHash);
+const staleRunStrictRun = zero(["run", staleRunRoot], { allowFailure: true, env: { ZERO_STALE: "fail" } });
+assert.notEqual(staleRunStrictRun.code, 0);
+assert.equal(zero(["run", staleRunRoot]).stdout, "stale run four\n");
+const reconcileScaleRoot = join("/tmp", `zero-reconcile-scale-${process.pid}`);
+const reconcileScaleSource = join(reconcileScaleRoot, "src", "main.0");
+rmSync(reconcileScaleRoot, { force: true, recursive: true });
+assert.equal(json(["init", "--json", reconcileScaleRoot]).body.ok, true);
+mkdirSync(join(reconcileScaleRoot, "src"), { recursive: true });
+const reconcileScaleFunctions: string[] = [];
+for (let i = 0; i < 240; i++) {
+  reconcileScaleFunctions.push([
+    `fn helper${i}(x: usize) -> usize {`,
+    "    var a: usize = x",
+    ...Array.from({ length: 8 }, (_, j) => `    a = a + ${i * 8 + j + 1}_usize`),
+    "    return a",
+    "}",
+  ].join("\n"));
+}
+const reconcileScaleMain = 'pub fn main(world: World) -> Void raises {\n    check world.out.write("reconcile scale\\n")\n}';
+writeFileSync(reconcileScaleSource, `${reconcileScaleFunctions.join("\n\n")}\n\n${reconcileScaleMain}\n`);
+assert.equal(json(["import", "--json", reconcileScaleRoot]).body.ok, true);
+const reconcileScaleNeedle = "fn helper120(x: usize) -> usize {\n    var a: usize = x";
+const reconcileScaleText = readFileSync(reconcileScaleSource, "utf8");
+assert(reconcileScaleText.includes(reconcileScaleNeedle));
+writeFileSync(reconcileScaleSource, reconcileScaleText.replace(reconcileScaleNeedle, `${reconcileScaleNeedle}\n    var inserted: usize = a + 7001_usize\n    inserted = inserted + 7003_usize\n    a = a + inserted`));
+const reconcileScaleStarted = Date.now();
+let reconcileScaleStdout = "";
+try {
+  reconcileScaleStdout = execFileSync(zeroBin, ["reconcile", "--json", reconcileScaleRoot, "--source", reconcileScaleSource], { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], timeout: 120000 });
+} catch (error) {
+  assert(false, `zero reconcile on a multi-statement insertion into a large package did not complete: ${error.signal ?? error.status}`);
+}
+const reconcileScaleElapsed = Date.now() - reconcileScaleStarted;
+assert(reconcileScaleElapsed < 60000, `zero reconcile on a large package took ${reconcileScaleElapsed}ms`);
+if (reconcileScaleStdout) {
+  const reconcileScale = JSON.parse(reconcileScaleStdout);
+  assert.equal(reconcileScale.ok, true);
+  assert.equal(reconcileScale.identity.moduleIdentityChanged, false);
+  assert.equal(reconcileScale.identity.ambiguous, 0);
+  assert(reconcileScale.identity.inserted > 0);
+  assert(reconcileScale.identity.unchanged > 0);
+}
+assert.equal(zero(["run", reconcileScaleRoot]).stdout, "reconcile scale\n");
+assert.equal(json(["status", "--json", reconcileScaleRoot]).body.repositoryGraph.projectionState, "clean");
 const postCheckWriteFailureRoot = join("/tmp", `zero-repo-graph-post-check-write-${process.pid}`);
 const postCheckWriteFailureHelper = join(postCheckWriteFailureRoot, "src", "helper.0");
 rmSync(postCheckWriteFailureRoot, { force: true, recursive: true });
@@ -3335,11 +3413,6 @@ mkdirSync(checkedInGraphDriftRoot, { recursive: true });
 writeFileSync(join(checkedInGraphDriftRoot, "zero.toml"), readFileSync(join(checkedInGraphPackageDir, "zero.toml"), "utf8"));
 writeFileSync(join(checkedInGraphDriftRoot, "zero.graph"), checkedInRepositoryGraphStoreBytes);
 writeFileSync(join(checkedInGraphDriftRoot, "hello.0"), checkedInGraphSource.replace("hello from zero", "hello from drift"));
-const checkedInGraphDriftCheck = json(["check", "--json", checkedInGraphDriftRoot]);
-assert.equal(checkedInGraphDriftCheck.body.ok, true);
-assertSourceGraph(checkedInGraphDriftCheck.body, join(checkedInGraphDriftRoot, "zero.graph"), "package:program-graph-fixture@0.1.0", "graph-native-check", false, "stale");
-assertProgramGraphCompilerInput(checkedInGraphDriftCheck.body, join(checkedInGraphDriftRoot, "zero.graph"));
-assertRepositoryGraphNativeCheck(checkedInGraphDriftCheck.body, "stale");
 const checkedInGraphDriftVerify = json(["verify-projection", "--json", checkedInGraphDriftRoot], { allowFailure: true });
 assert.notEqual(checkedInGraphDriftVerify.code, 0);
 assert.equal(checkedInGraphDriftVerify.body.ok, false);
@@ -3348,6 +3421,14 @@ assert.equal(checkedInGraphDriftVerify.body.repositoryGraph.compilerInput, "repo
 assert.equal(checkedInGraphDriftVerify.body.diagnostics[0].code, "RGP006");
 assert.match(checkedInGraphDriftVerify.body.repairCommands.join("\n"), /zero import/);
 assert.match(checkedInGraphDriftVerify.body.repairCommands.join("\n"), /zero export/);
+const checkedInGraphDriftCheck = json(["check", "--json", checkedInGraphDriftRoot]);
+assert.equal(checkedInGraphDriftCheck.body.ok, true);
+assertSourceGraph(checkedInGraphDriftCheck.body, join(checkedInGraphDriftRoot, "zero.graph"), "package:program-graph-fixture@0.1.0", "graph-native-check", false, "clean");
+assertProgramGraphCompilerInput(checkedInGraphDriftCheck.body, join(checkedInGraphDriftRoot, "zero.graph"));
+assertRepositoryGraphNativeCheck(checkedInGraphDriftCheck.body, "clean");
+assert.match(zero(["view", join(checkedInGraphDriftRoot, "zero.graph")]).stdout, /hello from drift/);
+const checkedInGraphDriftVerifyAfterRefresh = json(["verify-projection", "--json", checkedInGraphDriftRoot]);
+assert.equal(checkedInGraphDriftVerifyAfterRefresh.body.ok, true);
 const graphView = zero(["view", graphDumpPath]).stdout;
 assert.equal(zero(["view", graphDumpPath]).stdout, graphView);
 assert.equal(zero(["diff", graphDumpPath]).stdout, graphView);

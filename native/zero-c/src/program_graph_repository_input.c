@@ -204,6 +204,20 @@ static int input_manifest_identity_error(const RepositoryGraphInputState *state,
   return 0;
 }
 
+int z_repository_graph_stale_compiler_input_error(const char *input, const ZTargetInfo *target, bool json) {
+  RepositoryGraphInputState state = input_state(input, target);
+  int rc = input_error(&state,
+                       json,
+                       "RGP008",
+                       "package source projection does not match the zero.graph compiler input",
+                       "zero.graph store matching the checked-in .0 source projection",
+                       "source-stale projection state",
+                       "run zero import to refresh zero.graph from the edited source, or unset ZERO_STALE=fail to let this command refresh automatically",
+                       REPO_GRAPH_REPAIR_FROM_SOURCE);
+  input_state_free(&state);
+  return rc;
+}
+
 int z_repository_graph_verify_compiler_input(const char *input, const ZTargetInfo *target, bool json, char **out_store_path) {
   if (out_store_path) *out_store_path = NULL;
   RepositoryGraphInputState state = input_state(input, target);
