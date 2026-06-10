@@ -1,4 +1,5 @@
 #include "program_graph_lower.h"
+#include "program_graph_adjacency.h"
 #include "std_source.h"
 
 #include <ctype.h>
@@ -10,6 +11,7 @@
 
 typedef struct {
   const ZProgramGraph *graph;
+  ZProgramGraphAdjacency adjacency;
   ZDiag *diag;
   bool allow_internal_symbols;
   SourceInput *source;
@@ -178,44 +180,37 @@ static bool lower_fail(GraphLower *lower, const ZProgramGraphNode *node, const c
   return false;
 }
 
-static const ZProgramGraphNode *lower_find_node(const ZProgramGraph *graph, const char *id) {
-  for (size_t i = 0; graph && id && i < graph->node_len; i++) {
-    if (lower_text_eq(graph->nodes[i].id, id)) return &graph->nodes[i];
+static const ZProgramGraphNode *lower_find_node(const GraphLower *lower, const char *id) {
+  return z_program_graph_adjacency_node(&lower->adjacency, id);
+}
+
+static const ZProgramGraphEdge *lower_ordered_edge(const GraphLower *lower, const char *from, const char *kind, size_t order) {
+  size_t start = 0;
+  size_t len = 0;
+  if (!kind) return NULL;
+  z_program_graph_adjacency_owner_run(&lower->adjacency, from, kind, &start, &len);
+  for (size_t i = start; i < start + len; i++) {
+    const ZProgramGraphEdge *edge = z_program_graph_adjacency_owner_edge_at(&lower->adjacency, i);
+    if (edge->order == order) return edge;
   }
   return NULL;
 }
 
-static const ZProgramGraphEdge *lower_ordered_edge(const ZProgramGraph *graph, const char *from, const char *kind, size_t order) {
-  for (size_t i = 0; graph && from && kind && i < graph->edge_len; i++) {
-    const ZProgramGraphEdge *edge = &graph->edges[i];
-    if (edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE &&
-        edge->order == order &&
-        lower_text_eq(edge->from, from) &&
-        lower_text_eq(edge->kind, kind)) {
-      return edge;
-    }
+static const ZProgramGraphNode *lower_ordered_node(const GraphLower *lower, const char *from, const char *kind, size_t order) {
+  const ZProgramGraphEdge *edge = lower_ordered_edge(lower, from, kind, order);
+  return edge ? lower_find_node(lower, edge->to) : NULL;
+}
+
+static const ZProgramGraphEdge *lower_next_edge_by_order(const GraphLower *lower, const char *from, const char *kind, bool have_last, size_t last_order) {
+  size_t start = 0;
+  size_t len = 0;
+  if (!kind) return NULL;
+  z_program_graph_adjacency_owner_run(&lower->adjacency, from, kind, &start, &len);
+  for (size_t i = start; i < start + len; i++) {
+    const ZProgramGraphEdge *edge = z_program_graph_adjacency_owner_edge_at(&lower->adjacency, i);
+    if (!have_last || edge->order > last_order) return edge;
   }
   return NULL;
-}
-
-static const ZProgramGraphNode *lower_ordered_node(const ZProgramGraph *graph, const char *from, const char *kind, size_t order) {
-  const ZProgramGraphEdge *edge = lower_ordered_edge(graph, from, kind, order);
-  return edge ? lower_find_node(graph, edge->to) : NULL;
-}
-
-static const ZProgramGraphEdge *lower_next_edge_by_order(const ZProgramGraph *graph, const char *from, const char *kind, bool have_last, size_t last_order) {
-  const ZProgramGraphEdge *best = NULL;
-  for (size_t i = 0; graph && from && kind && i < graph->edge_len; i++) {
-    const ZProgramGraphEdge *edge = &graph->edges[i];
-    if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE ||
-        !lower_text_eq(edge->from, from) ||
-        !lower_text_eq(edge->kind, kind) ||
-        (have_last && edge->order <= last_order)) {
-      continue;
-    }
-    if (!best || edge->order < best->order) best = edge;
-  }
-  return best;
 }
 
 static bool lower_binary_operator(const char *text) {
@@ -491,7 +486,7 @@ static Expr *lower_expr(GraphLower *lower, const ZProgramGraphNode *node);
 static StmtVec lower_block(GraphLower *lower, const ZProgramGraphNode *block);
 
 static Expr *lower_required_expr(GraphLower *lower, const ZProgramGraphNode *owner, const char *edge_kind, size_t order, const char *context) {
-  const ZProgramGraphNode *node = lower_ordered_node(lower->graph, owner ? owner->id : NULL, edge_kind, order);
+  const ZProgramGraphNode *node = lower_ordered_node(lower, owner ? owner->id : NULL, edge_kind, order);
   if (!node) {
     lower_fail(lower, owner, "program graph is missing required expression edge", context ? context : "expression edge", edge_kind, NULL);
     return NULL;
@@ -500,7 +495,7 @@ static Expr *lower_required_expr(GraphLower *lower, const ZProgramGraphNode *own
 }
 
 static Expr *lower_optional_expr(GraphLower *lower, const ZProgramGraphNode *owner, const char *edge_kind, size_t order) {
-  const ZProgramGraphNode *node = lower_ordered_node(lower->graph, owner ? owner->id : NULL, edge_kind, order);
+  const ZProgramGraphNode *node = lower_ordered_node(lower, owner ? owner->id : NULL, edge_kind, order);
   return node ? lower_expr(lower, node) : NULL;
 }
 
@@ -508,9 +503,9 @@ static void lower_type_args(GraphLower *lower, const ZProgramGraphNode *node, Ty
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, node ? node->id : NULL, "typeArg", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, node ? node->id : NULL, "typeArg", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *type = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *type = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!type) continue;
@@ -526,9 +521,9 @@ static void lower_args(GraphLower *lower, const ZProgramGraphNode *node, ExprVec
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, node ? node->id : NULL, "arg", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, node ? node->id : NULL, "arg", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *arg = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *arg = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!arg) continue;
@@ -541,9 +536,9 @@ static void lower_shape_fields(GraphLower *lower, const ZProgramGraphNode *node,
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, node ? node->id : NULL, "field", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, node ? node->id : NULL, "field", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *field = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *field = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!field) continue;
@@ -622,8 +617,8 @@ static Expr *lower_expr(GraphLower *lower, const ZProgramGraphNode *node) {
     case Z_PROGRAM_GRAPH_NODE_CALL:
     case Z_PROGRAM_GRAPH_NODE_METHOD_CALL:
       if (lower_binary_operator(node->name) &&
-          lower_ordered_node(lower->graph, node->id, "left", 0) &&
-          lower_ordered_node(lower->graph, node->id, "right", 1)) {
+          lower_ordered_node(lower, node->id, "left", 0) &&
+          lower_ordered_node(lower, node->id, "right", 1)) {
         expr = lower_new_expr(lower, EXPR_BINARY, node);
         expr->text = z_strdup(node->name);
         expr->left = lower_required_expr(lower, node, "left", 0, "binary left operand");
@@ -631,8 +626,8 @@ static Expr *lower_expr(GraphLower *lower, const ZProgramGraphNode *node) {
         return expr;
       }
       if (node->name && node->name[0] &&
-          lower_ordered_node(lower->graph, node->id, "left", 0) &&
-          lower_ordered_node(lower->graph, node->id, "right", 1)) {
+          lower_ordered_node(lower, node->id, "left", 0) &&
+          lower_ordered_node(lower, node->id, "right", 1)) {
         lower_fail(lower, node,
                    "program graph call operator is not valid Zero operator syntax",
                    "supported binary operator",
@@ -712,10 +707,10 @@ static MatchArm lower_match_arm(GraphLower *lower, const ZProgramGraphNode *node
     .line = lower_line(lower, node),
     .column = node && node->column > 0 ? node->column : 1,
   };
-  const ZProgramGraphNode *range_end = lower_ordered_node(lower->graph, node ? node->id : NULL, "rangeEnd", 0);
+  const ZProgramGraphNode *range_end = lower_ordered_node(lower, node ? node->id : NULL, "rangeEnd", 0);
   if (range_end) arm.range_end = z_strdup(range_end->value && range_end->value[0] ? range_end->value : (range_end->name ? range_end->name : ""));
   arm.guard = lower_optional_expr(lower, node, "guard", 0);
-  const ZProgramGraphNode *body = lower_ordered_node(lower->graph, node ? node->id : NULL, "body", 0);
+  const ZProgramGraphNode *body = lower_ordered_node(lower, node ? node->id : NULL, "body", 0);
   if (!body) lower_fail(lower, node, "program graph match arm is missing body block", "body block edge", "missing body", NULL);
   else arm.body = lower_block(lower, body);
   return arm;
@@ -725,9 +720,9 @@ static void lower_match_arms(GraphLower *lower, const ZProgramGraphNode *node, M
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, node ? node->id : NULL, "arm", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, node ? node->id : NULL, "arm", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *arm = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *arm = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!arm) continue;
@@ -775,13 +770,13 @@ static Stmt *lower_stmt(GraphLower *lower, const ZProgramGraphNode *node) {
     case Z_PROGRAM_GRAPH_NODE_IF:
       stmt = lower_new_stmt(lower, STMT_IF, node);
       stmt->expr = lower_required_expr(lower, node, "expr", 0, "if condition");
-      stmt->then_body = lower_block(lower, lower_ordered_node(lower->graph, node->id, "then", 0));
-      stmt->else_body = lower_block(lower, lower_ordered_node(lower->graph, node->id, "else", 1));
+      stmt->then_body = lower_block(lower, lower_ordered_node(lower, node->id, "then", 0));
+      stmt->else_body = lower_block(lower, lower_ordered_node(lower, node->id, "else", 1));
       return stmt;
     case Z_PROGRAM_GRAPH_NODE_WHILE:
       stmt = lower_new_stmt(lower, STMT_WHILE, node);
       stmt->expr = lower_required_expr(lower, node, "expr", 0, "while condition");
-      stmt->then_body = lower_block(lower, lower_ordered_node(lower->graph, node->id, "then", 0));
+      stmt->then_body = lower_block(lower, lower_ordered_node(lower, node->id, "then", 0));
       return stmt;
     case Z_PROGRAM_GRAPH_NODE_FOR:
       if (!lower_require_identifier(lower, node, node->name, "program graph loop binding name is not valid Zero identifier syntax")) return NULL;
@@ -789,7 +784,7 @@ static Stmt *lower_stmt(GraphLower *lower, const ZProgramGraphNode *node) {
       stmt->name = z_strdup(node->name && node->name[0] ? node->name : "");
       stmt->expr = lower_required_expr(lower, node, "expr", 0, "for range start");
       stmt->range_end = lower_required_expr(lower, node, "rangeEnd", 1, "for range end");
-      stmt->then_body = lower_block(lower, lower_ordered_node(lower->graph, node->id, "then", 0));
+      stmt->then_body = lower_block(lower, lower_ordered_node(lower, node->id, "then", 0));
       return stmt;
     case Z_PROGRAM_GRAPH_NODE_BREAK:
       return lower_new_stmt(lower, STMT_BREAK, node);
@@ -821,9 +816,9 @@ static StmtVec lower_block(GraphLower *lower, const ZProgramGraphNode *block) {
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, block->id, "statement", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, block->id, "statement", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *stmt_node = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *stmt_node = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     Stmt *stmt = lower_stmt(lower, stmt_node);
@@ -837,9 +832,9 @@ static void lower_params(GraphLower *lower, const ZProgramGraphNode *owner, cons
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, owner ? owner->id : NULL, edge_kind, have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, owner ? owner->id : NULL, edge_kind, have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *node = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *node = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!node) continue;
@@ -875,7 +870,7 @@ static Function lower_function(GraphLower *lower, const ZProgramGraphNode *node,
   lower_params(lower, node, "param", &fun.params);
   lower_params(lower, node, "error", &fun.errors);
   fun.has_error_set = fun.errors.len > 0;
-  const ZProgramGraphNode *body = lower_ordered_node(lower->graph, node ? node->id : NULL, "body", 0);
+  const ZProgramGraphNode *body = lower_ordered_node(lower, node ? node->id : NULL, "body", 0);
   if (!body) lower_fail(lower, node, "program graph function is missing body block", "body block edge", "missing body", NULL);
   else fun.body = lower_block(lower, body);
   return fun;
@@ -885,9 +880,9 @@ static void lower_methods(GraphLower *lower, const ZProgramGraphNode *owner, Fun
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, owner ? owner->id : NULL, "method", have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, owner ? owner->id : NULL, "method", have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *method = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *method = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     if (!method) continue;
@@ -1067,9 +1062,9 @@ static void lower_top_level_edges(GraphLower *lower, Program *program, const ZPr
   bool have_last = false;
   size_t last_order = 0;
   for (;;) {
-    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower->graph, module ? module->id : NULL, edge_kind, have_last, last_order);
+    const ZProgramGraphEdge *edge = lower_next_edge_by_order(lower, module ? module->id : NULL, edge_kind, have_last, last_order);
     if (!edge) break;
-    const ZProgramGraphNode *node = lower_find_node(lower->graph, edge->to);
+    const ZProgramGraphNode *node = lower_find_node(lower, edge->to);
     last_order = edge->order;
     have_last = true;
     lower_top_level(lower, program, node);
@@ -1173,11 +1168,7 @@ static void lower_init_source_from_graph(SourceInput *source, const ZProgramGrap
   }
 }
 
-static bool lower_to_program(GraphLower *lower, Program *out) {
-  if (!out) return false;
-  *out = (Program){0};
-  if (!lower || !lower->graph) return lower_fail(lower, NULL, "program graph is missing", "ProgramGraph input", "missing graph", NULL);
-
+static bool lower_to_program_modules(GraphLower *lower, Program *out) {
   size_t module_count = 0;
   for (size_t i = 0; i < lower->graph->node_len; i++) {
     if (lower->graph->nodes[i].kind == Z_PROGRAM_GRAPH_NODE_MODULE) module_count++;
@@ -1198,6 +1189,16 @@ static bool lower_to_program(GraphLower *lower, Program *out) {
     return false;
   }
   return true;
+}
+
+static bool lower_to_program(GraphLower *lower, Program *out) {
+  if (!out) return false;
+  *out = (Program){0};
+  if (!lower || !lower->graph) return lower_fail(lower, NULL, "program graph is missing", "ProgramGraph input", "missing graph", NULL);
+  z_program_graph_adjacency_init(&lower->adjacency, lower->graph);
+  bool ok = lower_to_program_modules(lower, out);
+  z_program_graph_adjacency_free(&lower->adjacency);
+  return ok;
 }
 
 bool z_program_graph_lower_to_program(const ZProgramGraph *graph, Program *out, ZDiag *diag) {

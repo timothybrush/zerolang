@@ -12329,9 +12329,9 @@ static int run_graph_dump_input_command(const Command *command, const ZTargetInf
       return 1;
     }
   }
-  ZProgramGraphValidation validation = {0};
-  z_program_graph_validate(&graph, &validation);
   if (command->json) {
+    ZProgramGraphValidation validation = {0};
+    z_program_graph_validate(&graph, &validation);
     ZBuf json;
     zbuf_init(&json);
     if (graph_import) append_graph_import_json(&json, command, &input, &graph, &validation);
@@ -12341,7 +12341,7 @@ static int run_graph_dump_input_command(const Command *command, const ZTargetInf
   } else if (!command->out) {
     ZBuf dump;
     zbuf_init(&dump);
-    z_program_graph_append_dump(&dump, &graph, &validation);
+    z_program_graph_append_dump(&dump, &graph, NULL);
     fputs(dump.data ? dump.data : "", stdout);
     zbuf_free(&dump);
   }

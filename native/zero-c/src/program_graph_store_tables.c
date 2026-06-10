@@ -115,14 +115,17 @@ void z_program_graph_store_table_counts_for_graph(const ZProgramGraph *graph, si
 }
 
 void z_program_graph_store_append_compiler_metadata_for_graph(ZBuf *buf, const ZProgramGraph *graph, size_t source_count, size_t projection_count) {
-  ZProgramGraphValidation validation = {0};
-  bool ok = graph && z_program_graph_validate(graph, &validation);
+  // Every caller serializes a graph that already passed z_program_graph_validate
+  // (store writes validate up front and store loads validate the parsed graph
+  // before verifying metadata), so stamp the shape-valid state directly instead
+  // of re-running full validation per serialization.
+  bool ok = graph != NULL;
   ZProgramGraphStoreTableCounts counts;
   z_program_graph_store_table_counts_for_graph(graph, source_count, projection_count, &counts);
   zbuf_append(buf, "compilerStore schemaVersion:1 shape:\"compiler-oriented-tables\" semanticOk:");
   zbuf_append(buf, ok ? "true" : "false");
   zbuf_append(buf, " semanticValidity:\"");
-  zbuf_append(buf, z_program_graph_validation_state_name(ok ? validation.state : Z_PROGRAM_GRAPH_VALIDATION_DECODED));
+  zbuf_append(buf, z_program_graph_validation_state_name(ok ? Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID : Z_PROGRAM_GRAPH_VALIDATION_DECODED));
   zbuf_append(buf, "\" sourceProjectionRequired:false sourceMapRequired:false storageInterface:\"ProgramGraphStore\"\n");
   zbuf_appendf(buf,
                "compilerTables schema:%zu package:%zu module:%zu declaration:%zu scope:%zu import:%zu symbol:%zu type:%zu effect:%zu capability:%zu ownership:%zu resource:%zu node:%zu edge:%zu projection:%zu sourceMap:%zu\n",

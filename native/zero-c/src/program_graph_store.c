@@ -11,6 +11,7 @@
 #include "zero.h"
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +29,18 @@ typedef struct {
   StoreNodeHash *items;
   size_t len;
   size_t cap;
+  size_t *slots;
+  size_t slot_cap;
 } StoreNodeHashVec;
+
+static size_t store_node_hash_slot_seed(const char *id) {
+  uint64_t hash = 1469598103934665603ull;
+  for (const unsigned char *p = (const unsigned char *)(id ? id : ""); *p; p++) {
+    hash ^= (uint64_t)*p;
+    hash *= 1099511628211ull;
+  }
+  return (size_t)hash;
+}
 
 static bool store_path_is_dir(const char *path) {
   struct stat st;
@@ -176,46 +188,64 @@ static bool store_path_relative_to_root(const char *root, const char *path, cons
   return false;
 }
 
-static char *store_absolute_path_text(const char *path) {
-  if (!path || !path[0]) return NULL;
-  char *normalized = store_normalize_path_text(path);
-  if (normalized[0] == '/') return normalized;
+static char *store_cwd_text(void) {
 #if defined(_WIN32)
-  return normalized;
+  return NULL;
 #else
   char cwd[4096];
-  if (!getcwd(cwd, sizeof(cwd))) return normalized;
+  if (!getcwd(cwd, sizeof(cwd))) return NULL;
+  return z_strdup(cwd);
+#endif
+}
+
+static char *store_absolute_path_text_cwd(const char *path, const char *cwd) {
+  if (!path || !path[0]) return NULL;
+  char *normalized = store_normalize_path_text(path);
+  if (normalized[0] == '/' || !cwd) return normalized;
   char *joined = store_join_path(cwd, normalized);
   free(normalized);
   char *absolute = store_normalize_path_text(joined);
   free(joined);
   return absolute;
-#endif
 }
 
-static char *store_source_path_for_root(const char *root, const char *path) {
+typedef struct {
+  char *cwd;
+  char *real_root;
+  char *normalized_root;
+} StoreRootResolver;
+
+static void store_root_resolver_init(StoreRootResolver *resolver, const char *root) {
+  const char *base = root && root[0] ? root : ".";
+  resolver->cwd = store_cwd_text();
+  resolver->real_root = store_absolute_path_text_cwd(base, resolver->cwd);
+  resolver->normalized_root = store_normalize_path_text(base);
+}
+
+static void store_root_resolver_free(StoreRootResolver *resolver) {
+  free(resolver->cwd);
+  free(resolver->real_root);
+  free(resolver->normalized_root);
+  *resolver = (StoreRootResolver){0};
+}
+
+static char *store_resolver_source_path(const StoreRootResolver *resolver, const char *path) {
   if (!path || !path[0]) return z_strdup("");
-  char *real_root = store_absolute_path_text(root && root[0] ? root : ".");
-  char *real_path = store_absolute_path_text(path);
+  char *real_path = store_absolute_path_text_cwd(path, resolver->cwd);
   const char *relative = NULL;
-  if (real_root && real_path && store_path_relative_to_root(real_root, real_path, &relative)) {
+  if (resolver->real_root && real_path && store_path_relative_to_root(resolver->real_root, real_path, &relative)) {
     char *normalized = store_normalize_path_text(relative);
-    free(real_root);
     free(real_path);
     return normalized;
   }
-  free(real_root);
   free(real_path);
 
-  char *normalized_root = store_normalize_path_text(root && root[0] ? root : ".");
   char *normalized_path = store_normalize_path_text(path);
-  if (store_path_relative_to_root(normalized_root, normalized_path, &relative)) {
+  if (store_path_relative_to_root(resolver->normalized_root, normalized_path, &relative)) {
     char *result = store_normalize_path_text(relative);
-    free(normalized_root);
     free(normalized_path);
     return result;
   }
-  free(normalized_root);
   return normalized_path;
 }
 
@@ -685,13 +715,20 @@ static void store_copy_graph(const ZProgramGraph *src, ZProgramGraph *dst) {
   }
 }
 
-static void store_normalize_graph_paths_for_root(ZProgramGraph *graph, const char *root) {
-  if (!graph) return;
+static void store_normalize_graph_node_paths(ZProgramGraph *graph, const char *root) {
+  StoreRootResolver resolver;
+  store_root_resolver_init(&resolver, root);
   for (size_t i = 0; i < graph->node_len; i++) {
-    char *normalized = store_source_path_for_root(root, graph->nodes[i].path);
+    char *normalized = store_resolver_source_path(&resolver, graph->nodes[i].path);
     free(graph->nodes[i].path);
     graph->nodes[i].path = normalized;
   }
+  store_root_resolver_free(&resolver);
+}
+
+static void store_normalize_graph_paths_for_root(ZProgramGraph *graph, const char *root) {
+  if (!graph) return;
+  store_normalize_graph_node_paths(graph, root);
   z_program_graph_prune_embedded_std_source_nodes(graph);
   z_program_graph_assign_source_node_ids(graph);
   z_program_graph_finalize_identities(graph);
@@ -699,11 +736,7 @@ static void store_normalize_graph_paths_for_root(ZProgramGraph *graph, const cha
 
 static void store_normalize_graph_paths_preserving_ids_for_root(ZProgramGraph *graph, const char *root) {
   if (!graph) return;
-  for (size_t i = 0; i < graph->node_len; i++) {
-    char *normalized = store_source_path_for_root(root, graph->nodes[i].path);
-    free(graph->nodes[i].path);
-    graph->nodes[i].path = normalized;
-  }
+  store_normalize_graph_node_paths(graph, root);
   z_program_graph_finalize_identities(graph);
 }
 
@@ -751,27 +784,46 @@ static void store_node_hash_vec_free(StoreNodeHashVec *hashes) {
     free(hashes->items[i].hash);
   }
   free(hashes->items);
+  free(hashes->slots);
   *hashes = (StoreNodeHashVec){0};
 }
 
-static bool store_node_hash_vec_add(StoreNodeHashVec *hashes, char *id, char *hash) {
-  for (size_t i = 0; hashes && i < hashes->len; i++) {
-    if (store_text_eq(hashes->items[i].id, id)) return false;
+static size_t store_node_hash_slot_for_id(const StoreNodeHashVec *hashes, const char *id) {
+  size_t mask = hashes->slot_cap - 1;
+  size_t slot = store_node_hash_slot_seed(id) & mask;
+  while (hashes->slots[slot] != SIZE_MAX && !store_text_eq(hashes->items[hashes->slots[slot]].id, id)) {
+    slot = (slot + 1) & mask;
   }
+  return slot;
+}
+
+static void store_node_hash_vec_reindex(StoreNodeHashVec *hashes) {
+  size_t next_cap = hashes->slot_cap ? hashes->slot_cap * 2 : 64;
+  free(hashes->slots);
+  hashes->slots = z_checked_reallocarray(NULL, next_cap, sizeof(size_t));
+  hashes->slot_cap = next_cap;
+  for (size_t i = 0; i < next_cap; i++) hashes->slots[i] = SIZE_MAX;
+  for (size_t i = 0; i < hashes->len; i++) hashes->slots[store_node_hash_slot_for_id(hashes, hashes->items[i].id)] = i;
+}
+
+static bool store_node_hash_vec_add(StoreNodeHashVec *hashes, char *id, char *hash) {
+  if ((hashes->len + 1) * 2 > hashes->slot_cap) store_node_hash_vec_reindex(hashes);
+  size_t slot = store_node_hash_slot_for_id(hashes, id);
+  if (hashes->slots[slot] != SIZE_MAX) return false;
   if (hashes->len == hashes->cap) {
     size_t next = z_grow_capacity(hashes->cap, hashes->len + 1, 32);
     hashes->items = z_checked_reallocarray(hashes->items, next, sizeof(StoreNodeHash));
     hashes->cap = next;
   }
-  hashes->items[hashes->len++] = (StoreNodeHash){.id = id, .hash = hash};
+  hashes->items[hashes->len] = (StoreNodeHash){.id = id, .hash = hash};
+  hashes->slots[slot] = hashes->len++;
   return true;
 }
 
 static const char *store_node_hash_find(const StoreNodeHashVec *hashes, const char *id) {
-  for (size_t i = 0; hashes && i < hashes->len; i++) {
-    if (store_text_eq(hashes->items[i].id, id)) return hashes->items[i].hash;
-  }
-  return NULL;
+  if (!hashes || hashes->slot_cap == 0) return NULL;
+  size_t slot = store_node_hash_slot_for_id(hashes, id);
+  return hashes->slots[slot] == SIZE_MAX ? NULL : hashes->items[hashes->slots[slot]].hash;
 }
 
 static bool store_parse_node_hash_line(const char *line, StoreNodeHashVec *hashes) {
@@ -1014,9 +1066,7 @@ static void store_append_text(ZBuf *buf, const ZProgramGraph *graph, const ZProg
     zbuf_append_char(buf, '\n');
   }
   zbuf_append(buf, "\ngraph\n");
-  ZProgramGraphValidation validation = {0};
-  z_program_graph_validate(graph, &validation);
-  z_program_graph_append_dump(buf, graph, &validation);
+  z_program_graph_append_dump(buf, graph, NULL);
   z_program_graph_store_free(&metadata);
 }
 

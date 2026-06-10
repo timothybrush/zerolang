@@ -1,9 +1,11 @@
 #include "program_graph_view.h"
 
 #include "canonical_text.h"
+#include "program_graph_adjacency.h"
 #include "program_graph_lower.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,27 +78,22 @@ static void view_copy_edge(ZProgramGraph *dst, const ZProgramGraphEdge *src) {
   edge->kind = z_strdup(src->kind ? src->kind : "");
 }
 
-static ptrdiff_t view_find_node_index(const ZProgramGraph *graph, const char *id) {
-  for (size_t i = 0; graph && id && i < graph->node_len; i++) {
-    if (view_text_eq(graph->nodes[i].id, id)) return (ptrdiff_t)i;
-  }
-  return -1;
+static bool view_included_node_id(const ZProgramGraphAdjacency *adjacency, const bool *included, const char *id) {
+  size_t index = z_program_graph_adjacency_node_index(adjacency, id);
+  return index != SIZE_MAX && included[index];
 }
 
-static bool view_included_node_id(const ZProgramGraph *graph, const bool *included, const char *id) {
-  ptrdiff_t index = view_find_node_index(graph, id);
-  return index >= 0 && included[index];
-}
-
-static void view_include_reachable_nodes(const ZProgramGraph *graph, bool *included, size_t index) {
+static void view_include_reachable_nodes(const ZProgramGraphAdjacency *adjacency, bool *included, size_t index) {
+  const ZProgramGraph *graph = adjacency->graph;
   if (!graph || !included || index >= graph->node_len || included[index]) return;
   included[index] = true;
-  const char *id = graph->nodes[index].id;
-  for (size_t i = 0; i < graph->edge_len; i++) {
-    const ZProgramGraphEdge *edge = &graph->edges[i];
-    if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE || !view_text_eq(edge->from, id)) continue;
-    ptrdiff_t target = view_find_node_index(graph, edge->to);
-    if (target >= 0) view_include_reachable_nodes(graph, included, (size_t)target);
+  size_t start = 0;
+  size_t len = 0;
+  z_program_graph_adjacency_owner_run(adjacency, graph->nodes[index].id, NULL, &start, &len);
+  for (size_t i = start; i < start + len; i++) {
+    const ZProgramGraphEdge *edge = z_program_graph_adjacency_owner_edge_at(adjacency, i);
+    size_t target = z_program_graph_adjacency_node_index(adjacency, edge->to);
+    if (target != SIZE_MAX) view_include_reachable_nodes(adjacency, included, target);
   }
 }
 
@@ -121,10 +118,10 @@ static bool view_graph_has_effect(const ZProgramGraph *graph, const bool *includ
   return false;
 }
 
-static bool view_edge_target_included(const ZProgramGraph *graph, const bool *included, const ZProgramGraphEdge *edge) {
+static bool view_edge_target_included(const ZProgramGraph *graph, const ZProgramGraphAdjacency *adjacency, const bool *included, const ZProgramGraphEdge *edge) {
   switch (edge->target) {
     case Z_PROGRAM_GRAPH_EDGE_TARGET_NODE:
-      return view_included_node_id(graph, included, edge->to);
+      return view_included_node_id(adjacency, included, edge->to);
     case Z_PROGRAM_GRAPH_EDGE_TARGET_SYMBOL:
       return view_graph_has_symbol(graph, included, edge->to);
     case Z_PROGRAM_GRAPH_EDGE_TARGET_TYPE:
@@ -137,8 +134,11 @@ static bool view_edge_target_included(const ZProgramGraph *graph, const bool *in
 
 static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *source_path, ZProgramGraph *out, ZDiag *diag) {
   if (!graph || !source_path || !source_path[0]) return false;
+  ZProgramGraphAdjacency adjacency;
+  z_program_graph_adjacency_init(&adjacency, graph);
   bool *included = calloc(graph->node_len ? graph->node_len : 1, sizeof(bool));
   if (!included) {
+    z_program_graph_adjacency_free(&adjacency);
     if (diag) {
       diag->code = 2001;
       diag->path = source_path;
@@ -154,7 +154,7 @@ static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *
   for (size_t i = 0; i < graph->node_len; i++) {
     if (graph->nodes[i].kind == Z_PROGRAM_GRAPH_NODE_MODULE && view_text_eq(graph->nodes[i].path, source_path)) {
       found_module = true;
-      view_include_reachable_nodes(graph, included, i);
+      view_include_reachable_nodes(&adjacency, included, i);
     }
   }
   for (size_t i = 0; i < graph->node_len; i++) {
@@ -162,6 +162,7 @@ static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *
   }
 
   if (!found_module) {
+    z_program_graph_adjacency_free(&adjacency);
     free(included);
     if (diag) {
       diag->code = 2002;
@@ -189,10 +190,11 @@ static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *
   }
   for (size_t i = 0; i < graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &graph->edges[i];
-    if (!view_included_node_id(graph, included, edge->from)) continue;
-    if (!view_edge_target_included(graph, included, edge)) continue;
+    if (!view_included_node_id(&adjacency, included, edge->from)) continue;
+    if (!view_edge_target_included(graph, &adjacency, included, edge)) continue;
     view_copy_edge(out, edge);
   }
+  z_program_graph_adjacency_free(&adjacency);
   free(included);
   return true;
 }

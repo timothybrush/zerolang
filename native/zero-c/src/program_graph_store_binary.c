@@ -215,9 +215,6 @@ static void binary_node_hash_vec_free(StoreBinaryNodeHashVec *hashes) {
 }
 
 static bool binary_node_hash_vec_add(StoreBinaryNodeHashVec *hashes, char *id, char *hash) {
-  for (size_t i = 0; hashes && i < hashes->len; i++) {
-    if (binary_text_eq(hashes->items[i].id, id)) return false;
-  }
   if (hashes->len == hashes->cap) {
     size_t next = z_grow_capacity(hashes->cap, hashes->len + 1, 32);
     hashes->items = z_checked_reallocarray(hashes->items, next, sizeof(StoreBinaryNodeHash));
@@ -227,11 +224,10 @@ static bool binary_node_hash_vec_add(StoreBinaryNodeHashVec *hashes, char *id, c
   return true;
 }
 
-static const char *binary_node_hash_find(const StoreBinaryNodeHashVec *hashes, const char *id) {
-  for (size_t i = 0; hashes && i < hashes->len; i++) {
-    if (binary_text_eq(hashes->items[i].id, id)) return hashes->items[i].hash;
-  }
-  return NULL;
+static const char *binary_node_hash_at(const StoreBinaryNodeHashVec *hashes, size_t index, const char *id) {
+  if (!hashes || index >= hashes->len) return NULL;
+  if (!binary_text_eq(hashes->items[index].id, id)) return NULL;
+  return hashes->items[index].hash;
 }
 
 static bool binary_verify_graph_metadata(const char *path, ZProgramGraphStore *store, const char *module_identity, const char *graph_hash, const char *module_hash, const StoreBinaryNodeHashVec *node_hashes, ZDiag *diag) {
@@ -241,7 +237,7 @@ static bool binary_verify_graph_metadata(const char *path, ZProgramGraphStore *s
   if (node_hashes->len != store->graph.node_len) return binary_diag(diag, path, "repository graph node hash table has the wrong size", "node hash count mismatch");
   for (size_t i = 0; i < store->graph.node_len; i++) {
     const ZProgramGraphNode *node = &store->graph.nodes[i];
-    const char *expected_hash = binary_node_hash_find(node_hashes, node->id);
+    const char *expected_hash = binary_node_hash_at(node_hashes, i, node->id);
     if (!expected_hash) return binary_diag(diag, path, "repository graph store is missing a node hash", node->id);
     if (!binary_text_eq(expected_hash, node->node_hash)) return binary_diag(diag, path, "repository graph node hash does not match graph content", node->id);
     if (!binary_source_path_present(store, node->path) && !binary_graph_source_path_is_embedded_std(&store->graph, node->path)) return binary_diag(diag, path, "repository graph source table is missing a node source path", node->path);
@@ -398,12 +394,10 @@ void z_program_graph_store_append_binary(ZBuf *buf, const ZProgramGraph *graph, 
   binary_append_graph_records(&records, &strings, graph);
   ZProgramGraphStoreTableCounts counts;
   z_program_graph_store_table_counts_for_graph(graph, metadata.source_path_len, projections ? projections->projection_len : 0, &counts);
-  ZProgramGraphValidation validation = {0};
-  bool validation_ok = graph && z_program_graph_validate(graph, &validation);
   binary_append_bytes(buf, STORE_BINARY_MAGIC, sizeof(STORE_BINARY_MAGIC));
   binary_put_u32(buf, 1);
   binary_put_u32(buf, graph && graph->canonical_source ? 1u : 0u);
-  binary_put_u32(buf, (uint32_t)(validation_ok ? validation.state : Z_PROGRAM_GRAPH_VALIDATION_DECODED));
+  binary_put_u32(buf, (uint32_t)(graph ? Z_PROGRAM_GRAPH_VALIDATION_SHAPE_VALID : Z_PROGRAM_GRAPH_VALIDATION_DECODED));
   binary_put_u32(buf, 0);
   binary_put_u64(buf, (uint64_t)metadata.source_path_len);
   binary_put_u64(buf, (uint64_t)(projections ? projections->projection_len : 0));

@@ -421,21 +421,19 @@ static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, cons
   }
   bool merged = false;
   char **merged_modules = z_checked_calloc(z_std_source_module_count() ? z_std_source_module_count() : 1, sizeof(char *));
+  bool *graph_referenced = z_checked_calloc(z_std_source_module_count() ? z_std_source_module_count() : 1, sizeof(bool));
   size_t merged_module_len = 0;
   bool pass_merged = true;
   while (pass_merged) {
     pass_merged = false;
+    long long reference_started = std_merge_now_ms();
+    z_program_graph_collect_std_module_references(graph, graph_referenced);
+    if (profile) profile->graph_stdlib_reference_scan_ms += std_merge_now_ms() - reference_started;
     for (size_t i = 0; i < z_std_source_module_count(); i++) {
       const ZStdSourceModule *module = z_std_source_module_at(i);
       if (!module) continue;
       bool source_imports = std_merge_source_imports_module(input, module->module);
-      bool graph_references = false;
-      if (!source_imports) {
-        long long reference_started = std_merge_now_ms();
-        graph_references = z_program_graph_references_std_module(graph, module->module);
-        if (profile) profile->graph_stdlib_reference_scan_ms += std_merge_now_ms() - reference_started;
-      }
-      if (!source_imports && !graph_references) continue;
+      if (!source_imports && !graph_referenced[i]) continue;
       if (std_merge_module_name_seen(merged_modules, merged_module_len, module->module)) continue;
       merged_modules[merged_module_len++] = std_merge_strdup(module->module);
       if (profile) profile->graph_stdlib_modules_merged++;
@@ -450,6 +448,7 @@ static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, cons
         if (diag && !diag->path) diag->path = module->path;
         for (size_t j = 0; j < merged_module_len; j++) free(merged_modules[j]);
         free(merged_modules);
+        free(graph_referenced);
         free(input_graph_hash);
         return false;
       }
@@ -462,6 +461,7 @@ static bool std_merge_embedded_std_graph_modules_impl(ZProgramGraph *graph, cons
   }
   for (size_t i = 0; i < merged_module_len; i++) free(merged_modules[i]);
   free(merged_modules);
+  free(graph_referenced);
   if (merged) {
     long long finalize_started = std_merge_now_ms();
     z_program_graph_finalize_identities(graph);

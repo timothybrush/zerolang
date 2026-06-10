@@ -21,6 +21,7 @@ try {
     "-I",
     "native/zero-c/src",
     "native/zero-c/src/program_graph.c",
+    "native/zero-c/src/program_graph_adjacency.c",
     "native/zero-c/src/program_graph_clone.c",
     "native/zero-c/src/program_graph_identity.c",
     "native/zero-c/src/program_graph_import.c",
