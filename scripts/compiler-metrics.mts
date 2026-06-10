@@ -10,6 +10,8 @@ const sourceFileDirs = [
   "native/zero-c/src",
 ];
 const auditFiles = [
+  "native/zero-c/runtime/zero_runtime.c",
+  "scripts/fs-runtime-smoke.mts",
   "scripts/test-native.sh",
 ];
 
@@ -1116,6 +1118,10 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.textWriteChecked ||
       !backendFormats.fileIo.binaryWriteChecked ||
       !backendFormats.fileIo.closeChecked ||
+      !backendFormats.fileIo.runtimeReadDescriptorChecked ||
+      !backendFormats.fileIo.runtimeReadHandlesEintr ||
+      !backendFormats.fileIo.runtimeReadCloseChecked ||
+      !backendFormats.fileIo.runtimeReadSmokeWired ||
       !backendFormats.fileIo.bufferFormatChecked ||
       !backendFormats.fileIo.diagnosticsNullSafe) {
     violations.push({
@@ -1477,6 +1483,13 @@ const directWriteFopenFiles = [...texts.entries()]
   .sort((a, b) => a.localeCompare(b));
 const processExecRaw = texts.get("native/zero-c/src/process_exec.c") ?? "";
 const nativeTestRaw = auditTexts.get("scripts/test-native.sh") ?? "";
+const fsRuntimeSmokeRaw = auditTexts.get("scripts/fs-runtime-smoke.mts") ?? "";
+const runtimeRaw = auditTexts.get("native/zero-c/runtime/zero_runtime.c") ?? "";
+const runtimeSource = cCodeText(runtimeRaw);
+const runtimeFsReadBody = cCodeText(cBlock(runtimeRaw, "ZeroMaybeUsize zero_fs_read_bytes"));
+const runtimeOpenReadonlyBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_open_readonly"));
+const runtimeReadFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_read_fd"));
+const runtimeCloseFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_close_fd"));
 const mirBinaryRaw = texts.get("native/zero-c/src/mir_binary.c") ?? "";
 const mirBinarySource = cCodeText(mirBinaryRaw);
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
@@ -1653,6 +1666,22 @@ const backendFormats = {
     binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&
       /write_atomic_bytes/.test(writeBinaryFileBody),
     closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(atomicCloseBody),
+    runtimeReadDescriptorChecked: /zero_runtime_open_readonly\s*\(\s*path_buf\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_fd_is_regular_file\s*\(\s*fd\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_read_fd\s*\(\s*fd\s*,\s*buffer\s*,\s*&read_len\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_close_fd\s*\(\s*fd\s*\)/.test(runtimeFsReadBody) &&
+      !/\bfopen\s*\(/.test(runtimeFsReadBody) &&
+      !/\bfread\s*\(/.test(runtimeFsReadBody) &&
+      /ZERO_RUNTIME_FSTAT\s*\(\s*fd\s*,\s*&st\s*\)/.test(runtimeSource) &&
+      /ZERO_RUNTIME_IS_REGULAR\s*\(\s*st\.st_mode\s*\)/.test(runtimeSource),
+    runtimeReadHandlesEintr: /errno\s*==\s*EINTR/.test(runtimeOpenReadonlyBody) &&
+      /errno\s*==\s*EINTR/.test(runtimeReadFdBody),
+    runtimeReadCloseChecked: /return\s+ZERO_RUNTIME_CLOSE\s*\(\s*fd\s*\)\s*==\s*0/.test(runtimeCloseFdBody) &&
+      /!\s*ok\s*\|\|\s*!\s*closed/.test(runtimeFsReadBody),
+    runtimeReadSmokeWired: /scripts\/fs-runtime-smoke\.mts/.test(nativeTestRaw) &&
+      /reject directory/.test(fsRuntimeSmokeRaw) &&
+      /read large file/.test(fsRuntimeSmokeRaw) &&
+      /reject path at runtime limit/.test(fsRuntimeSmokeRaw),
     bufferFormatChecked: /if\s*\(\s*!fmt\s*\)\s*return\s*;/.test(zbufAppendfBody) &&
       /int\s+written\s*=\s*vsnprintf\s*\(\s*tmp\s*,\s*\(size_t\)\s*needed\s*\+\s*1\s*,\s*fmt\s*,\s*args\s*\)/.test(zbufAppendfBody) &&
       /written\s*<\s*0\s*\|\|\s*written\s*>\s*needed/.test(zbufAppendfBody) &&

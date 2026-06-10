@@ -110,6 +110,7 @@ if native_phase_selected "preflight"; then
     native/zero-c/src/process_path.c \
     -o .zero/native-test/process-exec-smoke
   .zero/native-test/process-exec-smoke
+  scripts/fs-runtime-smoke.mts
   bin/zero check --json std/path.graph >/dev/null
   bin/zero check --json std/str.graph >/dev/null
   bin/zero check --json std/testing.graph >/dev/null
