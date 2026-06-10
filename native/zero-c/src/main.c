@@ -4480,12 +4480,45 @@ static void set_graph_patch_projection_input_diag(const char *input_path, const 
   snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "patch the package or .graph store directly, or run zero import after a human edits the .0 projection" : "run zero import to create a graph store before patching");
 }
 
+static const char *patch_detect_skip_filler(const char *cursor, const char *end) {
+  if (end - cursor >= 3 && memcmp(cursor, "\xEF\xBB\xBF", 3) == 0) cursor += 3;
+  while (cursor < end) {
+    if (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') { cursor++; continue; }
+    if (*cursor == '#') {
+      while (cursor < end && *cursor != '\n') cursor++;
+      continue;
+    }
+    break;
+  }
+  return cursor;
+}
+
 static bool path_has_program_graph_patch_header(const char *path) {
   static const char header[] = "zero-program-graph-patch v1";
-  char bytes[sizeof(header) - 1];
+  char bytes[512];
   size_t read = 0;
   if (!z_read_file_prefix(path, bytes, sizeof(bytes), &read, NULL)) return false;
-  return read == sizeof(bytes) && memcmp(bytes, header, sizeof(bytes)) == 0;
+  const char *cursor = patch_detect_skip_filler(bytes, bytes + read);
+  return (size_t)(bytes + read - cursor) >= sizeof(header) - 1 && memcmp(cursor, header, sizeof(header) - 1) == 0;
+}
+
+static bool path_starts_with_program_graph_patch_operation(const char *path) {
+  static const char *const keywords[] = {
+    "expect", "set", "insertEdge", "insert", "replaceFunctionBody", "replaceBlockBody", "replace",
+    "delete", "rename", "addFunction", "addMain", "addParam", "addReturnBinary", "addLetLiteral",
+    "addLetBinary", "addReturnValue", "addCheckWriteValue", "addCheckWrite", "addTest", NULL,
+  };
+  char bytes[512];
+  size_t read = 0;
+  if (!z_read_file_prefix(path, bytes, sizeof(bytes), &read, NULL)) return false;
+  const char *cursor = patch_detect_skip_filler(bytes, bytes + read);
+  const char *end = bytes + read;
+  for (size_t i = 0; keywords[i]; i++) {
+    size_t len = strlen(keywords[i]);
+    if ((size_t)(end - cursor) < len || memcmp(cursor, keywords[i], len) != 0) continue;
+    if (cursor + len == end || cursor[len] == ' ' || cursor[len] == '\t' || cursor[len] == '\r' || cursor[len] == '\n') return true;
+  }
+  return false;
 }
 
 static void direct_input_push_string(char ***items, size_t *len, const char *value) {
@@ -12017,6 +12050,9 @@ static void append_graph_patch_diagnostic_json(ZBuf *buf, const ZProgramGraphPat
   append_json_string(buf, result ? result->code : "GPH000");
   zbuf_append(buf, ", \"message\": ");
   append_json_string(buf, result ? result->message : "program graph patch failed");
+  zbuf_append(buf, ", \"line\": ");
+  if (result && result->line > 0) zbuf_appendf(buf, "%d", result->line);
+  else zbuf_append(buf, "null");
   zbuf_append(buf, ", \"expected\": ");
   append_json_nullable_string(buf, result ? result->expected : NULL);
   zbuf_append(buf, ", \"actual\": ");
@@ -12128,28 +12164,73 @@ static void append_graph_patch_symbols_json(ZBuf *buf, const ZProgramGraph *grap
   zbuf_append(buf, "]}");
 }
 
-static void print_graph_patch_symbols_text(const ZProgramGraph *graph) {
+typedef struct {
+  char *id;
+  char *hash;
+  bool matched;
+} GraphPatchNodeBaseline;
+
+static int graph_patch_node_baseline_cmp(const void *left, const void *right) {
+  return strcmp(((const GraphPatchNodeBaseline *)left)->id, ((const GraphPatchNodeBaseline *)right)->id);
+}
+
+static GraphPatchNodeBaseline *graph_patch_snapshot_baseline(const ZProgramGraph *graph, size_t *out_len) {
+  size_t len = graph ? graph->node_len : 0;
+  *out_len = len;
+  if (len == 0) return NULL;
+  GraphPatchNodeBaseline *items = z_checked_reallocarray(NULL, len, sizeof(GraphPatchNodeBaseline));
+  for (size_t i = 0; i < len; i++) {
+    items[i].id = z_strdup(graph->nodes[i].id ? graph->nodes[i].id : "");
+    items[i].hash = z_strdup(graph->nodes[i].node_hash ? graph->nodes[i].node_hash : "");
+    items[i].matched = false;
+  }
+  qsort(items, len, sizeof(GraphPatchNodeBaseline), graph_patch_node_baseline_cmp);
+  return items;
+}
+
+static GraphPatchNodeBaseline *graph_patch_baseline_find(GraphPatchNodeBaseline *items, size_t len, const char *id) {
+  size_t lo = 0;
+  size_t hi = len;
+  while (lo < hi) {
+    size_t mid = lo + (hi - lo) / 2;
+    int cmp = strcmp(items[mid].id, id);
+    if (cmp == 0) return &items[mid];
+    if (cmp < 0) lo = mid + 1;
+    else hi = mid;
+  }
+  return NULL;
+}
+
+static size_t graph_patch_nodes_touched(GraphPatchNodeBaseline *baseline, size_t baseline_len, const ZProgramGraph *graph) {
+  size_t touched = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    GraphPatchNodeBaseline *match = graph_patch_baseline_find(baseline, baseline_len, node->id ? node->id : "");
+    if (!match) {
+      touched++;
+      continue;
+    }
+    match->matched = true;
+    if (strcmp(match->hash, node->node_hash ? node->node_hash : "") != 0) touched++;
+  }
+  for (size_t i = 0; i < baseline_len; i++) {
+    if (!baseline[i].matched) touched++;
+  }
+  return touched;
+}
+
+static void graph_patch_baseline_free(GraphPatchNodeBaseline *items, size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    free(items[i].id);
+    free(items[i].hash);
+  }
+  free(items);
+}
+
+static void print_graph_patch_summary_text(const ZProgramGraph *graph, const ZProgramGraphPatchResult *result, size_t nodes_touched) {
   printf("graphHash: %s\n", graph && graph->graph_hash ? graph->graph_hash : "");
-  printf("functions:");
-  size_t functions = 0;
-  for (size_t i = 0; graph && i < graph->node_len; i++) {
-    const ZProgramGraphNode *node = &graph->nodes[i];
-    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || (node->value && node->value[0])) continue;
-    printf("%s%s", functions == 0 ? " " : ", ", node->name ? node->name : "");
-    functions++;
-  }
-  if (functions == 0) printf(" none");
-  printf("\n");
-  printf("tests:");
-  size_t tests = 0;
-  for (size_t i = 0; graph && i < graph->node_len; i++) {
-    const ZProgramGraphNode *node = &graph->nodes[i];
-    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !node->value || !node->value[0]) continue;
-    printf("%s%s", tests == 0 ? " " : ", ", node->value);
-    tests++;
-  }
-  if (tests == 0) printf(" none");
-  printf("\n");
+  size_t ops = result ? result->operation_len : 0;
+  printf("applied: %zu %s, %zu %s touched\n", ops, ops == 1 ? "op" : "ops", nodes_touched, nodes_touched == 1 ? "node" : "nodes");
 }
 
 static const char *graph_patch_source_label(const Command *command) {
@@ -12865,17 +12946,21 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
   }
 
   char *original_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
+  size_t baseline_len = 0;
+  GraphPatchNodeBaseline *baseline = command->json ? NULL : graph_patch_snapshot_baseline(&graph, &baseline_len);
   ZProgramGraphPatchResult result = {0};
   char *inline_text = NULL;
   bool ok = apply_graph_patch_source(command, has_file, has_patch_text, &graph, &result, &inline_text, diag);
   if (!ok && !result.message[0] && diag->code != 0) {
     print_command_diag(command, diag->path ? diag->path : graph_patch_source_label(command), diag);
+    graph_patch_baseline_free(baseline, baseline_len);
     free_graph_patch_state(inline_text, &result, original_hash, &program, &input, &graph);
     return 1;
   }
   const char *saved_path = NULL;
   if (ok && !save_graph_patch_output(command, target, &graph, input_kind, &input, &saved_path, diag)) {
     print_command_diag(command, diag->path ? diag->path : (command->out ? command->out : command->input), diag);
+    graph_patch_baseline_free(baseline, baseline_len);
     free_graph_patch_state(inline_text, &result, original_hash, &program, &input, &graph);
     return 1;
   }
@@ -12888,11 +12973,11 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     zbuf_free(&json);
   } else if (ok && command->graph_patch_check_only) {
     printf("program graph patch ok (check-only)\n");
-    print_graph_patch_symbols_text(&graph);
+    print_graph_patch_summary_text(&graph, &result, graph_patch_nodes_touched(baseline, baseline_len, &graph));
   } else if (ok && saved_path) {
     printf("program graph patch ok\n");
     printf("saved: %s\n", saved_path);
-    print_graph_patch_symbols_text(&graph);
+    print_graph_patch_summary_text(&graph, &result, graph_patch_nodes_touched(baseline, baseline_len, &graph));
   } else if (ok) {
     ZProgramGraphValidation validation = {0};
     z_program_graph_validate(&graph, &validation);
@@ -12903,12 +12988,20 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     zbuf_free(&dump);
   } else if (result.message[0]) {
     fprintf(stderr, "program graph patch failed: %s\n", result.message);
+    if (result.line > 0 && result.actual && result.actual[0]) {
+      fprintf(stderr, "  %s:%d: %s\n", graph_patch_source_label(command), result.line, result.actual);
+    }
     if (result.expected && result.expected[0]) fprintf(stderr, "  expected: %s\n", result.expected);
-    if (result.actual && result.actual[0]) fprintf(stderr, "  actual: %s\n", result.actual);
+    if (result.line <= 0 && result.actual && result.actual[0]) fprintf(stderr, "  actual: %s\n", result.actual);
+    if (result.format_error) {
+      fprintf(stderr, "  help: a minimal complete patch file looks exactly like this:\n");
+      fputs(z_program_graph_patch_minimal_file_example(), stderr);
+    }
   } else {
     print_diag(diag->path ? diag->path : graph_patch_source_label(command), diag);
   }
 
+  graph_patch_baseline_free(baseline, baseline_len);
   free_graph_patch_state(inline_text, &result, original_hash, &program, &input, &graph);
   return ok ? 0 : 1;
 }
@@ -13763,7 +13856,8 @@ int main(int argc, char **argv) {
       !command.patch_file &&
       command.patch_op_len == 0 &&
       !command.patch_text &&
-      path_has_program_graph_patch_header(command.input)) {
+      (path_has_program_graph_patch_header(command.input) ||
+       path_starts_with_program_graph_patch_operation(command.input))) {
     command.patch_file = command.input;
     command.input = ".";
   }

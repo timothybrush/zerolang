@@ -29,6 +29,8 @@ void z_cli_print_graph_patch_help_text(void) {
   printf("accepted by zero patch --op, --patch-text, and zero-program-graph-patch v1 files\n");
   const char *const *ops = z_program_graph_patch_operation_examples();
   for (size_t i = 0; ops[i]; i++) printf("  %s\n", ops[i]);
+  printf("\nA minimal complete patch file looks exactly like this:\n");
+  fputs(z_program_graph_patch_minimal_file_example(), stdout);
   printf("\nFor larger graph edits, put these lines in a patch file under /tmp or pass --patch-text.\n");
 }
 

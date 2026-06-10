@@ -56,8 +56,7 @@ function assertPatchOkOutput(stdout: string, expectedSaved?: string) {
     assert.match(stdout, new RegExp(`saved: ${expectedSaved.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n`));
   }
   assert.match(stdout, /graphHash: graph:[0-9a-f]{16}\n/);
-  assert.match(stdout, /functions: /);
-  assert.match(stdout, /tests: /);
+  assert.match(stdout, /applied: \d+ ops?, \d+ nodes? touched\n/);
 }
 
 function json(args, options = {}) {
@@ -3208,6 +3207,46 @@ assert.match(genericUnknownOp.body.diagnostic.message, /unknown program graph pa
 assert.match(genericUnknownOp.body.diagnostic.message, /zero patch --op help/);
 assert.match(genericUnknownOp.body.diagnostic.expected, /set, insert, insertEdge, replace, delete, rename/);
 assert.match(genericUnknownOp.body.diagnostic.expected, /replaceFunctionBody/);
+assert.equal(genericUnknownOp.body.diagnostic.line, 2);
+const genericUnknownOpText = zero(["patch", "--check-only", genericPatchRoot, genericUnknownOpPatchPath], { allowFailure: true });
+assert.notEqual(genericUnknownOpText.code, 0);
+assert.match(genericUnknownOpText.stderr, /unknown program graph patch operation/);
+assert.match(genericUnknownOpText.stderr, new RegExp(`${genericUnknownOpPatchPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:2: setNodeField`));
+assert.match(genericUnknownOpText.stderr, /help: a minimal complete patch file looks exactly like this:\nzero-program-graph-patch v1\nreplaceFunctionBody main\n {2}check world\.out\.write "hello\\n"\nend\n/);
+const genericMissingHeaderPatchPath = join(outDir, "repository-graph-generic-missing-header.patch");
+writeFileSync(genericMissingHeaderPatchPath, [
+  "replaceFunctionBody main",
+  '  check world.out.write("missing header\\n")',
+  "end",
+  "",
+].join("\n"));
+const genericMissingHeader = zero(["patch", "--check-only", genericPatchRoot, genericMissingHeaderPatchPath], { allowFailure: true });
+assert.notEqual(genericMissingHeader.code, 0);
+assert.match(genericMissingHeader.stderr, /unknown program graph patch schema/);
+assert.match(genericMissingHeader.stderr, new RegExp(`${genericMissingHeaderPatchPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:1: replaceFunctionBody main`));
+assert.match(genericMissingHeader.stderr, /expected: zero-program-graph-patch v1/);
+assert.match(genericMissingHeader.stderr, /help: a minimal complete patch file looks exactly like this:/);
+const genericMissingEndPatchPath = join(outDir, "repository-graph-generic-missing-end.patch");
+writeFileSync(genericMissingEndPatchPath, [
+  "zero-program-graph-patch v1",
+  "replaceFunctionBody main",
+  '  check world.out.write("missing end\\n")',
+  "",
+].join("\n"));
+const genericMissingEnd = zero(["patch", "--check-only", genericPatchRoot, genericMissingEndPatchPath], { allowFailure: true });
+assert.notEqual(genericMissingEnd.code, 0);
+assert.match(genericMissingEnd.stderr, /body replacement is missing end marker/);
+assert.match(genericMissingEnd.stderr, new RegExp(`${genericMissingEndPatchPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:2: replaceFunctionBody main`));
+assert.match(genericMissingEnd.stderr, /help: a minimal complete patch file looks exactly like this:/);
+const genericIndentedHeaderPatchPath = join(outDir, "repository-graph-generic-indented-header.patch");
+writeFileSync(genericIndentedHeaderPatchPath, [
+  "  zero-program-graph-patch v1",
+  "  replaceFunctionBody main",
+  '    check world.out.write("indented header ok\\n")',
+  "  end",
+  "",
+].join("\n"));
+assert.match(zero(["patch", "--check-only", genericPatchRoot, genericIndentedHeaderPatchPath]).stdout, /^program graph patch ok \(check-only\)\n/);
 const checkedInGraphCallsJson = json(["query", "--json", "--fn", "main", "--calls", "write", checkedInGraphPackageDir]).body;
 assert.equal(checkedInGraphCallsJson.ok, true);
 assert.equal(checkedInGraphCallsJson.query.function, "main");

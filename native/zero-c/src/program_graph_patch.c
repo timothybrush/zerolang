@@ -29,6 +29,20 @@ static void patch_result_fail(ZProgramGraphPatchResult *result, const char *code
   patch_replace_text(&result->actual, actual);
 }
 
+static void patch_format_fail(ZProgramGraphPatchResult *result, const char *code, const char *message, const char *expected, const char *actual, int line) {
+  patch_result_fail(result, code, message, expected, actual);
+  if (!result) return;
+  result->line = line > 0 ? line : 1;
+  result->format_error = true;
+}
+
+const char *z_program_graph_patch_minimal_file_example(void) {
+  return "zero-program-graph-patch v1\n"
+         "replaceFunctionBody main\n"
+         "  check world.out.write \"hello\\n\"\n"
+         "end\n";
+}
+
 static void patch_op_fail(ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op, const char *code, const char *message, const char *expected, const char *actual) {
   char *expected_copy = z_strdup(expected ? expected : "");
   char *actual_copy = z_strdup(actual ? actual : "");
@@ -636,7 +650,7 @@ static bool patch_parse_replace_body_rows(char *header, int *line_number, char *
   }
   if (!ended) {
     zbuf_free(&body);
-    patch_result_fail(result, "GPH001", "body replacement is missing end marker", block ? "replaceBlockBody ... end" : "replaceFunctionBody ... end", header);
+    patch_format_fail(result, "GPH001", "body replacement is missing end marker; every body replacement closes with a line containing only `end`", block ? "replaceBlockBody ... end" : "replaceFunctionBody ... end", header, header_line);
     return false;
   }
   bool parsed_body = patch_parse_replace_body_target(header, header_line, body.data ? body.data : "", block, result);
@@ -648,6 +662,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
   bool saw_header = false;
   int line_number = 0;
   char *cursor = text ? text : "";
+  if (strncmp(cursor, "\xEF\xBB\xBF", 3) == 0) cursor += 3;
   while (*cursor) {
     line_number++;
     char *line = cursor;
@@ -662,7 +677,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     if (!*trimmed || *trimmed == '#') continue;
     if (!saw_header) {
       if (strcmp(trimmed, "zero-program-graph-patch v1") != 0) {
-        patch_result_fail(result, "GPH001", "unknown program graph patch schema; patch files start with the `zero-program-graph-patch v1` header line, see `zero patch --op help` for working examples", "zero-program-graph-patch v1", trimmed);
+        patch_format_fail(result, "GPH001", "unknown program graph patch schema; the first non-comment line of a patch file is the `zero-program-graph-patch v1` header", "zero-program-graph-patch v1", trimmed, line_number);
         return false;
       }
       saw_header = true;
@@ -712,12 +727,12 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
       if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, true, result)) return false;
     } else {
-      patch_result_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed);
+      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
       return false;
     }
   }
   if (!saw_header) {
-    patch_result_fail(result, "GPH001", "program graph patch is empty", "zero-program-graph-patch v1", "");
+    patch_format_fail(result, "GPH001", "program graph patch is empty", "zero-program-graph-patch v1", "", 1);
     return false;
   }
   return true;

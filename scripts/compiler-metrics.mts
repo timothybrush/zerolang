@@ -164,7 +164,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1740, maxStrcmpCalls: 13 },
   "native/zero-c/src/program_graph_patch.c": { maxLines: 860, maxStrcmpCalls: 46 },
-  "native/zero-c/src/program_graph_patch.h": { maxLines: 69, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_patch.h": { maxLines: 72, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_projection.c": { maxLines: 607, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_projection.h": { maxLines: 25, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_projection_validate.c": { maxLines: 465, maxStrcmpCalls: 1 },
