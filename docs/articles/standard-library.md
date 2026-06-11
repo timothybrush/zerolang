@@ -52,6 +52,7 @@ Core data and memory:
 - `std.sort`: in-place sorting over caller-owned scalar storage.
 - `std.ascii`, `std.text`, `std.str`: byte-backed text helpers.
 - `std.parse`, `std.fmt`, `std.codec`, `std.math`: parsers, formatters, codecs, and numeric helpers.
+- `std.regex`: compile-once regular expression matching for a documented subset.
 
 Program surfaces:
 

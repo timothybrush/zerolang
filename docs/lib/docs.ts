@@ -199,6 +199,14 @@ export const docs: Doc[] = [
     section: "Text And Data",
   },
   {
+    slug: "module-regex",
+    title: "std.regex",
+    description: "Compile-once regular expression matching for a documented ECMA-262-leaning subset.",
+    path: "/modules/regex",
+    sourcePath: "/articles/modules/regex.md",
+    section: "Text And Data",
+  },
+  {
     slug: "module-codec",
     title: "std.codec",
     description: "Little-endian integer helpers, unsigned varints, and CRC-32 primitives.",

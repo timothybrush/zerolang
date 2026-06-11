@@ -1,0 +1,87 @@
+fn regex_compile_and_match() -> Bool {
+    var storage: [512]u8 = [0; 512]
+    let buffer: MutSpan<u8> = storage
+    let compiled: Maybe<Span<u8>> = std.regex.compile(buffer, "^h[ae]llo{1,2}$")
+    if !compiled.has {
+        return false
+    }
+    let program: Span<u8> = compiled.value
+    if !std.regex.isMatch(program, "hello") || !std.regex.isMatch(program, "halloo") {
+        return false
+    }
+    return !std.regex.isMatch(program, "hullo") && !std.regex.isMatch(program, "hellooo")
+}
+
+fn regex_one_shot() -> Bool {
+    let digits: Maybe<Bool> = std.regex.matches("^\\d{3}-\\d{4}$", "555-0199")
+    if !digits.has || !digits.value {
+        return false
+    }
+    let alternation: Maybe<Bool> = std.regex.matches("^(cat|dog)s?$", "dogs")
+    if !alternation.has || !alternation.value {
+        return false
+    }
+    let unanchored: Maybe<Bool> = std.regex.matches("wor\\w+", "hello world")
+    if !unanchored.has || !unanchored.value {
+        return false
+    }
+    let miss: Maybe<Bool> = std.regex.matches("^[0-9a-f]{4}$", "12g4")
+    if !miss.has || miss.value {
+        return false
+    }
+    let invalid: Maybe<Bool> = std.regex.matches("(unclosed", "text")
+    return !invalid.has
+}
+
+fn regex_codepoints() -> Bool {
+    let accent: Maybe<Bool> = std.regex.matches("^.é$", "xé")
+    if !accent.has || !accent.value {
+        return false
+    }
+    let emoji: Maybe<Bool> = std.regex.matches("^.$", "💯")
+    return emoji.has && emoji.value
+}
+
+fn regex_statuses() -> Bool {
+    var storage: [128]u8 = [0; 128]
+    let buffer: MutSpan<u8> = storage
+    if std.regex.compileStatus(buffer, "a+b*") != 0 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(a)\\1") != 1 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(?=ahead)") != 2 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(?<=behind)") != 3 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(?<name>x)") != 4 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "a+?") != 5 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(?i)x") != 6 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "\\p{L}") != 7 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "(a") != 8 {
+        return false
+    }
+    if std.regex.compileStatus(buffer, "a{4,2}") != 9 {
+        return false
+    }
+    return std.mem.eql(std.regex.statusName(2), "unsupported lookahead") && std.mem.eql(std.regex.statusName(0), "ok")
+}
+
+pub fn main(world: World) -> Void raises {
+    if regex_compile_and_match() && regex_one_shot() && (regex_codepoints() && regex_statuses()) {
+        check world.out.write("std regex ok\n")
+    } else {
+        check world.out.write("std regex failed\n")
+    }
+}

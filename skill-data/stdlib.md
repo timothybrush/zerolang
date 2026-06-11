@@ -37,6 +37,7 @@ Call functions with their module path, such as `std.mem.len(value)`.
 - `std.path`: target-neutral lexical path basename, dirname, extension, join, normalize, and relative helpers.
 - `std.codec`: byte reads, endian reads/writes, varint sizing/encode/decode, base64/hex encode/decode, CRC helpers, and byte checksums.
 - `std.parse`: byte scanners and integer/bool parsers returning `Maybe<T>`.
+- `std.regex`: compile-once regular expression matching for a documented ECMA-262-leaning subset (literals, classes, anchors, word boundaries, greedy quantifiers, alternation, groups); unsupported constructs fail with structured status codes.
 - `std.time`: duration construction, conversion, comparison, elapsed-window helpers, and target-gated clock helpers.
 - `std.rand`: explicit deterministic random sources, random bits, target entropy helpers, and caller-buffer entropy IDs.
 - `std.crypto`: small hash, fixed-width hash text, byte-oriented crypto helpers, and caller-buffer IDs.
@@ -721,6 +722,27 @@ entropyU32() -> u32
 entropySeed() -> RandSource
 entropyHex32(arg0: MutSpan<u8>) -> Maybe<Span<u8>>
 ```
+
+### std.regex
+
+```text
+compile(buffer: MutSpan<u8>, pattern: Span<u8>) -> Maybe<Span<u8>>
+compileStatus(buffer: MutSpan<u8>, pattern: Span<u8>) -> u32
+statusName(status: u32) -> String
+isMatch(program: Span<u8>, text: Span<u8>) -> Bool
+matches(pattern: Span<u8>, text: Span<u8>) -> Maybe<Bool>
+```
+
+Supported pattern subset (ECMA-262-leaning, matching by codepoint, unanchored
+search like `RegExp.prototype.test`): literals, `.`, classes with negation,
+ranges, and `\d \D \w \W \s \S`, anchors `^` `$`, word boundaries `\b` `\B`,
+greedy quantifiers `* + ? {m} {m,} {m,n}`, alternation `|`, capturing and
+`(?:...)` groups (matching only). Compile once into a caller buffer, then call
+`isMatch` repeatedly. Unsupported constructs are compile errors with status
+codes: 1 backreference, 2 lookahead, 3 lookbehind, 4 named group, 5 lazy
+quantifier, 6 group modifier, 7 unicode property escape, 8 syntax, 9 quantifier
+range, 10 over buffer/2048-byte program limit, 11 pattern not UTF-8, 12 nesting
+depth over 32. `statusName` names a code for diagnostics.
 
 ### std.search
 

@@ -8753,6 +8753,7 @@ static const char *helper_module_name(const ZStdHelperInfo *helper) {
   if (strncmp(name, "std.url.", strlen("std.url.")) == 0) return "std.url";
   if (strncmp(name, "std.time.", strlen("std.time.")) == 0) return "std.time";
   if (strncmp(name, "std.rand.", strlen("std.rand.")) == 0) return "std.rand";
+  if (strncmp(name, "std.regex.", strlen("std.regex.")) == 0) return "std.regex";
   if (strncmp(name, "std.proc.", strlen("std.proc.")) == 0) return "std.proc";
   if (strncmp(name, "std.crypto.", strlen("std.crypto.")) == 0) return "std.crypto";
   if (strncmp(name, "std.net.", strlen("std.net.")) == 0) return "std.net";
@@ -8800,6 +8801,7 @@ static const char *helper_example_path(const ZStdHelperInfo *helper) {
   if (strcmp(module, "std.codec") == 0 || strcmp(module, "std.json") == 0) return "examples/std-data-formats.0";
   if (helper && helper->name && strncmp(helper->name, "std.url.", strlen("std.url.")) == 0) return "conformance/native/pass/std-codec-json-url.0";
   if (strcmp(module, "std.parse") == 0) return "examples/parse-cursor.0";
+  if (strcmp(module, "std.regex") == 0) return "conformance/native/pass/std-regex.0";
   if (strcmp(module, "std.time") == 0 || strcmp(module, "std.rand") == 0 || strcmp(module, "std.proc") == 0 || strcmp(module, "std.crypto") == 0) return "examples/std-platform.0";
   if (strcmp(module, "std.net") == 0) return "conformance/native/pass/std-net-http-breadth.0";
   if (strcmp(module, "std.http") == 0) return "conformance/native/pass/std-http-fetch.0";
