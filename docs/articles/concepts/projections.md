@@ -55,8 +55,9 @@ want a no-write drift check.
 ## No Silent Divergence
 
 `zero status` reports whether the projection is clean, missing, stale, conflicting, or unavailable.
-When the checked-in `.0` sources were edited after `zero.graph` was written, compiler-input commands such as `zero check`, `zero build`, `zero run`, and `zero test` refresh the store from the edited source before compiling and report the refresh on stderr.
-When the graph is the newer side, for example right after `zero patch`, those commands keep compiling `zero.graph` until `zero export` syncs the projection.
+When the checked-in `.0` sources were edited after `zero.graph` was written, commands that consume the store, including `zero check`, `zero build`, `zero run`, `zero test`, `zero query`, `zero view`, and `zero diff`, refresh the store from the edited source first and report the refresh on stderr.
+When the graph is the newer side, for example right after `zero patch`, those commands keep using `zero.graph` until `zero export` syncs the projection, and they say so on stderr.
+When both sides were edited independently, they fail with an `RGP006` diagnostic that offers `zero import` and `zero export` as repairs instead of picking a side.
 Set `ZERO_STALE=fail` to fail with an `RGP008` diagnostic instead of refreshing automatically.
 
 That rule prevents the worst ambiguity: an agent editing text, seeing `zero check` pass, and then running a binary built from different code.

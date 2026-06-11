@@ -11,11 +11,18 @@ typedef struct {
   size_t unchanged_count;
 } ZProgramGraphProjection;
 
+typedef enum {
+  Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN = 0,
+  Z_PROGRAM_GRAPH_PROJECTION_SYNC_SOURCE_NEWER,
+  Z_PROGRAM_GRAPH_PROJECTION_SYNC_STORE_NEWER,
+  Z_PROGRAM_GRAPH_PROJECTION_SYNC_DIVERGED,
+} ZProgramGraphProjectionSourceSync;
+
 void z_program_graph_projection_init(ZProgramGraphProjection *projection);
 void z_program_graph_projection_free(ZProgramGraphProjection *projection);
 bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, const ZTargetInfo *target, bool *matches, ZDiag *diag);
 bool z_program_graph_projection_source_files_match(const ZProgramGraphStore *store, bool *matches, ZDiag *diag);
-bool z_program_graph_projection_source_files_edited_after_store(const ZProgramGraphStore *store, bool *edited_after_store, ZDiag *diag);
+bool z_program_graph_projection_source_sync_state(const ZProgramGraphStore *store, ZProgramGraphProjectionSourceSync *sync, ZDiag *diag);
 bool z_program_graph_projection_sources_missing(const ZProgramGraphStore *store);
 const char *z_program_graph_projection_state_label(const ZProgramGraphStore *store, const ZTargetInfo *target, bool *checked, bool *current, ZDiag *diag);
 bool z_program_graph_projection_write_sources(const ZProgramGraphStore *store, const ZTargetInfo *target, ZProgramGraphProjection *projection, ZDiag *diag);

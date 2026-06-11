@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,6 +34,12 @@ function zero(args, options: { allowFailure?: boolean; env?: Record<string, stri
       stderr: error.stderr?.toString() ?? "",
     };
   }
+}
+
+function zeroWithStderr(args, options: { cwd?: string } = {}) {
+  const result = spawnSync(zeroBin, args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], cwd: options.cwd });
+  if (result.error) throw result.error;
+  return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
 function zeroRaw(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
@@ -1589,6 +1595,61 @@ assert.equal(zero(["check", staleRunSource]).stdout, "ok\n");
 writeFileSync(staleRunSource, 'pub fn main(world: World) -> Void raises {\n    check world.out.write("stale run five\\n")\n}\n');
 assert.equal(zero(["run", staleRunSource]).stdout, "stale run five\n");
 assert.equal(json(["status", "--json", staleRunRoot]).body.repositoryGraph.projectionState, "clean");
+const staleMultiRoot = join("/tmp", `zero-repo-graph-stale-multi-${process.pid}`);
+const staleMultiStore = join(staleMultiRoot, "zero.graph");
+const staleMultiHelper = join(staleMultiRoot, "src", "math.0");
+rmSync(staleMultiRoot, { force: true, recursive: true });
+assert.equal(json(["init", "--json", staleMultiRoot]).body.ok, true);
+mkdirSync(join(staleMultiRoot, "src"), { recursive: true });
+writeFileSync(
+  join(staleMultiRoot, "src", "main.0"),
+  'use math\n\npub fn main(world: World) -> Void raises {\n    if add_one(41) == 42 {\n        check world.out.write("stale multi one\\n")\n    }\n    if add_one(41) == 43 {\n        check world.out.write("stale multi two\\n")\n    }\n}\n',
+);
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n");
+assert.equal(json(["import", "--json", staleMultiRoot]).body.ok, true);
+assert.equal(zero(["run", staleMultiRoot]).stdout, "stale multi one\n");
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 2\n}\n");
+const staleMultiCheck = zeroWithStderr(["check"], { cwd: staleMultiRoot });
+assert.equal(staleMultiCheck.code, 0);
+assert.equal(staleMultiCheck.stdout, "ok\n");
+assert.match(staleMultiCheck.stderr, /note: zero check refreshed zero\.graph from the edited package source projection/);
+assert.equal(json(["status", "--json", staleMultiRoot]).body.repositoryGraph.projectionState, "clean");
+assert.equal(zero(["run", staleMultiRoot]).stdout, "stale multi two\n");
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n");
+const staleMultiStoreCheck = zeroWithStderr(["check", staleMultiStore]);
+assert.equal(staleMultiStoreCheck.code, 0);
+assert.equal(staleMultiStoreCheck.stdout, "ok\n");
+assert.match(staleMultiStoreCheck.stderr, /note: zero check refreshed zero\.graph from the edited package source projection/);
+assert.equal(json(["status", "--json", staleMultiRoot]).body.repositoryGraph.projectionState, "clean");
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 2\n}\n");
+const staleMultiBuild = zeroWithStderr(["build", staleMultiStore]);
+assert.equal(staleMultiBuild.code, 0);
+assert.match(staleMultiBuild.stderr, /note: zero build refreshed zero\.graph from the edited package source projection/);
+assert.equal(zero(["run", staleMultiRoot]).stdout, "stale multi two\n");
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 1\n}\n");
+const staleMultiView = zeroWithStderr(["view", "--fn", "add_one", staleMultiRoot]);
+assert.equal(staleMultiView.code, 0);
+assert.match(staleMultiView.stdout, /return value \+ 1/);
+assert.match(staleMultiView.stderr, /note: zero view refreshed zero\.graph from the edited package source projection/);
+assert.equal(json(["status", "--json", staleMultiRoot]).body.repositoryGraph.projectionState, "clean");
+const staleMultiPatch = json(["patch", "--json", staleMultiRoot, "--op", 'addLetLiteral fn="main" name="patched" type="u32" value="7"']);
+assert.equal(staleMultiPatch.body.ok, true);
+const staleMultiGraphNewerBuild = zeroWithStderr(["build", staleMultiRoot]);
+assert.equal(staleMultiGraphNewerBuild.code, 0);
+assert.match(staleMultiGraphNewerBuild.stderr, /note: zero build is using zero\.graph, which is newer than the \.0 source projection/);
+writeFileSync(staleMultiHelper, "pub fn add_one(value: i32) -> i32 {\n    return value + 2\n}\n");
+const staleMultiDiverged = json(["check", "--json", staleMultiRoot], { allowFailure: true });
+assert.notEqual(staleMultiDiverged.code, 0);
+assert.equal(staleMultiDiverged.body.diagnostics[0].code, "RGP006");
+assert.match(staleMultiDiverged.body.diagnostics[0].message, /have diverged/);
+assert.match(staleMultiDiverged.body.repairCommands.join("\n"), /zero import/);
+assert.match(staleMultiDiverged.body.repairCommands.join("\n"), /zero export/);
+const staleMultiDivergedBuild = json(["build", "--json", staleMultiRoot], { allowFailure: true });
+assert.notEqual(staleMultiDivergedBuild.code, 0);
+assert.equal(staleMultiDivergedBuild.body.diagnostics[0].code, "RGP006");
+assert.equal(json(["import", "--json", staleMultiRoot]).body.ok, true);
+assert.equal(zero(["run", staleMultiRoot]).stdout, "stale multi two\n");
+assert.equal(json(["status", "--json", staleMultiRoot]).body.repositoryGraph.projectionState, "clean");
 const reconcileScaleRoot = join("/tmp", `zero-reconcile-scale-${process.pid}`);
 const reconcileScaleSource = join(reconcileScaleRoot, "src", "main.0");
 rmSync(reconcileScaleRoot, { force: true, recursive: true });

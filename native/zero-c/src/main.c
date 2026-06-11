@@ -13434,47 +13434,57 @@ static bool resolve_graph_command_manifest_input(Command *command, bool *artifac
   return true;
 }
 
-static bool manifest_graph_store_source_stale(const char *input) {
+static ZProgramGraphProjectionSourceSync manifest_graph_store_source_sync(const char *input) {
   char *root = z_program_graph_store_root_for_input(input);
   char *store_path = root ? z_program_graph_store_path_for_root(root) : NULL;
-  bool stale = false;
+  ZProgramGraphProjectionSourceSync sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN;
   if (store_path && z_program_graph_store_path_exists(store_path)) {
     ZProgramGraphStore store;
     ZDiag store_diag = {0};
     if (z_program_graph_store_load_path(store_path, &store, &store_diag)) {
       if (!z_program_graph_projection_sources_missing(&store)) {
-        bool edited_after_store = false;
-        ZDiag edited_diag = {0};
-        if (z_program_graph_projection_source_files_edited_after_store(&store, &edited_after_store, &edited_diag)) stale = edited_after_store;
+        ZProgramGraphProjectionSourceSync store_sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN;
+        ZDiag sync_diag = {0};
+        if (z_program_graph_projection_source_sync_state(&store, &store_sync, &sync_diag)) sync = store_sync;
       }
       z_program_graph_store_free(&store);
     }
   }
   free(store_path);
   free(root);
-  return stale;
+  return sync;
 }
 
-static int refresh_stale_manifest_graph_input(const Command *command, const ZTargetInfo *target) {
-  if (!manifest_graph_store_source_stale(command->input)) return 0;
+static int resolve_manifest_graph_input_sync(const Command *command, const ZTargetInfo *target, const char *source_input_path) {
+  const char *input = source_input_path ? source_input_path : command->input;
+  ZProgramGraphProjectionSourceSync sync = manifest_graph_store_source_sync(input);
+  if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN) return 0;
+  if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_STORE_NEWER) {
+    fprintf(stderr, "note: zero %s is using zero.graph, which is newer than the .0 source projection; run zero export to sync sources or zero import to make the edited source authoritative\n", command->command ? command->command : "build");
+    return 0;
+  }
+  if (sync == Z_PROGRAM_GRAPH_PROJECTION_SYNC_DIVERGED) {
+    return z_repository_graph_diverged_compiler_input_error(input, target, command->json);
+  }
   const char *stale_mode = getenv("ZERO_STALE");
   if (stale_mode && strcmp(stale_mode, "fail") == 0) {
-    return z_repository_graph_stale_compiler_input_error(command->input, target, command->json);
+    return z_repository_graph_stale_compiler_input_error(input, target, command->json);
   }
   Command load_command = *command;
+  load_command.input = input;
   load_command.out = NULL;
   SourceInput source_input = {0};
   Program source_program = {0};
   ZProgramGraph source_graph = {0};
   ZDiag diag = {0};
   if (!load_graph_from_checked_current_source(&load_command, target, &source_input, &source_program, &source_graph, NULL, &diag)) {
-    print_command_diag(command, diag.path ? diag.path : command->input, &diag);
+    print_command_diag(command, diag.path ? diag.path : input, &diag);
     z_program_graph_free(&source_graph);
     z_free_program(&source_program);
     z_free_source(&source_input);
     return 1;
   }
-  int rc = z_repository_graph_refresh_compiler_store(command->input, target, command->json, &source_graph);
+  int rc = z_repository_graph_refresh_compiler_store(input, target, command->json, &source_graph);
   z_program_graph_free(&source_graph);
   z_free_program(&source_program);
   z_free_source(&source_input);
@@ -13482,11 +13492,24 @@ static int refresh_stale_manifest_graph_input(const Command *command, const ZTar
   return rc;
 }
 
+static int refresh_stale_manifest_graph_input(const Command *command, const ZTargetInfo *target) {
+  return resolve_manifest_graph_input_sync(command, target, NULL);
+}
+
+static bool input_is_package_store_path(const char *input) {
+  if (!input || !direct_file_exists(input)) return false;
+  const char *name = strrchr(input, '/');
+  name = name ? name + 1 : input;
+  return strcmp(name, "zero.graph") == 0;
+}
+
 static void resolve_compiler_command_package_source_input(Command *command) {
   if (!command || !command->input) return;
   if (!z_program_graph_manifest_command_can_use_compiler_input(command->command)) return;
-  if (!is_zero_source_path(command->input) || !direct_file_exists(command->input)) return;
-  char *root = z_program_graph_store_root_for_input(command->input);
+  bool source_input = is_zero_source_path(command->input) && direct_file_exists(command->input);
+  bool store_input = !source_input && input_is_package_store_path(command->input);
+  if (!source_input && !store_input) return;
+  char *root = store_input ? direct_dirname_of(command->input) : z_program_graph_store_root_for_input(command->input);
   char *manifest_path = root ? z_manifest_path_for_root(root) : NULL;
   if (manifest_path) {
     command_set_owned_input(command, root);
@@ -13623,6 +13646,38 @@ static int run_repository_graph_check_command(Command *command, const ZTargetInf
   return ok ? 0 : 1;
 }
 
+static bool graph_subcommand_consumes_package_store(const char *kind) {
+  static const char *const kinds[] = {"query", "view", "diff", "inspect", "source-map", "dump", "size", "roundtrip", "patch"};
+  for (size_t i = 0; kind && i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+    if (strcmp(kind, kinds[i]) == 0) return true;
+  }
+  return false;
+}
+
+static int resolve_graph_subcommand_store_input_sync(const Command *command, const ZTargetInfo *target) {
+  if (!command || !graph_subcommand_consumes_package_store(command->kind)) return 0;
+  if (!command->input || !path_has_program_graph_storage_header(command->input)) return 0;
+  const char *source_input = command->repository_graph_input ? command->repository_graph_source_input : NULL;
+  char *owned_root = NULL;
+  if (!source_input) {
+    if (!input_is_package_store_path(command->input)) return 0;
+    owned_root = direct_dirname_of(command->input);
+    source_input = owned_root;
+  }
+  char *root = source_input ? z_program_graph_store_root_for_input(source_input) : NULL;
+  char *manifest_path = root ? z_manifest_path_for_root(root) : NULL;
+  bool manifest_package = manifest_path != NULL;
+  free(manifest_path);
+  free(root);
+  if (!manifest_package) {
+    free(owned_root);
+    return 0;
+  }
+  int rc = resolve_manifest_graph_input_sync(command, target, source_input);
+  free(owned_root);
+  return rc;
+}
+
 static int run_graph_subcommand_dispatch(Command *command, const ZTargetInfo *target, bool graph_command_artifact_input, ZDiag *diag, bool *handled) {
   if (handled) *handled = false;
   if (!command_is_program_graph_command(command)) return 0;
@@ -13679,6 +13734,8 @@ static int run_graph_subcommand_dispatch(Command *command, const ZTargetInfo *ta
   z_program_graph_free(&repo_source_graph); z_free_program(&repo_graph_program); z_free_source(&repo_graph_input);
   free(repo_package_input);
   if (repo_graph_command) return repo_graph_rc;
+  int store_sync_rc = resolve_graph_subcommand_store_input_sync(command, target);
+  if (store_sync_rc != 0) return store_sync_rc;
   if (graph_check_text_eq(command->kind, "validate")) return run_graph_validate_command(command, target, diag);
   if (graph_check_text_eq(command->kind, "dump")) return run_graph_dump_input_command(command, target, diag, false);
   if (graph_check_text_eq(command->kind, "import")) return run_graph_dump_input_command(command, target, diag, true);

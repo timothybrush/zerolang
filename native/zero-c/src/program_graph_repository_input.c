@@ -218,6 +218,20 @@ int z_repository_graph_stale_compiler_input_error(const char *input, const ZTarg
   return rc;
 }
 
+int z_repository_graph_diverged_compiler_input_error(const char *input, const ZTargetInfo *target, bool json) {
+  RepositoryGraphInputState state = input_state(input, target);
+  int rc = input_error(&state,
+                       json,
+                       "RGP006",
+                       "package source projection and zero.graph have diverged",
+                       "checked-in .0 source text matching zero.graph projection",
+                       "source projection and zero.graph edited independently",
+                       "run zero status to inspect the drift, then run zero import if the .0 projection is authoritative or zero export if zero.graph is authoritative",
+                       REPO_GRAPH_REPAIR_IMPORT_OR_EXPORT);
+  input_state_free(&state);
+  return rc;
+}
+
 int z_repository_graph_verify_compiler_input(const char *input, const ZTargetInfo *target, bool json, char **out_store_path) {
   if (out_store_path) *out_store_path = NULL;
   RepositoryGraphInputState state = input_state(input, target);

@@ -499,13 +499,13 @@ static long long projection_path_mtime_ns(const char *path) {
 #endif
 }
 
-bool z_program_graph_projection_source_files_edited_after_store(const ZProgramGraphStore *store, bool *edited_after_store, ZDiag *diag) {
-  if (edited_after_store) *edited_after_store = false;
+bool z_program_graph_projection_source_sync_state(const ZProgramGraphStore *store, ZProgramGraphProjectionSourceSync *sync, ZDiag *diag) {
+  if (sync) *sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_CLEAN;
   if (!store || store->projection_len == 0) return false;
   long long store_mtime = projection_path_mtime_ns(store->path);
-  if (store_mtime < 0) return false;
   bool any_changed = false;
   bool all_changed_newer = true;
+  bool all_changed_older = true;
   for (size_t i = 0; i < store->projection_len; i++) {
     bool file_matches = false;
     if (!projection_source_text_matches(store, store->projection_paths[i], &file_matches, diag)) return false;
@@ -514,9 +514,19 @@ bool z_program_graph_projection_source_files_edited_after_store(const ZProgramGr
     char *path = projection_join_path(store->root, store->projection_paths[i]);
     long long file_mtime = projection_path_mtime_ns(path);
     free(path);
-    if (file_mtime < 0 || file_mtime <= store_mtime) all_changed_newer = false;
+    if (store_mtime < 0 || file_mtime < 0) {
+      all_changed_newer = false;
+      all_changed_older = false;
+      continue;
+    }
+    if (file_mtime <= store_mtime) all_changed_newer = false;
+    if (file_mtime >= store_mtime) all_changed_older = false;
   }
-  if (edited_after_store) *edited_after_store = any_changed && all_changed_newer;
+  if (sync && any_changed) {
+    if (all_changed_newer) *sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_SOURCE_NEWER;
+    else if (all_changed_older) *sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_STORE_NEWER;
+    else *sync = Z_PROGRAM_GRAPH_PROJECTION_SYNC_DIVERGED;
+  }
   return true;
 }
 

@@ -562,11 +562,19 @@ static void store_sort_projections(ZProgramGraphStore *store) {
 }
 
 static const ZStdSourceModule *store_std_source_module_for_path(const char *path) {
-  for (size_t i = 0; path && i < z_std_source_module_count(); i++) {
+  if (!path) return NULL;
+  /*
+   * Only dir-less paths and std/<module>.0 paths may match by basename.
+   * Package files such as src/math.0 share basenames with embedded std
+   * modules and must keep their checked-in source projection rows.
+   */
+  const char *base = store_basename(path);
+  bool basename_candidate = base == path || (strncmp(path, "std/", 4) == 0 && strchr(path + 4, '/') == NULL);
+  for (size_t i = 0; i < z_std_source_module_count(); i++) {
     const ZStdSourceModule *module = z_std_source_module_at(i);
-    if (module &&
-        (store_text_eq(module->path, path) ||
-         store_text_eq(store_basename(module->path), store_basename(path)))) return module;
+    if (!module) continue;
+    if (store_text_eq(module->path, path)) return module;
+    if (basename_candidate && store_text_eq(store_basename(module->path), base)) return module;
   }
   return NULL;
 }
