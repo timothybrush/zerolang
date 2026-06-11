@@ -936,7 +936,6 @@ const passCheckFixtures = [
   "conformance/check/pass/std-mem-field-items.0",
   "conformance/check/pass/std-mem-field-slice.0",
   "conformance/check/pass/fixed-array-length-match.0",
-  "conformance/check/pass/package",
   "conformance/check/pass/imports",
   "examples/memory-package",
   "examples/const-arithmetic.0",
@@ -954,6 +953,7 @@ await mapLimit(passCheckFixtures, checkJobs, (fixture, _index, workerIndex) => c
 // Fixtures using the gated typed graph MIR constructs fail check with the
 // same BLD004 diagnostics zero build reports for their graph stores.
 const gateBlockedCheckFixtures = [
+  "conformance/check/pass/package",
   "conformance/native/pass/variants-defer-stdlib.0",
   "conformance/native/pass/defer-return-raise-nested.0",
   "conformance/native/pass/payload-match.0",
