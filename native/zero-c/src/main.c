@@ -11020,6 +11020,38 @@ static bool check_diag_is_buildability_blocker(const ZDiag *diag) {
   return strcmp(diag->backend_blocker.stage, "lower") == 0;
 }
 
+static bool graph_type_decl_is_enum_or_choice(const ZProgramGraph *graph, const char *name) {
+  if (!graph || !name || !name[0]) return false;
+  for (size_t i = 0; i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_ENUM && node->kind != Z_PROGRAM_GRAPH_NODE_CHOICE) continue;
+    if (node->name && strcmp(node->name, name) == 0) return true;
+  }
+  return false;
+}
+
+/*
+ * The gate starts with the typed graph MIR gaps agents hit most often, so
+ * conformance check-pass coverage for the remaining gaps stays valid while
+ * each gap either gains lowering support or migrates to a check-failure
+ * contract. Every gated construct fails `zero build` identically today; the
+ * list only controls how much of that build signal check surfaces early.
+ */
+static bool check_gate_diag_is_known_construct(const ZProgramGraph *graph, const ZDiag *diag) {
+  if (!diag) return false;
+  const char *message = diag->message;
+  const char *actual = diag->actual;
+  if (strcmp(message, "typed graph MIR statement kind is unsupported") == 0) return strcmp(actual, "Defer") == 0;
+  if (strcmp(message, "typed graph MIR local type is unsupported") == 0) return graph_type_decl_is_enum_or_choice(graph, actual);
+  if (strcmp(message, "typed graph MIR rescue supports fallible function calls with primitive fallbacks") == 0) return true;
+  if (strcmp(message, "typed graph MIR literal type is unsupported") == 0) return strcmp(actual, "String") == 0;
+  if (strcmp(message, "typed graph MIR parameter type is unsupported") == 0) return strcmp(actual, "ref<ByteBuf>") == 0;
+  if (strcmp(message, "typed graph MIR reference parameter requires a shape whose fields are scalars or fixed scalar arrays") == 0) return strcmp(actual, "ref<ByteBuf>") == 0;
+  if (strcmp(message, "typed graph MIR call target is unsupported") == 0) return strcmp(actual, "readU32") == 0;
+  if (strcmp(message, "typed graph MIR allocator local requires FixedBufAlloc") == 0) return strcmp(actual, "PageAlloc") == 0 || strcmp(actual, "GeneralAlloc") == 0;
+  return false;
+}
+
 static bool graph_check_buildability_gate_applies(const ZProgramGraph *graph) {
   if (!z_program_graph_has_direct_entry_function(graph)) return false;
   HttpListenSpec listen = {0};
@@ -11033,6 +11065,7 @@ static bool check_gate_buildability_blocked(const Command *command, const Source
   ZDiag diag = {0};
   init_lowering_backend_diag(&diag, input, target, command, ir);
   if (!check_diag_is_buildability_blocker(&diag)) return false;
+  if (!check_gate_diag_is_known_construct(graph, &diag)) return false;
   if (input) {
     if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
     if (!diag.path) diag.path = input->source_file;
@@ -11041,6 +11074,27 @@ static bool check_gate_buildability_blocked(const Command *command, const Source
   z_diag_set_path_copy(&diag, diag.path);
   if (out_diag) *out_diag = diag;
   return true;
+}
+
+/*
+ * Build parity for unmerged graph inputs: graph artifact check and import
+ * gate graphs have not merged embedded std modules yet, while build's MIR
+ * preparation merges them before lowering. Lower a merged clone so the gate
+ * only blocks programs zero build would also reject.
+ */
+static bool check_gate_merged_graph_blocked(const Command *command, const SourceInput *input, const ZTargetInfo *target, const ZProgramGraph *graph, ZDiag *out_diag) {
+  if (!graph || !graph_check_buildability_gate_applies(graph)) return false;
+  ZProgramGraph merged = {0};
+  if (!z_program_graph_clone(graph, &merged)) return false;
+  ZDiag merge_diag = {0};
+  bool blocked = false;
+  if (z_program_graph_merge_embedded_std_graph_modules(&merged, input, &merge_diag)) {
+    IrProgram merged_ir = z_lower_program_graph_with_source(&merged, input, target);
+    blocked = check_gate_buildability_blocked(command, input, target, &merged, &merged_ir, out_diag);
+    z_free_ir_program(&merged_ir);
+  }
+  z_program_graph_free(&merged);
+  return blocked;
 }
 
 /*
@@ -13176,7 +13230,9 @@ static bool append_graph_artifact_target_readiness_json(ZBuf *buf, SourceInput *
   if (ready && !ir.mir_valid) { init_lowering_backend_diag(&readiness_diag, input, target, command, &ir); ready = false; }
   if (ready && !repository_graph_target_readiness_select_diag(command, input, target, &ir, &readiness_diag)) ready = false;
   if (!ready && diag) *diag = readiness_diag;
-  if (!ready && blocked_out && blocked_diag) *blocked_out = check_gate_buildability_blocked(command, input, target, graph, &ir, blocked_diag);
+  if (!ready && blocked_out && blocked_diag && !ir.mir_valid && !z_std_source_path_is_module_artifact(command ? command->input : NULL)) {
+    *blocked_out = check_gate_merged_graph_blocked(command, input, target, graph, blocked_diag);
+  }
   append_target_readiness_result_json(buf, input, NULL, target, command, &ir, &readiness_diag, ready);
   z_free_ir_program(&ir); return ready;
 }
@@ -13583,7 +13639,8 @@ static int run_repository_graph_check_command(Command *command, const ZTargetInf
   if (ok && command->json) {
     repository_graph_check_readiness_compute(command, &input, &store, target, &readiness);
     if (gate_applies && !readiness.ready) {
-      if (!readiness.prepared && readiness.graph_mir_used && check_diag_is_buildability_blocker(&readiness.diag)) {
+      if (!readiness.prepared && readiness.graph_mir_used && check_diag_is_buildability_blocker(&readiness.diag) &&
+          check_gate_diag_is_known_construct(&store.graph, &readiness.diag)) {
         diag = readiness.diag;
         ok = false;
       } else if (readiness.prepared && check_gate_buildability_blocked(command, &input, target, &store.graph, &readiness.ir, &diag)) {
@@ -13654,10 +13711,8 @@ static int run_graph_subcommand_dispatch(Command *command, const ZTargetInfo *ta
    */
   if (repo_has_source_graph && repository_graph_command_loads_checked_source(&repo_graph_load_command) &&
       graph_check_buildability_gate_applies(&repo_source_graph)) {
-    IrProgram import_ir = z_lower_program_graph_with_source(&repo_source_graph, &repo_graph_input, target);
     ZDiag import_gate_diag = {0};
-    bool import_blocked = check_gate_buildability_blocked(&repo_graph_load_command, &repo_graph_input, target, &repo_source_graph, &import_ir, &import_gate_diag);
-    z_free_ir_program(&import_ir);
+    bool import_blocked = check_gate_merged_graph_blocked(&repo_graph_load_command, &repo_graph_input, target, &repo_source_graph, &import_gate_diag);
     if (import_blocked) {
       if (command->json) print_command_diag_json(command, import_gate_diag.path ? import_gate_diag.path : command->input, &import_gate_diag);
       else print_diag(import_gate_diag.path ? import_gate_diag.path : command->input, &import_gate_diag);
