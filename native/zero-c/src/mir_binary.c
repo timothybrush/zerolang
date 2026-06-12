@@ -242,7 +242,7 @@ enum {
 static void mir_diag(ZDiag *diag, const char *path, const char *message, const char *actual) {
   if (!diag) return;
   *diag = (ZDiag){0};
-  diag->code = 1002;
+  diag->code = 2002;
   diag->path = path;
   diag->line = 1;
   diag->column = 1;

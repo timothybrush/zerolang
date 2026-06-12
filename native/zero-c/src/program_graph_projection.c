@@ -79,7 +79,7 @@ static void projection_set_io_diag(ZDiag *diag, const char *path, const char *ac
 
 static bool projection_set_path_diag(ZDiag *diag, const ZProgramGraphStore *store, const char *message, const char *actual) {
   if (diag) {
-    diag->code = 1002;
+    diag->code = 1008;
     diag->path = store && store->path ? store->path : "zero.graph";
     diag->line = 1;
     diag->column = 1;
@@ -408,7 +408,7 @@ static bool projection_source_text(const ZProgramGraphStore *store, const char *
   if (!z_program_graph_store_source_path_is_local(source_path)) {
     if (out) *out = NULL;
     if (diag) {
-      diag->code = 1002;
+      diag->code = 1008;
       diag->path = store && store->path ? store->path : "zero.graph";
       diag->line = 1;
       diag->column = 1;
@@ -423,7 +423,7 @@ static bool projection_source_text(const ZProgramGraphStore *store, const char *
   if (out) *out = text;
   if (!text) {
     if (diag) {
-      diag->code = 1002;
+      diag->code = 1008;
       diag->path = store && store->path ? store->path : "zero.graph";
       diag->line = 1;
       diag->column = 1;
@@ -480,7 +480,7 @@ bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, c
   if (matches) *matches = false;
   if (!store || store->projection_len == 0) {
     if (diag) {
-      diag->code = 1002;
+      diag->code = 1008;
       diag->path = store && store->path ? store->path : "zero.graph";
       diag->line = 1;
       diag->column = 1;

@@ -83,7 +83,7 @@ static char *binary_dirname(const char *path) {
 static bool binary_diag(ZDiag *diag, const char *path, const char *message, const char *actual) {
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1002;
+    diag->code = 1004;
     diag->path = path;
     diag->line = 1;
     diag->column = 1;
@@ -91,6 +91,7 @@ static bool binary_diag(ZDiag *diag, const char *path, const char *message, cons
     snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "invalid repository graph store");
     snprintf(diag->expected, sizeof(diag->expected), "valid zero.graph repository graph store");
     snprintf(diag->actual, sizeof(diag->actual), "%s", actual ? actual : "invalid binary store");
+    snprintf(diag->help, sizeof(diag->help), "the store was likely written by a different zero build; rebuild it with this binary via `zero import .` or install the matching compiler");
   }
   return false;
 }

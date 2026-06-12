@@ -631,7 +631,7 @@ fail:
 static bool graph_format_storage_validation_fail(const char *path, const ZProgramGraphValidation *validation, ZDiag *diag) {
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1001;
+    diag->code = 1005;
     diag->path = path;
     diag->line = 1;
     diag->column = 1;

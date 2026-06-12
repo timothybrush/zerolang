@@ -385,7 +385,7 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
   if (!module || !module->graph_bytes || module->graph_len == 0) {
     if (diag) {
       *diag = (ZDiag){0};
-      diag->code = 1001;
+      diag->code = 2002;
       diag->path = module ? module->path : "std";
       diag->line = 1;
       diag->column = 1;
@@ -409,7 +409,7 @@ bool z_std_source_module_load_graph(const ZStdSourceModule *module, ZProgramGrap
       ok = z_program_graph_validate(out, &validation);
       if (!ok && diag) {
         *diag = (ZDiag){0};
-        diag->code = 1001;
+        diag->code = 2002;
         diag->path = module->path;
         diag->line = 1;
         diag->column = 1;

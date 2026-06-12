@@ -175,10 +175,18 @@ static const char *diag_code(int code) {
     case 1001: return "ERR001";
     case 1002: return "ERR002";
     case 1003: return "ERR003";
+    case 1004: return "RGP009";
+    case 1005: return "RGP003";
+    case 1006: return "RGP007";
+    case 1007: return "RGP007";
+    case 1008: return "RGP004";
+    case 1009: return "RGP006";
+    case 1010: return "RGM002";
     case 2001: return "APP001";
     case 2002: return "BLD002";
     case 2003: return "BLD003";
     case 2004: return "BLD004";
+    case 3001: return "NAM002";
     case 3002: return "NAM002";
     case 3003: return "NAM003";
     case 3004: return "NAM004";
@@ -201,7 +209,6 @@ static const char *diag_code(int code) {
     case 3021: return "TYP015";
     case 3022: return "TYP016";
     case 3023: return "TYP017";
-    case 3024: return "TYP018";
     case 3025: return "TYP019";
     case 3026: return "TYP020";
     case 3027: return "TYP021";
@@ -243,7 +250,6 @@ static const char *diag_code(int code) {
     case 3110: return "MAT004";
     case 3111: return "MAT005";
     case 4004: return "CGEN004";
-    case 5001: return "WEB001";
     case 6001: return "TAR001";
     case 6002: return "TAR002";
     case 7001: return "IMP001";
@@ -3229,6 +3235,13 @@ static const char *diag_repair_id(int code) {
     case 1001: return "add-fallible-marker-or-rescue";
     case 1002: return "add-missing-error-name";
     case 1003: return "check-or-rescue-fallible-call";
+    case 1004: return "rebuild-store-with-matching-compiler";
+    case 1005: return "reimport-repository-graph-store";
+    case 1006: return "resolve-source-identity";
+    case 1007: return "resolve-source-identity";
+    case 1008: return "regenerate-source-projection";
+    case 1009: return "reconcile-projection-with-store";
+    case 1010: return "resolve-repository-graph-merge-conflict";
     case 7001: return "fix-import-path";
     case 7002: return "break-import-cycle";
     case 3003: return "declare-missing-symbol";
@@ -3286,6 +3299,13 @@ static const char *diag_repair_summary(int code) {
     case 1001: return "Add `raises` or an explicit error set to the function signature, or handle the fallible expression with rescue.";
     case 1002: return "Add the missing error name to the `raises [...]` set or rescue the call locally.";
     case 1003: return "Wrap the fallible call in check or rescue so error flow is explicit.";
+    case 1004: return "Rebuild zero.graph with this binary via `zero import .`, or install the zero build that wrote the store.";
+    case 1005: return "Run zero import after reviewing the source projection so the store is rebuilt from source.";
+    case 1006: return "Split the text edit into smaller passes or make the change with zero patch so graph identity stays unambiguous.";
+    case 1007: return "Add package.name to zero.toml or zero.json so it matches the zero.graph module identity.";
+    case 1008: return "Fix the projection target path or rerun zero export after reviewing graph changes.";
+    case 1009: return "Review the diff, then run zero import if the .0 projection is authoritative or zero export if zero.graph is authoritative.";
+    case 1010: return "Resolve the conflicting graph node or edge before merging.";
     case 7001: return "Change the import to a package-local module path that resolves under src/.";
     case 7002: return "Break the import cycle by moving shared declarations into a third module or removing one import edge.";
     case 3003: return "Declare the referenced symbol, import the module that provides it, or correct the identifier spelling.";
@@ -3729,6 +3749,105 @@ static const ExplainInfo explain_infos[] = {
   },
   {"BLD004", "build", "Backend target not buildable", "The selected backend cannot build this source, target, object format, architecture, or artifact kind.", "Target-aware buildability runs before object or executable emission and reports backend limitations with structured blocker facts.", "Choose a target whose `zero targets --json` backend facts advertise the requested artifact, or simplify the program to the backend-supported subset.", "zero check --json --emit obj --target linux-arm64 examples/direct-call-add.graph", "zero check --json --emit obj --target linux-x64 examples/direct-call-add.graph"},
   {"CGEN004", "codegen", "Direct code generation invariant failed", "A direct emitter reached an internal code generation invariant after target buildability accepted the program.", "Ordinary unsupported targets and source features should be reported before emission with BLD004.", "Report this compiler bug with the source program and target that produced it.", "zero build --json --emit obj --target linux-musl-x64 examples/direct-call-add.graph", "zero build --json --emit obj --target linux-x64 examples/direct-call-add.graph"},
+  {"APP001", "app", "Missing main function", "An executable build needs an entry point but the program declares no main function and no test blocks.", "Executable targets resolve one deterministic `pub fn main` entry point from the program graph.", "Add `pub fn main() -> Void` (optionally taking `world: World`), or build a library target instead.", "fn helper() -> i32 {\n    return 1\n}", "pub fn main() -> Void {\n    return\n}"},
+  {"BLD002", "build", "Build input or build stage failed", "The command could not load or build its input: the path is not a Zero source file, package, or graph store, or an internal build stage such as graph construction or canonical rendering failed.", "Compiler commands resolve a concrete graph or package input before any emission stage runs, so unusable input fails early with the failing stage named.", "Point the command at a package root, zero.toml, zero.graph, or .0 source file, and run `zero check` on the package to see the underlying source diagnostics.", "zero build does-not-exist.0", "zero build examples/hello.graph"},
+  {"NAM002", "name", "Duplicate declaration", "A parameter, local binding, or declaration reuses a name that is already declared in the same scope.", "Zero rejects shadowing so graph identities, reads, and patches stay unambiguous.", "Rename one of the conflicting declarations.", "fn add(value: i32, value: i32) -> i32 {\n    return value\n}", "fn add(left: i32, right: i32) -> i32 {\n    return left + right\n}"},
+  {"NAM003", "name", "Unknown name", "An identifier, type name, or CLI input such as a diagnostic code does not resolve to any visible declaration.", "Zero resolves every name against explicit declarations and fails with close matches instead of guessing.", "Declare the name, import the module that provides it, or fix the spelling using the close matches in the diagnostic.", "let total: i32 = cuont", "let total: i32 = count"},
+  {"NAM004", "name", "Wrong argument count or duplicate field", "A call passes the wrong number of arguments, or a shape literal initializes the same field twice.", "Call arity and shape field lists are fixed by the declaration, so mismatches fail instead of filling defaults.", "Match the declared parameter list exactly and initialize each shape field once.", "check world.out.write(\"a\", \"b\")", "check world.out.write(\"ab\")"},
+  {"TYP001", "type", "Invalid call", "A call target is not a function, or an argument type does not match the declared parameter type.", "Calls resolve statically against graph signatures and no implicit conversions are applied.", "Call a declared function and pass each argument with the exact declared parameter type.", "let n: i32 = add(1, \"two\")", "let n: i32 = add(1, 2)"},
+  {"TYP002", "type", "Type mismatch", "Two sides of a binding, assignment, operator, comparison, or literal disagree about the concrete type.", "Zero never converts implicitly, so every typed position must already agree on one concrete type.", "Change one side so the types match, or cast explicitly for numeric conversions.", "let n: i32 = 1_u8", "let n: i32 = 1"},
+  {"TYP003", "type", "Return type mismatch", "A function returns a value whose type does not match the declared return type, or a non-void function misses a return on some path.", "The declared return type is part of the function contract that callers and the graph rely on.", "Return a value of the declared type on every path, or change the return annotation.", "fn one() -> i32 {\n    return \"one\"\n}", "fn one() -> i32 {\n    return 1\n}"},
+  {"TYP005", "type", "Unknown shape literal type", "A shape literal names a type that is not a declared shape.", "Shape literals are typed by an existing shape declaration, not inferred structurally.", "Declare the shape or fix the literal's type name.", "let p: Pointt = Pointt { x: 1, y: 2 }", "let p: Point = Point { x: 1, y: 2 }"},
+  {"TYP010", "type", "Condition must be Bool", "An if, while, or loop condition is not a Bool expression.", "Zero has no truthiness; only Bool values select control flow.", "Compare explicitly or use a Bool expression as the condition.", "if count {\n    return\n}", "if count > 0 {\n    return\n}"},
+  {"TYP011", "type", "null requires a Maybe context", "`null` was used where the compiler cannot see an explicit Maybe<T> type.", "`null` is only the absent case of Maybe<T>, so the payload type must be visible at the use site.", "Annotate the binding, parameter, or return type as Maybe<T>.", "let value = null", "let value: Maybe<i32> = null"},
+  {"TYP012", "type", "break outside a loop", "A break statement appears outside any enclosing loop.", "break is defined only as an exit from the innermost enclosing loop.", "Move the break inside a loop or use return to leave the function.", "fn f() -> Void {\n    break\n}", "fn f() -> Void {\n    while true {\n        break\n    }\n}"},
+  {"TYP013", "type", "continue outside a loop", "A continue statement appears outside any enclosing loop.", "continue is defined only as a jump to the next iteration of the innermost enclosing loop.", "Move the continue inside a loop.", "fn f() -> Void {\n    continue\n}", "fn f() -> Void {\n    for i in 0..3 {\n        continue\n    }\n}"},
+  {"TYP014", "type", "Range loop bounds must be integers", "A `for x in a..b` loop has a non-integer bound or bounds with mismatched integer types.", "Range loops lower to integer counters, so both bounds must share one integer type.", "Use integer bounds with the same type on both sides of `..`.", "for i in 0..total_f32 {\n}", "for i in 0..total {\n}"},
+  {"TYP015", "type", "Malformed integer literal", "An integer literal has invalid digits, separators, or suffix for its base.", "Literals are parsed exactly; malformed digits fail instead of truncating.", "Fix the literal digits, separator placement, or type suffix.", "let n: i32 = 1__0", "let n: i32 = 1_000"},
+  {"TYP016", "type", "Integer literal out of range", "An integer literal does not fit the expected integer type.", "Literal values are range-checked against the concrete type instead of wrapping silently.", "Use a value within the type's range or a wider integer type.", "let b: u8 = 300_u8", "let b: u16 = 300_u16"},
+  {"TYP017", "type", "Invalid cast", "A cast was applied between types that are not both primitive numeric or byte/char types.", "Casts are explicit numeric conversions only; other type changes need real constructors or parsing.", "Cast only between primitive numeric or byte/char types, or convert through an explicit helper.", "let n: i32 = text as i32", "let parsed: Maybe<i32> = std.parse.parseI32(text)"},
+  {"TYP019", "type", "Malformed float literal", "A float literal has invalid digits, separators, or suffix.", "Literals are parsed exactly; malformed float text fails instead of rounding.", "Fix the float literal digits or suffix.", "let x: f64 = 1..5", "let x: f64 = 1.5"},
+  {"TYP020", "type", "Float literal out of range", "A float literal does not fit the expected float type.", "Literal values are range-checked against the concrete float type.", "Use a value within the float type's range or a wider float type.", "let x: f32 = 1e40_f32", "let x: f64 = 1e40"},
+  {"TYP021", "type", "Invalid member access", "A member access was applied to a value that is not a shape, Maybe value, enum case, or choice case.", "Member access is resolved statically from the declared type's fields and cases.", "Access members only on shapes, Maybe values (`.has`, `.value`), enums, or choices.", "let n: i32 = 42\nlet h: Bool = n.has", "let m: Maybe<i32> = std.parse.parseI32(\"42\")\nlet h: Bool = m.has"},
+  {"TYP022", "type", "Index must be an integer", "An array or span index expression is not an integer.", "Indexing lowers to bounds-checked integer offsets.", "Use an integer index expression.", "let item: u8 = bytes[\"0\"]", "let item: u8 = bytes[0]"},
+  {"STD002", "stdlib", "Unknown standard-library helper", "A `std.<module>.<helper>` call names a helper this compiler does not provide, or calls a known helper with the wrong number of arguments.", "The stdlib surface is an explicit catalog per compiler build, so unknown helpers fail instead of resolving dynamically.", "Load `zero skills get stdlib` for the full signature catalog and call a documented helper with its exact signature.", "let ok: Bool = std.time.validateRfc3339(text)", "let ok: Bool = std.time.isRfc3339DateTime(text)"},
+  {"OWN001", "ownership", "Owned value moved or duplicated", "An owned value was used after being moved, or a construct such as array repeat would duplicate owned values.", "Ownership transfers are tracked statically so destructors run exactly once.", "Keep ownership in one binding until the final use, or borrow with `ref`/`mutref` instead of moving.", "let a: owned<File> = file\nlet b: owned<File> = file", "let a: owned<File> = file\nuseFile(&a)"},
+  {"OWN002", "ownership", "Invalid drop method", "A drop method does not use the canonical signature, returns a value, or raises.", "Drop runs implicitly at scope exit, so it must be exactly `fn drop(self: mutref<Self>) -> Void` and non-raising.", "Use the canonical non-raising drop signature: `fn drop(self: mutref<Self>) -> Void`.", "fn drop(self: mutref<Self>) -> Void raises {\n    raise Io\n}", "fn drop(self: mutref<Self>) -> Void {\n    return\n}"},
+  {"MEM001", "memory", "Malformed memory or container type", "A memory or container type is missing a type argument or uses a malformed fixed array form.", "Container types are explicit: Maybe<T>, Span<T>, and [N]T must name their element types and lengths.", "Add the missing type argument, for example Maybe<u8>, Span<const u8>, or [4]u8.", "let value: Maybe = null", "let value: Maybe<u8> = null"},
+  {"BOR002", "borrow", "Reference outlives its source", "A reference derived from a local binding or call argument would escape through a return or a longer-lived binding.", "References must not outlive the storage they point into, and Zero checks this lexically.", "Return an owned value, or keep references to local storage inside the current function.", "fn first(items: [4]u8) -> ref<u8> {\n    return &items[0]\n}", "fn first(items: [4]u8) -> u8 {\n    return items[0]\n}"},
+  {"STC001", "static", "Unsupported static value parameter type", "A static value parameter uses a type other than a concrete integer, Bool, or enum type.", "Static value parameters are compile-time facts that monomorphization must compare and hash deterministically.", "Use a concrete integer, Bool, or enum type for static value parameters.", "type Buf<static N: String> {\n    len: usize,\n}", "type Buf<static N: usize> {\n    len: usize,\n}"},
+  {"STC002", "static", "Static value argument not constant", "A static value argument is not a deterministic compile-time value.", "Static arguments specialize types and functions at compile time, so runtime values cannot flow into them.", "Pass a literal, top-level const, or supported meta value with the static parameter's type.", "let buf: Buf<runtime_len> = makeBuf()", "const LEN: usize = 16\nlet buf: Buf<LEN> = makeBuf()"},
+  {"FLD001", "field", "Unknown member", "A member access names a field or member the value's type does not declare.", "Members resolve statically from the declared shape fields or the fixed Maybe members `.has` and `.value`.", "Use a declared field name; for Maybe values use `.has` and `.value`.", "if parsed.exists {\n}", "if parsed.has {\n}"},
+  {"VAR001", "variant", "Unknown enum case", "An enum expression names a case the enum does not declare.", "Enum cases are a closed set from the declaration.", "Use a declared case name or add the case to the enum.", "let c: Color = Color.Purpel", "let c: Color = Color.Purple"},
+  {"VAR002", "variant", "Unknown choice case", "A choice expression or match arm names a case the choice does not declare.", "Choice cases are a closed set from the declaration.", "Use a declared case name or add the case to the choice.", "let r: Result = Result.Okk(1)", "let r: Result = Result.Ok(1)"},
+  {"VAR003", "variant", "Choice payload arity mismatch", "A choice case was constructed or matched with the wrong number of payload values.", "Each choice case declares a fixed payload list that constructors and match arms must bind exactly.", "Pass or bind exactly the declared payload values for the case.", "let r: Pair = Pair.Both(1)", "let r: Pair = Pair.Both(1, 2)"},
+  {"VAR004", "variant", "Choice payload type mismatch", "A choice case payload value or binding does not match the declared payload type.", "Choice payloads are typed by the declaration, with no implicit conversions.", "Pass payload values with the declared payload types.", "let r: Wrapped = Wrapped.Value(\"1\")", "let r: Wrapped = Wrapped.Value(1)"},
+  {"MAT001", "match", "Invalid match subject", "A match subject is not an enum, choice, Bool, or integer value.", "Match lowers to exhaustive case dispatch over a closed set of values.", "Match on an enum, choice, Bool, or integer, or use if/else chains for other types.", "match name {\n}", "match color {\n    Color.Red => 1,\n}"},
+  {"MAT002", "match", "Non-exhaustive match", "A match does not cover every case of its subject and has no fallback arm.", "Exhaustiveness is checked statically so new cases fail at compile time instead of trapping at runtime.", "Add the missing case arms or a `_` fallback arm.", "match flag {\n    true => 1,\n}", "match flag {\n    true => 1,\n    false => 0,\n}"},
+  {"MAT003", "match", "Duplicate match arm", "A match repeats a case arm or declares more than one fallback arm.", "Each case and the fallback may appear once so arm selection is unambiguous.", "Remove or merge the duplicate arm.", "match flag {\n    _ => 1,\n    _ => 0,\n}", "match flag {\n    true => 1,\n    _ => 0,\n}"},
+  {"MAT004", "match", "Scalar match arm cannot bind a payload", "A match arm over a Bool, integer, or enum subject tries to bind a payload value.", "Only choice cases carry payloads; scalar and enum cases have none to bind.", "Remove the payload binding from the scalar arm.", "match flag {\n    true(x) => x,\n}", "match flag {\n    true => 1,\n    false => 0,\n}"},
+  {"MAT005", "match", "Match guard must be Bool", "A match arm guard expression is not a Bool.", "Guards select arms, so they must be Bool like every other condition.", "Use a Bool guard expression.", "match n {\n    value if value => 1,\n}", "match n {\n    value if value > 0 => 1,\n    _ => 0,\n}"},
+  {"IMP001", "import", "Unknown package-local import", "A `use` names a package-local module with no matching source file.", "Package-local imports resolve to checked-in module source files, not search paths.", "Create the module source file in the package or remove the import.", "use helpers_missing", "use helpers"},
+  {"IMP002", "import", "Import cycle", "Package-local modules import each other in a cycle.", "Module initialization and graph construction need an acyclic import order.", "Move shared declarations into a third module or remove one import edge.", "use b (from a.0)\nuse a (from b.0)", "use shared (from a.0)\nuse shared (from b.0)"},
+  {"IMP003", "import", "Duplicate public symbol", "Two imported modules export the same public symbol name.", "Public symbols form one flat package namespace, so collisions are rejected instead of shadowed.", "Rename one symbol or keep it private inside its module.", "pub fn parse() in two imported modules", "pub fn parseHeader() and pub fn parseBody()"},
+  {"CIMP001", "c-import", "C header could not be read", "An extern C import names a header file that could not be opened or read.", "Imported C surfaces come from checked-in package-relative headers so builds stay reproducible.", "Vendor the header inside the package and point the extern C import at its package-relative path.", "extern c \"missing/ext.h\" as c", "extern c \"vendor/include/ext.h\" as c"},
+  {"CIMP002", "c-import", "Unsupported C header surface", "The imported C header uses declarations the bootstrap C importer cannot model.", "Zero validates the whole imported surface up front so direct artifacts never depend on misread C declarations.", "Reduce the header to the supported scalar function surface, or wrap complex C APIs behind a small shim header.", "extern c \"vendor/include/complex_macros.h\" as c", "extern c \"vendor/include/ext.h\" as c"},
+  {"CIMP003", "c-import", "C dependency would use host discovery", "A foreign-target build would need host include paths, host libraries, or pkg-config to satisfy a C dependency.", "Cross builds must not inherit host C toolchain state, so host discovery is rejected for foreign targets.", "Use package-relative vendored headers and libraries, or set the target sysroot explicitly.", "zero build --target linux-musl-x64 with a host-discovered C lib", "vendor the lib under the package and list it in c.libs"},
+  {"PKG001", "package", "Package dependency missing", "A local dependency path does not contain a zero.toml or compatibility zero.json manifest.", "Dependencies are explicit checked-in packages, not registry lookups.", "Create the dependency package or update the dependency path in the manifest.", "[dependencies]\nhelpers = { path = \"../missing\" }", "[dependencies]\nhelpers = { path = \"../helpers\" }"},
+  {"PKG002", "package", "Package dependency cycle", "Packages depend on each other in a cycle.", "Package builds need an acyclic dependency order.", "Move shared code into a third package or remove one dependency edge.", "a depends on b, b depends on a", "a and b both depend on shared"},
+  {"PKG003", "package", "Package version conflict", "One package name resolves to conflicting versions in the dependency graph.", "A build uses exactly one version of each package name so graph identities stay stable.", "Update the requested versions so the graph resolves to one version per package.", "helpers = 0.1.0 and helpers = 0.2.0 in one graph", "helpers = 0.2.0 everywhere"},
+  {"PKG004", "package", "Package target unsupported", "A dependency does not support the selected build target.", "Target support is part of the package contract, checked before compilation.", "Select a target the dependency supports, or gate the dependency behind a compatible target.", "zero build --target win32-x64.exe with a posix-only dependency", "zero build --target linux-musl-x64 with a posix-only dependency"},
+  {"PAR100", "parse", "Parse or input error", "The input could not be parsed as Zero source, a manifest, or a recognized graph input; the span points at the first unparseable token.", "PAR100 is the catch-all parser code, so the message and span carry the specific failure.", "Repair the syntax at the reported span, then rerun zero check.", "pub fn main() -> Void {", "pub fn main() -> Void {\n    return\n}"},
+  {"GPH000", "graph-patch", "Graph patch failed", "A patch operation failed without a more specific patch code; the message carries the failing fact.", "Patch failures leave the store unchanged, so the graph is never saved in a half-applied state.", "Read the failure message, fix the operation, and reapply; `zero patch --op help` lists every operation shape.", "zero patch --op 'replace'", "zero patch --op help # copy a working operation shape"},
+  {"GPH001", "graph-patch", "Malformed patch operation", "A patch operation or body row is missing required attributes or does not parse.", "Patch operations have fixed shapes so they validate fully before touching the store.", "Run `zero patch --op help` and copy the exact shape of the operation, including required attributes and `end` markers.", "zero patch --op 'addFunction'", "zero patch --op 'addFunction name=double param=value:i32 returns=i32'"},
+  {"GPH002", "graph-patch", "Patch precondition failed", "An expect operation's graph hash or fact does not match the current store.", "Preconditions let agents assert the graph state they reasoned about before mutating it.", "Re-read the current facts with `zero query` or `zero status`, then update the expect operation to the current graph hash.", "expect graphHash=stale-hash", "zero status . # read the current graph hash, then patch"},
+  {"GPH003", "graph-patch", "Invalid patch operand", "A patch operation operand is not a valid identifier, operator, or value for its slot.", "Operands are validated against the projection grammar before any graph mutation.", "Use canonical projection syntax for operands, the same text `zero view` prints.", "addLetBinary name=x op=plus left=1 right=2", "addLetBinary name=x op=+ left=a right=b"},
+  {"GPH004", "graph-patch", "Patch target not found", "A patch operation names a node, edge, function, or parent that does not exist in the graph.", "Patches address graph handles directly, so missing targets fail instead of creating implicit nodes.", "Locate the handle first with `zero query <name>` and use the exact node id or name it prints.", "zero patch --op 'replaceFunctionBody missing_fn ...'", "zero query main # then patch the printed handle"},
+  {"GPH005", "graph-patch", "Patch conflicts with existing graph facts", "A patch would create a node id, function, or edge slot that already exists, or delete a node that is still referenced outside its subtree.", "The store stays internally consistent, so conflicting inserts and dangling references are rejected.", "Query the existing fact first, then rename, replace, or delete the conflicting fact explicitly in the same patch.", "addFunction name=main # main already exists", "replaceFunctionBody main ... # edit the existing function"},
+  {"GPH006", "graph-patch", "Patch produced an invalid graph", "The patched graph failed validation or could not lower, so the patch was rolled back and the store was not saved.", "Every patch validates the whole resulting graph before saving, keeping the store loadable by every command.", "Fix the patch body so the resulting function and graph are complete and well-formed; the message names the failing validation fact.", "replaceFunctionBody main with an unterminated block", "replaceFunctionBody main\n  return\nend"},
+  {"GRC000", "graph-reconcile", "Graph reconcile failed", "Reconciling edited source with the previous graph failed without a more specific code; the message carries the failing fact.", "Reconcile preserves node identities across text edits so graph history and patches stay stable.", "Read the failure message; if identity cannot be preserved, split the edit into smaller passes or use zero patch.", "zero reconcile zero.graph --source heavily-rewritten.0", "zero reconcile zero.graph --source small-edit.0"},
+  {"GRC001", "graph-reconcile", "Ambiguous source identity", "An edited declaration matches zero or several previous graph nodes, so node identity cannot be preserved deterministically.", "Reconcile refuses to guess which node an edit refers to, because wrong guesses silently rewrite graph history.", "Split the text edit into smaller passes, or make the change with `zero patch` so identity is explicit.", "rename two similar functions in one text edit", "rename one function per import, or zero patch --op 'rename ...'"},
+  {"GRC002", "graph-reconcile", "Node count differs", "The compared graphs contain different numbers of nodes.", "Graph comparison reports the first structural difference as a typed fact.", "Inspect both graphs with `zero query --full` and reconcile or re-import the out-of-date side.", "zero reconcile stale-zero.graph --source main.0", "zero import . # rebuild the store, then reconcile"},
+  {"GRC003", "graph-reconcile", "Node kind or module identity differs", "A compared node has a different kind, or the edited source declares a different module identity.", "Node kind and module identity anchor graph comparison, so mismatches are reported before field-level diffs.", "Compare both sides with `zero diff` and align the module identity or node kind before reconciling.", "zero reconcile zero.graph --source other-package/main.0", "zero reconcile zero.graph --source main.0"},
+  {"GRC004", "graph-reconcile", "Node semantic field differs", "A compared node differs in a semantic field such as name, type, or value.", "Semantic field diffs are reported as typed facts naming the node and field.", "Inspect the named node on both sides with `zero query --node <id>` and align the field.", "zero reconcile with diverged stores", "zero query --node fn-main # inspect, then align"},
+  {"GRC005", "graph-reconcile", "Node flag differs", "A compared node differs in a flag such as visibility or fallibility.", "Flags are part of node identity facts, so comparison reports them explicitly.", "Inspect the named node on both sides and align the flag.", "pub fn main on one side, fn main on the other", "pub fn main on both sides"},
+  {"GRC006", "graph-reconcile", "Edge count differs", "The compared graphs contain different numbers of edges.", "Edge counts anchor structural comparison before per-edge diffs.", "Inspect both graphs with `zero query --full` and reconcile or re-import the out-of-date side.", "zero reconcile stale-zero.graph --source main.0", "zero import . # rebuild the store, then reconcile"},
+  {"GRC007", "graph-reconcile", "Edge semantic fact differs", "A compared edge differs in kind, endpoints, or order.", "Edge facts carry program structure, so comparison names the differing edge.", "Inspect the named edge endpoints on both sides and align the structure.", "zero reconcile with diverged stores", "zero query --node <edge-source> # inspect, then align"},
+  {"GRC012", "graph-reconcile", "Schema version differs", "The compared graphs use different store schema versions.", "Stores written by different compiler builds can carry different schemas, which comparison rejects up front.", "Rebuild the older store with this binary via `zero import .`, or compare stores written by the same build.", "zero reconcile old-build-zero.graph --source main.0", "zero import . # rewrite the store with this build"},
+  {"GRC013", "graph-reconcile", "Module identity differs", "The compared graphs describe different modules.", "Comparison only relates graphs of the same module identity.", "Compare stores of the same package, or update package.name so identities match.", "zero reconcile other-package.graph --source main.0", "zero reconcile zero.graph --source main.0"},
+  {"GRF000", "graph-validate", "Graph validation failed", "The program graph failed validation without a more specific code; the message carries the failing fact.", "Every load, patch, and import validates the whole graph so commands never operate on broken structure.", "Read the failing fact; if the store cannot be repaired, rebuild it from source with `zero import .`.", "zero validate corrupted-zero.graph", "zero import . # rebuild the store from source"},
+  {"GRF001", "graph-validate", "Program graph missing", "A command needed a program graph but none was loaded or built.", "Graph-backed commands require a resolvable graph input.", "Point the command at a package root, zero.graph, or .0 source file.", "zero validate", "zero validate examples/memory-package"},
+  {"GRF002", "graph-validate", "Node missing identity", "A graph node has no id.", "Every node carries a stable id used by patches, queries, and provenance.", "Rebuild the store from source with `zero import .`; hand-edited stores must keep every node id.", "node row with an empty id in a hand-edited store", "zero import . # regenerate ids from source"},
+  {"GRF003", "graph-validate", "Duplicate node id", "Two graph nodes share the same id.", "Node ids are unique handles; duplicates would make patches ambiguous.", "Rebuild the store from source with `zero import .`, or remove the duplicated row from a hand-edited store.", "two node rows with id fn-main", "zero import . # regenerate unique ids"},
+  {"GRF004", "graph-validate", "Edge source missing", "An edge references a source node id that does not exist.", "Edges must connect existing nodes so traversal never dangles.", "Rebuild the store from source with `zero import .`, or fix the edge row to reference an existing node.", "edge from deleted-node to fn-main", "zero import . # regenerate consistent edges"},
+  {"GRF005", "graph-validate", "Edge target outside declared domain", "An edge references a target that is missing from its declared domain.", "Edge targets resolve within explicit domains (nodes, types, symbols) so references stay checkable.", "Rebuild the store from source with `zero import .`, or fix the edge target to an existing domain entry.", "edge to type:MissingType", "zero import . # regenerate consistent edges"},
+  {"GRF006", "graph-validate", "Edge endpoint invalid", "An edge endpoint fact is invalid for the graph; the message names the offending edge.", "Edge endpoint facts are validated against the node table on every load.", "Rebuild the store from source with `zero import .`.", "hand-edited edge row with a bad endpoint", "zero import . # regenerate consistent edges"},
+  {"GRF007", "graph-validate", "Node missing content hash", "A graph node has no content hash.", "Content hashes let stores verify node integrity and let merge detect real changes.", "Rebuild the store from source with `zero import .`; hand-edited stores must keep node hashes.", "node row without a hash field", "zero import . # regenerate node hashes"},
+  {"GRF008", "graph-validate", "Edge target domain invalid", "An edge declares a target domain the schema does not define.", "Edge domains are a closed schema set so traversal code can dispatch on them.", "Rebuild the store from source with `zero import .`, or fix the edge's domain field.", "edge with target domain 'unknown'", "zero import . # regenerate schema-valid edges"},
+  {"GRF009", "graph-validate", "Graph missing module identity", "The program graph carries no module identity.", "Module identity binds the store to its package and is required for import, merge, and status.", "Rebuild the store from source with `zero import .` in a package with package.name set.", "store with an empty moduleIdentity", "zero import . # regenerate module identity"},
+  {"GRF010", "graph-validate", "Node identity malformed", "A node id does not match the required identity format.", "Node ids follow a stable format so handles stay parseable and orderable.", "Rebuild the store from source with `zero import .`; do not hand-edit node ids.", "node id with spaces or illegal characters", "zero import . # regenerate well-formed ids"},
+  {"GRF011", "graph-validate", "Node or edge kind invalid", "A node or edge declares a kind the schema does not define.", "Kinds are a closed schema set per compiler build, so unknown kinds usually mean a build mismatch.", "Rebuild the store with this binary via `zero import .`, or install the compiler build that wrote the store.", "store written by a newer zero build", "zero import . # rewrite the store with this build"},
+  {"GRF012", "graph-validate", "Edge child kind invalid for source node", "An edge connects a parent node to a child kind that is not legal for the parent's kind.", "The graph grammar restricts which child kinds each node kind may own.", "Rebuild the store from source with `zero import .`, or fix the patch that created the illegal edge.", "function node owning a parameter of kind module", "zero import . # regenerate a grammar-valid graph"},
+  {"GRF013", "graph-validate", "Ordered edge group sparse", "An ordered edge group skips an order slot.", "Ordered children use dense order indexes so body rows have a deterministic sequence.", "Rebuild the store from source with `zero import .`, or renumber the patched edge orders densely from zero.", "body edges with orders 0 and 2", "body edges with orders 0 and 1"},
+  {"GRF014", "graph-validate", "Node missing required payload", "A node is missing a payload its kind requires, such as a name, value, or type.", "Each node kind declares required payload fields the projection and emitters rely on.", "Rebuild the store from source with `zero import .`, or add the missing payload in the patch that created the node.", "let node without a type payload", "zero import . # regenerate complete nodes"},
+  {"GRF015", "graph-validate", "Node carries illegal payload", "A node carries a payload its kind forbids, such as a name on a literal node.", "Payload rules keep node kinds unambiguous for projection and lowering.", "Rebuild the store from source with `zero import .`, or remove the illegal payload from the patch.", "literal node with a name payload", "zero import . # regenerate well-formed nodes"},
+  {"GRF016", "graph-validate", "Node edge shape invalid", "A node's edges do not match its kind's required shape, such as a call node missing its callee edge.", "Each node kind declares the edge shape lowering depends on, validated before any emission.", "Rebuild the store from source with `zero import .`, or complete the node's edges in the patch that created it.", "call node without a callee edge", "zero import . # regenerate complete call nodes"},
+  {"RGM000", "graph-merge", "Repository graph merge failed", "The merge failed without a more specific code; the message carries the failing fact.", "Merge failures leave the target store unchanged.", "Read the failure message and rerun `zero merge` after repairing the named input.", "zero merge --base bad.graph --left l.graph --right r.graph .", "zero merge --base base.graph --left l.graph --right r.graph ."},
+  {"RGM001", "graph-merge", "Merge input missing or incompatible", "A merge input store is missing, unreadable, or differs in schema version or module identity.", "Three-way merge needs base, left, and right stores of the same module written by compatible builds.", "Check each input path, rebuild older stores with this binary via `zero import .`, and merge stores of the same package.", "zero merge --base other-module.graph --left l.graph --right r.graph .", "zero merge --base base.graph --left l.graph --right r.graph ."},
+  {"RGM002", "graph-merge", "Node changed on both sides", "Both sides changed the same graph node, or its source path, since the base store.", "Conflicting node edits need a human or agent decision; merge never picks a side silently.", "Resolve the conflict by editing one side to match the intended result, then rerun zero merge.", "both sides edit fn main differently", "apply one side's edit, re-export, then merge"},
+  {"RGM003", "graph-merge", "Same node id inserted with different content", "Both sides inserted the same node id with different content.", "Node ids must converge to one content during merge.", "Rename or re-create one side's node so ids no longer collide, then rerun zero merge.", "both sides add fn helper with different bodies", "rename one helper before merging"},
+  {"RGM004", "graph-merge", "Edge changed on both sides", "Both sides changed the same edge or edge order slot since the base store.", "Conflicting structural edits need an explicit resolution.", "Resolve the conflict by editing one side's structure, then rerun zero merge.", "both sides reorder the same function body", "apply one side's order, then merge"},
+  {"RGM005", "graph-merge", "Source projection conflict", "Both sides changed the same source projection, or a projection no longer matches its merged graph.", "Merged stores must keep projections and graph content consistent.", "Resolve the projection conflict by re-exporting one side, then rerun zero merge.", "both sides edit main.0 differently", "zero export on the chosen side, then merge"},
+  {"RGM006", "graph-merge", "Merged graph failed validation", "The merged result failed whole-graph validation, so no store was written.", "Merge only writes stores every command can load.", "Inspect the named validation fact, repair the conflicting side, and rerun zero merge.", "merge producing a dangling edge", "repair the side that deleted the node, then merge"},
+  {"RGM007", "graph-merge", "Merge could not regenerate source projection", "The merged graph could not regenerate a matching .0 source projection.", "Merged stores ship with projections that match their graph content exactly.", "Re-export the projections on the conflicting side with `zero export`, then rerun zero merge.", "merge with stale checked-in projections", "zero export . # refresh projections, then merge"},
+  {"RGP001", "repository-graph", "Repository graph store missing", "The package has no checked-in zero.graph repository graph store.", "Package commands compile from zero.graph; .0 files are projections of it.", "Run `zero import .` to create the repository graph store from the package source.", "zero status . # in a package without zero.graph", "zero import . # create zero.graph, then zero status ."},
+  {"RGP002", "repository-graph", "Import or export direction required", "Source text and zero.graph disagree, and the command cannot decide which side is authoritative.", "Choosing a direction silently could discard edits on the other side.", "Run `zero import` if the .0 source text is authoritative, or `zero export` if zero.graph is authoritative.", "zero export . # while main.0 has unimported edits", "zero import . # make the edited source authoritative"},
+  {"RGP003", "repository-graph", "Repository graph store invalid", "The zero.graph store exists but could not be parsed or failed validation.", "Commands refuse to guess around a broken store so package state stays deterministic.", "Run `zero import .` after reviewing the source projection to rebuild the store from source.", "zero check . # with a corrupted zero.graph", "zero import . # rebuild zero.graph from source"},
+  {"RGP004", "repository-graph", "Source projection generation failed", "The store's .0 source projection could not be generated, written, or kept byte-stable.", "Projections are deterministic renderings of the graph; failures usually mean a broken projection table or unwritable target path.", "Fix the projection target path, or rebuild the store from source with `zero import .` and re-export.", "zero export . # with a non-local projection path in the store", "zero import . && zero export ."},
+  {"RGP006", "repository-graph", "Source projection missing or differs", "A checked-in .0 source projection is missing or no longer matches the repository graph.", "Projection drift means source text and graph describe different programs.", "Review the diff, then run `zero import` if the .0 projection is authoritative or `zero export` if zero.graph is authoritative.", "zero verify-projection . # after editing main.0 by hand", "zero import . # accept the edited projection"},
+  {"RGP007", "repository-graph", "Source identity ambiguous or mismatched", "An import or status check could not map source declarations onto existing graph identities, or the package manifest identity does not match the store.", "Graph node identities survive text edits only when the mapping is unambiguous and the package identity matches.", "Split the text edit into smaller passes or use `zero patch`; for identity mismatches, align package.name with the store or re-import.", "zero import . # after renaming and reordering many functions at once", "zero import . # after one focused rename"},
+  {"RGP008", "repository-graph", "Stale package projection", "Package source was edited after the store was written and ZERO_STALE=fail turns that staleness into an error.", "Strict staleness mode lets automation require an explicit refresh instead of an implicit one.", "Run `zero import .` to refresh the store, or unset ZERO_STALE to let commands refresh automatically.", "ZERO_STALE=fail zero check . # after editing main.0", "zero import . && ZERO_STALE=fail zero check ."},
+  {"RGP009", "repository-graph", "Binary store unreadable by this compiler", "The binary zero.graph store has the right magic but this compiler build cannot decode it, or its content failed integrity checks.", "Binary store layout can change between zero builds, so a store written by a different build fails to load instead of being misread.", "The store was likely written by a different zero build: rebuild it with this binary via `zero import .`, or install the matching compiler. Check builds with `zero --version`.", "zero query zero.graph # store written by another zero build", "zero import . # rewrite zero.graph with this binary"},
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -3738,6 +3857,49 @@ static const ExplainInfo *find_explain_info(const char *code) {
     if (strcmp(explain_infos[i].code, code) == 0) return &explain_infos[i];
   }
   return NULL;
+}
+
+typedef struct {
+  const char *code;
+  int numeric;
+} ExplainRepairNumeric;
+
+static int explain_repair_numeric(const char *code) {
+  static const ExplainRepairNumeric pairs[] = {
+    {"PAR100", 100},
+    {"ERR001", 1001}, {"ERR002", 1002}, {"ERR003", 1003},
+    {"RGP009", 1004}, {"RGP003", 1005}, {"RGP007", 1006}, {"RGP004", 1008}, {"RGP006", 1009}, {"RGM002", 1010},
+    {"APP001", 2001}, {"BLD002", 2002}, {"BLD003", 2003}, {"BLD004", 2004},
+    {"NAM002", 3002}, {"NAM003", 3003}, {"NAM004", 3004},
+    {"TYP001", 3005}, {"TYP002", 3006}, {"TYP003", 3007}, {"TYP005", 3009}, {"TYP009", 3010},
+    {"STD002", 3011}, {"STD003", 3012},
+    {"OWN001", 3013}, {"OWN002", 3014}, {"MEM001", 3015},
+    {"TYP010", 3016}, {"TYP011", 3017}, {"TYP012", 3018}, {"TYP013", 3019}, {"TYP014", 3020},
+    {"TYP015", 3021}, {"TYP016", 3022}, {"TYP017", 3023}, {"TYP019", 3025}, {"TYP020", 3026},
+    {"TYP021", 3027}, {"TYP022", 3028},
+    {"BOR001", 3029}, {"BOR002", 3030}, {"ABI001", 3031},
+    {"TYP023", 3032}, {"TYP024", 3033}, {"TYP025", 3034}, {"MET001", 3035}, {"TYP026", 3036},
+    {"PUB001", 3037},
+    {"IFC001", 3038}, {"IFC002", 3039}, {"IFC003", 3040}, {"IFC004", 3041}, {"IFC005", 3042},
+    {"STC001", 3043}, {"STC002", 3044}, {"STC003", 3045},
+    {"SHM001", 3046}, {"SHM002", 3047},
+    {"RCV001", 3048}, {"RCV002", 3049},
+    {"TYP027", 3050}, {"MEM002", 3051}, {"MEM003", 3052}, {"BOR003", 3053},
+    {"FLD001", 3101}, {"FLD002", 3102},
+    {"VAR001", 3103}, {"VAR002", 3104}, {"VAR003", 3108}, {"VAR004", 3109},
+    {"MAT001", 3105}, {"MAT002", 3106}, {"MAT003", 3107}, {"MAT004", 3110}, {"MAT005", 3111},
+    {"CGEN004", 4004},
+    {"TAR001", 6001}, {"TAR002", 6002},
+    {"IMP001", 7001}, {"IMP002", 7002}, {"IMP003", 7003},
+    {"CIMP001", 8001}, {"CIMP002", 8002}, {"CIMP003", 8003}, {"CIMP004", 8004}, {"CIMP005", 8005},
+    {"PKG001", 9001}, {"PKG002", 9002}, {"PKG003", 9003}, {"PKG004", 9004},
+    {NULL, 0},
+  };
+  if (!code) return -1;
+  for (size_t i = 0; pairs[i].code; i++) {
+    if (strcmp(pairs[i].code, code) == 0) return pairs[i].numeric;
+  }
+  return -1;
 }
 
 static void print_explain_json(const ExplainInfo *info) {
@@ -3754,41 +3916,7 @@ static void print_explain_json(const ExplainInfo *info) {
   zbuf_append(&buf, ",\n  \"why\": ");
   append_json_string(&buf, info->why);
   zbuf_append(&buf, ",\n  \"repair\": {\"id\": ");
-  append_json_string(&buf, diag_repair_id(strcmp(info->code, "TAR001") == 0 ? 6001 :
-                                         strcmp(info->code, "TAR002") == 0 ? 6002 :
-                                         strcmp(info->code, "ERR001") == 0 ? 1001 :
-                                         strcmp(info->code, "BLD003") == 0 ? 2003 :
-                                         strcmp(info->code, "BLD004") == 0 ? 2004 :
-                                         strcmp(info->code, "TYP009") == 0 ? 3010 :
-                                         strcmp(info->code, "TYP023") == 0 ? 3032 :
-                                         strcmp(info->code, "TYP024") == 0 ? 3033 :
-                                         strcmp(info->code, "TYP025") == 0 ? 3034 :
-                                         strcmp(info->code, "MET001") == 0 ? 3035 :
-                                         strcmp(info->code, "TYP026") == 0 ? 3036 :
-                                         strcmp(info->code, "TYP027") == 0 ? 3050 :
-                                         strcmp(info->code, "MEM002") == 0 ? 3051 :
-                                         strcmp(info->code, "MEM003") == 0 ? 3052 :
-                                         strcmp(info->code, "FLD002") == 0 ? 3102 :
-                                         strcmp(info->code, "PUB001") == 0 ? 3037 :
-                                         strcmp(info->code, "IFC001") == 0 ? 3038 :
-                                         strcmp(info->code, "IFC002") == 0 ? 3039 :
-                                         strcmp(info->code, "IFC003") == 0 ? 3040 :
-                                         strcmp(info->code, "IFC004") == 0 ? 3041 :
-                                         strcmp(info->code, "IFC005") == 0 ? 3042 :
-                                         strcmp(info->code, "STC001") == 0 ? 3043 :
-                                         strcmp(info->code, "STC002") == 0 ? 3044 :
-                                         strcmp(info->code, "STC003") == 0 ? 3045 :
-                                         strcmp(info->code, "SHM001") == 0 ? 3046 :
-                                         strcmp(info->code, "SHM002") == 0 ? 3047 :
-                                         strcmp(info->code, "RCV001") == 0 ? 3048 :
-                                         strcmp(info->code, "RCV002") == 0 ? 3049 :
-                                         strcmp(info->code, "BOR001") == 0 ? 3029 :
-                                         strcmp(info->code, "BOR003") == 0 ? 3053 :
-                                         strcmp(info->code, "ERR002") == 0 ? 1002 :
-                                         strcmp(info->code, "ERR003") == 0 ? 1003 :
-                                         strcmp(info->code, "STD003") == 0 ? 3012 :
-                                         strncmp(info->code, "CIMP00", 6) == 0 ? 8000 + (info->code[6] - '0') :
-                                         strcmp(info->code, "CGEN004") == 0 ? 4004 : 0));
+  append_json_string(&buf, diag_repair_id(explain_repair_numeric(info->code)));
   zbuf_append(&buf, ", \"summary\": ");
   append_json_string(&buf, info->canonical_repair);
   zbuf_append(&buf, "},\n  \"examples\": {\"bad\": ");
@@ -3898,6 +4026,7 @@ static void append_error_diag_json_object(ZBuf *buf, const char *path, const ZDi
   }
   zbuf_append(buf, ",\n      \"related\": [");
   if ((diag->code == 7001 || diag->code == 7002 || diag->code == 7003 || diag->code == 1002 || diag->code == 1003 ||
+       (diag->code >= 1004 && diag->code <= 1010) ||
        diag->code == 6001 || diag->code == 6002 ||
        diag->code == 3010 || diag->code == 3011 || diag->code == 3012 || diag->code == 3028 || diag->code == 3029) && diag->actual[0]) {
     zbuf_append(buf, "{\"path\":");
@@ -12256,7 +12385,7 @@ static bool repository_graph_oracle_collect(const Command *command, const ZTarge
   if (out->len == 0) {
     if (!z_program_graph_collect_resolution_facts(graph, &resolution)) {
       ZDiag facts_diag = {0};
-      facts_diag.code = 1002;
+      facts_diag.code = 2002;
       facts_diag.path = diag_path;
       facts_diag.line = 1;
       facts_diag.column = 1;

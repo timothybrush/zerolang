@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createAggregateAssert, finishAggregateAssert } from "./aggregate-assert.mjs";
@@ -971,6 +971,21 @@ for (const [code, goodExample, stalePattern] of [
     stalePattern,
     `${code} explain examples should use canonical source syntax`,
   );
+}
+
+// Every diagnostic code the compiler can emit must resolve in `zero explain`.
+const compilerSourceDir = "native/zero-c/src";
+const emittableDiagnosticCodes = new Set<string>();
+for (const entry of readdirSync(compilerSourceDir)) {
+  if (!entry.endsWith(".c")) continue;
+  const source = readFileSync(join(compilerSourceDir, entry), "utf8");
+  for (const match of source.matchAll(/"([A-Z]{3,4}[0-9]{3})"/g)) emittableDiagnosticCodes.add(match[1]);
+}
+assert(emittableDiagnosticCodes.size > 100, "expected to discover the compiler diagnostic code catalog");
+for (const code of [...emittableDiagnosticCodes].sort()) {
+  const explained = json(["explain", "--json", code], { allowFailure: true });
+  assert.equal(explained.code, 0, `zero explain ${code} must have an explain entry`);
+  assert.equal(explained.body.code, code, `zero explain ${code} must explain the requested code`);
 }
 
 const graphHelp = zero(["inspect", "--help"]).stdout;

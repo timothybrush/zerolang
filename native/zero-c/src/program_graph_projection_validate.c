@@ -105,7 +105,7 @@ static void projection_resolve_program_c_import_header_paths(const SourceInput *
 static bool projection_diag(const ZProgramGraphStore *store, ZDiag *diag, const char *message, const char *actual) {
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1002;
+    diag->code = 1009;
     diag->path = store && store->path ? store->path : "zero.graph";
     diag->line = 1;
     diag->column = 1;

@@ -47,7 +47,7 @@ static bool merge_fail(
   }
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1002;
+    diag->code = 1010;
     diag->path = source_path && source_path[0] ? source_path : "zero.graph";
     diag->line = 1;
     diag->column = 1;

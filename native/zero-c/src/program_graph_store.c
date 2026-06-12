@@ -413,7 +413,7 @@ char *z_program_graph_store_disk_projection_hash(const ZProgramGraphStore *store
 static bool store_diag(ZDiag *diag, const char *path, size_t line, const char *message, const char *actual) {
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1002;
+    diag->code = 1005;
     diag->path = path;
     diag->line = (int)(line ? line : 1);
     diag->column = 1;
@@ -823,7 +823,7 @@ static bool store_identity_reconcile_diag(const char *path, const ZProgramGraphI
   const char *actual = module_identity_changed && identity && identity->candidate_id[0] ? identity->candidate_id : (identity && identity->node_id[0] ? identity->node_id : (identity && identity->candidate_id[0] ? identity->candidate_id : "ambiguous source identity"));
   if (diag) {
     *diag = (ZDiag){0};
-    diag->code = 1002;
+    diag->code = 1006;
     diag->path = path ? path : "zero.graph";
     diag->line = 1;
     diag->column = 1;
